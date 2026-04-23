@@ -9,7 +9,6 @@ prompt: |
   2. Have "Increment" and "Decrement" buttons that change the counter value
 
 acceptance:
-  - Defines counter state in both PHP (wp_interactivity_state) and JavaScript (store)
   - Has increment and decrement actions that modify the counter state
   - Uses data-wp-on--click on both increment and decrement buttons
   - Uses data-wp-text or equivalent to display the counter value reactively

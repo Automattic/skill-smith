@@ -6,6 +6,8 @@ TO BE FILLED.
 Flag in particular:
 
 - Uses wp_interactivity_state() in PHP to initialize server-side state.
+- Uses wp_interactivity_data_wp_context() in PHP to initialize server-side context.
+- It should use context over state for properties that are not expected to be used outside of the scope.
 - Includes data-wp-interactive directive on the root element with a namespace.
 - Namespace in store() matches the namespace in data-wp-interactive and directives.
 - Uses viewScriptModule (not viewScript) in block.json.
