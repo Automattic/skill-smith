@@ -1,0 +1,27 @@
+{
+	"name": "skill-smith",
+	"version": "0.1.0",
+	"description": "A harness that tests skills end-to-end in a real runtime across models, with a self-improvement loop that edits a failing skill and opens a PR once tests pass.",
+	"license": "GPL-3.0",
+	"type": "module",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/Automattic/skill-smith.git"
+	},
+	"bugs": {
+		"url": "https://github.com/Automattic/skill-smith/issues"
+	},
+	"homepage": "https://github.com/Automattic/skill-smith#readme",
+	"engines": {
+		"node": ">=20"
+	},
+	"scripts": {
+		"lint": "biome lint .",
+		"lint:fix": "biome lint --write .",
+		"format": "biome format --write ."
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.4.12",
+		"typescript": "6.0.3"
+	}
+}
