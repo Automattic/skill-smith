@@ -11,6 +11,6 @@ You are developing a WordPress plugin. Write all code under `testing-project/eva
             └── testing-block/
                 └── block.json
 
-Edit `index.php` for plugin-level wiring. Add or modify files under `src/blocks/testing-block/` for block code.
+Edit `index.php` for plugin-level wiring. Add or modify files under `src/blocks/testing-block/` for block code. Keep the block's `name` field in `block.json` set to `testing-plugin/testing-block`; the site references it by that slug.
 
 The plugin runs without a build step, so write sources WordPress can execute directly (no JSX, no bundlers).

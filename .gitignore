@@ -15,3 +15,9 @@ npm-debug.log*
 .vscode/
 .idea/
 .claude/
+
+# TESTING PROJECT SPECIFIC
+test-results/
+playwright-report/
+.auth/
+artifacts/
