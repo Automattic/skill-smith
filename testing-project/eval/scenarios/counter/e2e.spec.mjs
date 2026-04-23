@@ -24,10 +24,20 @@ test.describe("counter block scenario", () => {
   });
 
   test("renders the initial counter value of 5", async ({ page }) => {
-    await expect("true").toBe("true");
+    const counter = page.locator("[data-wp-text]");
+    await expect(counter).toHaveText("5");
   });
 
   test("increment and decrement buttons work", async ({ page }) => {
-    await expect("true").toBe("true");
+    const counter = page.locator("[data-wp-text]");
+    const incrementBtn = page.getByRole("button", { name: /increment/i });
+    const decrementBtn = page.getByRole("button", { name: /decrement/i });
+
+    await incrementBtn.click();
+    await expect(counter).toHaveText("6");
+
+    await decrementBtn.click();
+    await decrementBtn.click();
+    await expect(counter).toHaveText("4");
   });
 });
