@@ -1,0 +1,3 @@
+TO BE FILLED
+
+Instructions to tell the harness what to do on setup, reset, stop...
