@@ -1,4 +1,4 @@
-export interface SkillSmithConfig {
+export interface SkillsmithConfig {
   agents: AgentsConfig;
   paths: Paths;
   hooks?: Hooks;
@@ -53,7 +53,7 @@ export interface Scenario {
 
 export interface RunContext {
   runId: string;
-  config: SkillSmithConfig;
+  config: SkillsmithConfig;
 }
 
 export interface ScenarioContext extends RunContext {

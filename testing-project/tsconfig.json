@@ -3,5 +3,5 @@
 	"compilerOptions": {
 		"types": ["node"]
 	},
-	"include": ["skill-smith.config.ts", "playwright.config.ts"]
+	"include": ["skillsmith.config.ts", "playwright.config.ts"]
 }
