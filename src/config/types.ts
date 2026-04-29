@@ -37,14 +37,17 @@ export interface Paths {
 }
 
 /**
- * Minimal shape the harness passes in for `scenario`. The harness loads
- * `scenario.yaml` for each scenario; only `name` is guaranteed at the type
- * level so hook authors can switch on it. Other fields (description, skills,
- * prompt, acceptance, rubrics, e2e) are present at runtime and accessible
- * via index lookup.
+ * Shape the harness passes in for `scenario`, mirroring the `scenario.yaml`.
+ * Projects may add their own fields; the
+ * harness ignores extras and exposes them through the index signature.
  */
 export interface Scenario {
   name: string;
+  description: string;
+  skills: string[];
+  prompt: string;
+  acceptance: string[];
+  rubrics: string[];
   [key: string]: unknown;
 }
 
