@@ -1,13 +1,4 @@
-import type { ModelDefaults, Paths } from "./types";
-
-export const DEFAULT_MODEL_DEFAULTS: ModelDefaults = {
-	temperature: 0,
-	maxTokens: 8000,
-	retry: {
-		maxAttempts: 3,
-		backoff: "exponential",
-	},
-};
+import type { Paths } from "./types";
 
 export const DEFAULT_PATHS: Paths = {
 	skills: "./skills",

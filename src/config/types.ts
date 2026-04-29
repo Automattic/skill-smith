@@ -1,23 +1,31 @@
 export interface SkillSmithConfig {
-	models: ModelsConfig;
-	defaults?: DeepPartial<ModelDefaults>;
+	agents: AgentsConfig;
 	paths?: Partial<Paths>;
 }
 
-export interface ModelsConfig {
-	agentUnderTest: string[];
-	judge: string;
+export interface AgentsConfig {
+	testing: AgentConfig;
+	judge: AgentConfig;
 }
 
-export interface ModelDefaults {
-	temperature: number;
-	maxTokens: number;
-	retry: RetryPolicy;
-}
+/**
+ * Either a single full model id (string) or a record keyed by `Agent`-tool
+ * alias (e.g. "haiku", "sonnet", "opus"). Each entry on the matrix axis can
+ * itself be a model-id string (shorthand for `{ model: <id> }`) or a full
+ * `AgentSettings` object.
+ */
+export type AgentConfig = string | Record<string, string | AgentSettings>;
 
-export interface RetryPolicy {
-	maxAttempts: number;
-	backoff: "exponential" | "linear" | "constant";
+/**
+ * Per-agent settings. Only `model` is required and typed — additional keys
+ * are passed through to whichever SDK or tool the harness eventually
+ * dispatches to (e.g. `temperature`, `maxTokens`, `topP`, Claude-specific
+ * `thinking`, OpenAI-style `reasoning_effort`). The harness does not validate
+ * extras; typos pass through silently.
+ */
+export interface AgentSettings {
+	model: string;
+	[key: string]: unknown;
 }
 
 export interface Paths {
@@ -26,7 +34,3 @@ export interface Paths {
 	rubrics: string;
 	environment: string;
 }
-
-type DeepPartial<T> = {
-	[K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
-};
