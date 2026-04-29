@@ -1,10 +1,10 @@
-# Run — Skill Smith
+# Run — Skillsmith
 
-This document is the prose specification of the Skill Smith test harness. The runner will later be codified as a script that can execute the same flow programmatically; until then, the harness is driven by following these steps end-to-end.
+This document is the prose specification of the Skillsmith test harness. The runner will later be codified as a script that can execute the same flow programmatically; until then, the harness is driven by following these steps end-to-end.
 
-The caller has placed you in a **project-under-test** — a directory that contains a `skill-smith.config.ts` and the per-project `skills/` and `eval/` directories. All relative paths in this document are relative to that project root.
+The caller has placed you in a **project-under-test** — a directory that contains a `skillsmith.config.ts` and the per-project `skills/` and `eval/` directories. All relative paths in this document are relative to that project root.
 
-**Locating the project-under-test.** If the current working directory contains `skill-smith.config.ts`, you are already there. Otherwise, look for a single immediate child directory that contains `skill-smith.config.ts` and `cd` into it before starting. If neither resolves, stop and report per section 0 — do not attempt to infer further.
+**Locating the project-under-test.** If the current working directory contains `skillsmith.config.ts`, you are already there. Otherwise, look for a single immediate child directory that contains `skillsmith.config.ts` and `cd` into it before starting. If neither resolves, stop and report per section 0 — do not attempt to infer further.
 
 You orchestrate; you do not write generated code yourself. The **testing agent** and the **judge agent** are sub-agents you spawn. Keep their roles strictly separate.
 
@@ -16,7 +16,7 @@ The harness has no opinion about what a project does inside its hooks. Hooks are
 
 Before starting, verify the following. If any are missing, report the list and stop — do not try to recover.
 
-- `skill-smith.config.ts` exists at the project root.
+- `skillsmith.config.ts` exists at the project root.
 - `paths.skills`, `paths.scenarios`, `paths.rubrics` resolve to existing directories (defaults: `./skills`, `./eval/scenarios`, `./eval/rubrics`).
 - `paths.base` is set (default: `./.skillsmith`). The harness writes the run tree under it; the directory itself is created implicitly the first time something is written into it.
 
@@ -26,7 +26,7 @@ A rubric body may be stubbed (`TO BE FILLED`) — pass the rubric through anyway
 
 ## 1. Load config
 
-Read `skill-smith.config.ts`. You need:
+Read `skillsmith.config.ts`. You need:
 
 - `agents.testing: AgentConfig` — the agent under test. Provides the matrix's model axis.
 - `agents.judge: AgentConfig` — the judge. Same shape as `testing`; the judge runs once per `(scenario, testing-agent)` pair.
@@ -312,7 +312,7 @@ For every hook step, note one of: `invoked` (with optional output), `noop` (hook
 - **Testing agent never sees the rubric.** Same principle in reverse. The testing agent sees skills + prompt, nothing from `paths.rubrics/` or `scenario.acceptance`.
 - **The harness never writes generated code.** The testing sub-agent is the only writer in `agentWorkspace`. The harness only writes its own report files (section 7) and its run log.
 - **Hooks are the project's surface, not the harness's.** Don't smuggle scaffolding, runtime setup, or verification logic into the harness flow itself; that belongs in `config.hooks`.
-- **Do not re-enter this document recursively.** If a sub-agent asks to "run skill-smith" it is confused — decline.
+- **Do not re-enter this document recursively.** If a sub-agent asks to "run skillsmith" it is confused — decline.
 - **Run autonomously.** Do not pause to ask the user about scope, environment, or project location. The config is authoritative for the matrix and for hooks; section 0 covers cwd resolution. If a precondition fails, fail fast per section 0 rather than negotiating.
 
 ---

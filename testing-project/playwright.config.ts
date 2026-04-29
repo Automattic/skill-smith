@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "@playwright/test";
-import config from "./skill-smith.config";
+import config from "./skillsmith.config";
 
 const STORAGE_STATE_PATH = path.join(
   path.dirname(fileURLToPath(import.meta.url)),

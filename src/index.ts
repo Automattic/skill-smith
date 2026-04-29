@@ -11,5 +11,5 @@ export type {
 	RunContext,
 	Scenario,
 	ScenarioContext,
-	SkillSmithConfig,
+	SkillsmithConfig,
 } from "./config/types";

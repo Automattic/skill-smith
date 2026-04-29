@@ -1,4 +1,3 @@
-// Projects would import from 'skill-smith' in a real project.
 import { execSync } from "node:child_process";
 import {
   existsSync,
@@ -9,6 +8,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+// Projects would import from 'skillsmith' in a real project.
 import { defineConfig } from "../src";
 
 const PROJECT_ROOT = dirname(fileURLToPath(import.meta.url));
@@ -33,7 +33,7 @@ function pluginIndexPhp(pluginSlug: string): string {
   return `<?php
 /**
  * Plugin Name: ${pluginSlug}
- * Description: Auto-scaffolded by skill-smith. Plugin slug is preserved across the run — do not rename.
+ * Description: Auto-scaffolded by skillsmith. Plugin slug is preserved across the run — do not rename.
  * Version:     0.1.0
  * License:     GPL-3.0
  */
