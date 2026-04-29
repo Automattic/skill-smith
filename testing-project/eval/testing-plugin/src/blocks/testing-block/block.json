@@ -1,8 +1,0 @@
-{
-	"$schema": "https://schemas.wp.org/trunk/block.json",
-	"apiVersion": 3,
-	"name": "testing-plugin/testing-block",
-	"title": "Testing Block",
-	"category": "widgets",
-	"textdomain": "testing-plugin"
-}
