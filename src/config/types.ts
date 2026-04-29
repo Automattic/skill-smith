@@ -1,6 +1,7 @@
 export interface SkillSmithConfig {
 	agents: AgentsConfig;
 	paths?: Partial<Paths>;
+	hooks?: Hooks;
 }
 
 export interface AgentsConfig {
@@ -29,8 +30,53 @@ export interface AgentSettings {
 }
 
 export interface Paths {
+	base: string;
 	skills: string;
 	scenarios: string;
 	rubrics: string;
 	environment: string;
+}
+
+/**
+ * Minimal shape the harness passes in for `scenario`. The harness loads
+ * `scenario.yaml` for each scenario; only `name` is guaranteed at the type
+ * level so hook authors can switch on it. Other fields (description, skills,
+ * prompt, acceptance, rubrics, e2e) are present at runtime and accessible
+ * via index lookup.
+ */
+export interface Scenario {
+	name: string;
+	[key: string]: unknown;
+}
+
+export interface RunContext {
+	runId: string;
+	config: SkillSmithConfig;
+}
+
+export interface ScenarioContext extends RunContext {
+	scenario: Scenario;
+}
+
+export interface AgentContext extends ScenarioContext {
+	agentId: string;
+	agentWorkspace: string;
+}
+
+export type HookFn<Ctx> = (ctx: Ctx) => void | Promise<void>;
+
+/**
+ * Project-customization points the harness invokes in the order shown in
+ * `assets/skill-tester-workflow.png`. Each hook is optional — a missing or
+ * empty hook is a no-op.
+ */
+export interface Hooks {
+	beforeAll?: HookFn<RunContext>;
+	beforeScenario?: HookFn<ScenarioContext>;
+	beforeTestAgent?: HookFn<AgentContext>;
+	afterTestAgent?: HookFn<AgentContext>;
+	beforeJudgeAgent?: HookFn<AgentContext>;
+	afterJudgeAgent?: HookFn<AgentContext>;
+	afterScenario?: HookFn<ScenarioContext>;
+	afterAll?: HookFn<RunContext>;
 }
