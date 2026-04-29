@@ -21,8 +21,11 @@ test.describe("counter block scenario", () => {
     await page.goto(`/?p=${post.id}`);
   });
 
-  test.afterAll(async ({ requestUtils }) => {
+  test.afterAll(async ({ requestUtils }, workerInfo) => {
     await requestUtils.deleteAllPosts();
+    await requestUtils.deactivatePlugin(
+      `plugin-counter-block-${workerInfo.project.metadata.agentId}`,
+    );
   });
 
   test("renders the initial counter value of 5", async ({ page }) => {
