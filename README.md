@@ -54,7 +54,7 @@ Projects opt into the hooks they need. Two examples from the WordPress reference
 
 **`beforeTestAgent` — scaffold the artifact the agent will edit.** Generates a plugin skeleton inside `agentWorkspace` with a deterministic slug (`plugin-${scenario.name}-${agentId}`) so it can be activated later by `afterAll`.
 
-**`afterAll` — run e2e tests against every artifact produced in the run.** Boots `wp-env` with every generated plugin mounted (disabled by default). For each `(scenario, agent)` pair it activates the plugin, creates a post with the block under test, runs the project's spec (e.g. `npx playwright test`), removes the post, and deactivates the plugin. Then `wp-env stop`, and the aggregated results are saved to `<runDirectory>/tests-report.json`.
+**`afterAll` — run e2e tests against every artifact produced in the run.** Writes a `.wp-env.json` listing every plugin produced in this run, then boots `wp-env`. wp-env auto-activates every listed plugin on start, so the hook sets `lifecycleScripts.afterStart` to `wp plugin deactivate --all` — leaving each spec a clean slate. It then invokes `npx playwright test` once across the (scenario × agent) project matrix; each spec is responsible for activating its own plugin, setting up its fixtures (e.g. a post containing the block under test), and tearing them down. Finally it stops `wp-env`, removes the generated `.wp-env.json`, and writes the aggregated results to `<runDirectory>/tests-report.json`.
 
 ### Rubrics and the judge
 

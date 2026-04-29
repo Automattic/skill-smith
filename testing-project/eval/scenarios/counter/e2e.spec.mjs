@@ -12,7 +12,7 @@ test.describe("counter block scenario", () => {
       `plugin-counter-block-${workerInfo.project.metadata.agentId}`,
     );
     post = await requestUtils.createPost({
-      content: "<!-- wp:testing-plugin/testing-block /-->",
+      content: "<!-- wp:testing-block /-->",
       status: "publish",
     });
   });
