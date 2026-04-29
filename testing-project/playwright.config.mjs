@@ -17,6 +17,7 @@ export default defineConfig({
 	testDir: "./eval/scenarios",
 	testMatch: "**/e2e.spec.mjs",
 	globalSetup: "./global-setup.mjs",
+	reporter: [["list"], ["json"]],
 	use: {
 		baseURL: process.env.WP_BASE_URL,
 		storageState: STORAGE_STATE_PATH,

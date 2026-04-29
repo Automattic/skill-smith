@@ -1,6 +1,6 @@
 export interface SkillSmithConfig {
 	agents: AgentsConfig;
-	paths?: Partial<Paths>;
+	paths: Paths;
 	hooks?: Hooks;
 }
 

@@ -1,5 +1,15 @@
-import type { SkillSmithConfig } from "./types";
+import { DEFAULT_PATHS } from "./defaults";
+import type { AgentsConfig, Hooks, Paths, SkillSmithConfig } from "./types";
 
-export function defineConfig(config: SkillSmithConfig): SkillSmithConfig {
-	return config;
+interface SkillSmithConfigInput {
+	agents: AgentsConfig;
+	paths?: Partial<Paths>;
+	hooks?: Hooks;
+}
+
+export function defineConfig(input: SkillSmithConfigInput): SkillSmithConfig {
+	return {
+		...input,
+		paths: { ...DEFAULT_PATHS, ...input.paths },
+	};
 }
