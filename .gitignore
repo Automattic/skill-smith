@@ -22,3 +22,4 @@ playwright-report/
 .auth/
 artifacts/
 .skillsmith/
+testing-project/.wp-env.json
