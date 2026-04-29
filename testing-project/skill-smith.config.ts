@@ -2,12 +2,14 @@
 import { defineConfig } from "../src";
 
 export default defineConfig({
-  models: {
-    agentUnderTest: [
-      "claude-haiku-4-5-20251001",
-      "claude-sonnet-4-6",
-      "claude-opus-4-7",
-    ],
-    judge: "claude-opus-4-7",
+  agents: {
+    testing: {
+      haiku: "claude-haiku-4-5-20251001",
+      sonnet: "claude-sonnet-4-6",
+      opus: "claude-opus-4-7",
+    },
+    judge: {
+      opus: { model: "claude-opus-4-7", effort: "xhigh" },
+    },
   },
 });
