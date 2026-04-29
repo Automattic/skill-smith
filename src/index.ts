@@ -1,9 +1,15 @@
-export { DEFAULT_MODEL_DEFAULTS, DEFAULT_PATHS } from "./config/defaults";
+export { DEFAULT_PATHS } from "./config/defaults";
 export { defineConfig } from "./config/define-config";
 export type {
-	ModelDefaults,
-	ModelsConfig,
+	AgentConfig,
+	AgentContext,
+	AgentSettings,
+	AgentsConfig,
+	HookFn,
+	Hooks,
 	Paths,
-	RetryPolicy,
+	RunContext,
+	Scenario,
+	ScenarioContext,
 	SkillSmithConfig,
 } from "./config/types";

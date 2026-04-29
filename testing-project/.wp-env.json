@@ -1,4 +1,0 @@
-{
-  "plugins": ["./eval/testing-plugin"],
-  "testsEnvironment": false
-}

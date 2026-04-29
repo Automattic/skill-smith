@@ -6,11 +6,13 @@ import { expect, test } from "@wordpress/e2e-test-utils-playwright";
 
 test.describe("counter block scenario", () => {
   let post;
-  test.beforeAll(async ({ requestUtils }) => {
+  test.beforeAll(async ({ requestUtils }, workerInfo) => {
     // Ensure the block plugin is active before tests run.
-    await requestUtils.activatePlugin("testing-plugin");
+    await requestUtils.activatePlugin(
+      `plugin-counter-block-${workerInfo.project.metadata.agentId}`,
+    );
     post = await requestUtils.createPost({
-      content: "<!-- wp:testing-plugin/testing-block /-->",
+      content: "<!-- wp:testing-block /-->",
       status: "publish",
     });
   });
@@ -19,8 +21,11 @@ test.describe("counter block scenario", () => {
     await page.goto(`/?p=${post.id}`);
   });
 
-  test.afterAll(async ({ requestUtils }) => {
+  test.afterAll(async ({ requestUtils }, workerInfo) => {
     await requestUtils.deleteAllPosts();
+    await requestUtils.deactivatePlugin(
+      `plugin-counter-block-${workerInfo.project.metadata.agentId}`,
+    );
   });
 
   test("renders the initial counter value of 5", async ({ page }) => {

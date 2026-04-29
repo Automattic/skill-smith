@@ -1,0 +1,7 @@
+{
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		"types": ["node"]
+	},
+	"include": ["skill-smith.config.ts", "playwright.config.ts"]
+}
