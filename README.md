@@ -22,22 +22,39 @@ Prose review cannot catch this. We need a test loop.
 
 ## How the Skill Tester works
 
-The harness runs every scenario against every configured model and reports pass/fail. A **scenario** is a prompt plus the skill(s) the agent should use to fulfil it. A run has a one-time setup, a per-pair loop, and a one-time teardown. The setup, reset, verify, and teardown stages are **project-specific** — each fork implements them against the harness's runtime contract.
+The harness runs every scenario against every configured testing agent. A **scenario** is a prompt plus the skill(s) the agent should use to fulfil it. A **testing agent** is a configured (model, tools, system) tuple. Scenarios run in parallel; within each scenario, testing agents run in parallel.
 
-1. **Testing environment setup** (once). The project's `environment.setup` boots whatever the runtime needs — e.g. `npx wp-env start`.
-
-2. **For each `(scenario, model)` pair:**
-   1. **Environment reset.** The project's `environment.reset` restores the agent's write target to a clean state — e.g. wipe the generated plugin code.
-   2. **Testing agent.** Receives the scenario prompt plus the skill files, receives the project's `instructions.md`, writes code into the target directory, and returns its output.
-   3. **Judge agent.** Receives the testing agent's output plus the scenario prompt, receives the scenario's acceptance criteria and referenced rubrics, reviews the implementation, and returns a review.
-   4. **E2E verification.** The project's `environment.verify` runs a project-defined spec against the live environment — e.g. `npx playwright test`.
-   5. **Store verdict.** The judge review and e2e result are written to disk.
-
-3. **Environment teardown** (once). The project's `environment.teardown` tears the runtime down — e.g. `npx wp-env stop`.
-
-4. **Print results.** A scenario × model pass/fail matrix is printed to the console.
+Project-specific behaviour is exposed through **hooks**. Each fork implements only the hooks it needs against the harness's runtime contract.
 
 ![Skill Tester workflow diagram](assets/skill-tester-workflow.png)
+
+### Lifecycle
+
+1. **Init run.** Generate `runId`, create the run directory, load scenarios from `config.paths.scenarios`.
+2. **`beforeAll({ config, runId })`**.
+3. **Scenario loop — parallel.** For each scenario:
+   1. **Init scenario.** Create the scenario directory, load testing agents from `config.agents.testing` and the judge from `config.agents.judge`.
+   2. **`beforeScenario({ config, runId, scenario })`**.
+   3. **Agent loop — parallel.** For each testing agent:
+      1. **Init agent.** Create the agent directory and `agentWorkspace`.
+      2. **`beforeTestAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
+      3. **Testing agent.** Receives `scenario.prompt`, `scenario.skills`, and `agentWorkspace`; writes its output into the workspace.
+      4. **`afterTestAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
+      5. **`beforeJudgeAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
+      6. **Judge agent.** Receives `scenario`, the rubrics it references, and `agentWorkspace`; writes `judge-review.yaml` to the agent directory.
+      7. **`afterJudgeAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
+   4. **Scenario report.** The harness aggregates every agent's `judge-review.yaml` into the scenario's `report.yaml`.
+   5. **`afterScenario({ config, runId, scenario })`**.
+4. **Run report.** The harness aggregates every scenario's `report.yaml` into a top-level `report.yaml`.
+5. **`afterAll({ config, runId })`**.
+
+### Hook examples
+
+Projects opt into the hooks they need. Two examples from the WordPress reference project:
+
+**`beforeTestAgent` — scaffold the artifact the agent will edit.** Generates a plugin skeleton inside `agentWorkspace` with a deterministic slug (`plugin-${scenario.name}-${agentId}`) so it can be activated later by `afterAll`.
+
+**`afterAll` — run e2e tests against every artifact produced in the run.** Boots `wp-env` with every generated plugin mounted (disabled by default). For each `(scenario, agent)` pair it activates the plugin, creates a post with the block under test, runs the project's spec (e.g. `npx playwright test`), removes the post, and deactivates the plugin. Then `wp-env stop`, and the aggregated results are saved to `<runDirectory>/tests-report.json`.
 
 ### Rubrics and the judge
 
