@@ -14,9 +14,11 @@ export interface RunOptions {
  * list and exits 1, per V21.
  */
 export async function run(options: RunOptions = {}): Promise<number> {
-	let projectRoot: string;
 	try {
-		({ projectRoot } = resolveProjectRoot(options.cwd ?? process.cwd()));
+		const { projectRoot } = resolveProjectRoot(options.cwd ?? process.cwd());
+		const runId = makeRunId();
+		const { runPipeline } = await import("./internal/pipeline");
+		return await runPipeline({ projectRoot, runId });
 	} catch (err) {
 		if (err instanceof PreconditionError) {
 			console.error(err.message);
@@ -24,8 +26,4 @@ export async function run(options: RunOptions = {}): Promise<number> {
 		}
 		throw err;
 	}
-
-	const runId = makeRunId();
-	const { runPipeline } = await import("./internal/pipeline");
-	return await runPipeline({ projectRoot, runId });
 }
