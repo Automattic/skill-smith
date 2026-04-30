@@ -13,3 +13,5 @@ export type {
 	ScenarioContext,
 	SkillsmithConfig,
 } from "./config/types";
+export type { RunOptions } from "./runner";
+export { run } from "./runner";

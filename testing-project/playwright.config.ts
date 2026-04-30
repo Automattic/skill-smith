@@ -4,8 +4,8 @@ import { defineConfig } from "@playwright/test";
 import config from "./skillsmith.config";
 
 const STORAGE_STATE_PATH = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  ".auth/admin.json",
+	path.dirname(fileURLToPath(import.meta.url)),
+	".auth/admin.json",
 );
 
 // @wordpress/e2e-test-utils-playwright reads WP_BASE_URL and STORAGE_STATE_PATH
@@ -15,18 +15,18 @@ process.env.WP_BASE_URL ??= "http://localhost:8888";
 process.env.STORAGE_STATE_PATH ??= STORAGE_STATE_PATH;
 
 export default defineConfig({
-  testDir: "./eval/scenarios",
-  testMatch: "**/e2e.spec.mjs",
-  globalSetup: "./global-setup.mjs",
-  reporter: [["list"], ["json"]],
-  projects: Object.keys(config.agents.testing).map((agentId) => ({
-    name: agentId,
-    metadata: { agentId },
-  })),
-  workers: 1,
-  fullyParallel: false,
-  use: {
-    baseURL: process.env.WP_BASE_URL,
-    storageState: STORAGE_STATE_PATH,
-  },
+	testDir: "./eval/scenarios",
+	testMatch: "**/e2e.spec.mjs",
+	globalSetup: "./global-setup.mjs",
+	reporter: [["list"], ["json"]],
+	projects: Object.keys(config.agents.testing).map((agentId) => ({
+		name: agentId,
+		metadata: { agentId },
+	})),
+	workers: 1,
+	fullyParallel: false,
+	use: {
+		baseURL: process.env.WP_BASE_URL,
+		storageState: STORAGE_STATE_PATH,
+	},
 });

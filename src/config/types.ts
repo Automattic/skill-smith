@@ -1,12 +1,12 @@
 export interface SkillsmithConfig {
-  agents: AgentsConfig;
-  paths: Paths;
-  hooks?: Hooks;
+	agents: AgentsConfig;
+	paths: Paths;
+	hooks?: Hooks;
 }
 
 export interface AgentsConfig {
-  testing: AgentConfig;
-  judge: AgentConfig;
+	testing: AgentConfig;
+	judge: AgentConfig;
 }
 
 /**
@@ -25,15 +25,15 @@ export type AgentConfig = string | Record<string, string | AgentSettings>;
  * extras; typos pass through silently.
  */
 export interface AgentSettings {
-  model: string;
-  [key: string]: unknown;
+	model: string;
+	[key: string]: unknown;
 }
 
 export interface Paths {
-  base: string;
-  skills: string;
-  scenarios: string;
-  rubrics: string;
+	base: string;
+	skills: string;
+	scenarios: string;
+	rubrics: string;
 }
 
 /**
@@ -42,27 +42,27 @@ export interface Paths {
  * harness ignores extras and exposes them through the index signature.
  */
 export interface Scenario {
-  name: string;
-  description: string;
-  skills: string[];
-  prompt: string;
-  acceptance: string[];
-  rubrics: string[];
-  [key: string]: unknown;
+	name: string;
+	description: string;
+	skills: string[];
+	prompt: string;
+	acceptance: string[];
+	rubrics: string[];
+	[key: string]: unknown;
 }
 
 export interface RunContext {
-  runId: string;
-  config: SkillsmithConfig;
+	runId: string;
+	config: SkillsmithConfig;
 }
 
 export interface ScenarioContext extends RunContext {
-  scenario: Scenario;
+	scenario: Scenario;
 }
 
 export interface AgentContext extends ScenarioContext {
-  agentId: string;
-  agentWorkspace: string;
+	agentId: string;
+	agentWorkspace: string;
 }
 
 export type HookFn<Ctx> = (ctx: Ctx) => void | Promise<void>;
@@ -73,12 +73,12 @@ export type HookFn<Ctx> = (ctx: Ctx) => void | Promise<void>;
  * empty hook is a no-op.
  */
 export interface Hooks {
-  beforeAll?: HookFn<RunContext>;
-  beforeScenario?: HookFn<ScenarioContext>;
-  beforeTestAgent?: HookFn<AgentContext>;
-  afterTestAgent?: HookFn<AgentContext>;
-  beforeJudgeAgent?: HookFn<AgentContext>;
-  afterJudgeAgent?: HookFn<AgentContext>;
-  afterScenario?: HookFn<ScenarioContext>;
-  afterAll?: HookFn<RunContext>;
+	beforeAll?: HookFn<RunContext>;
+	beforeScenario?: HookFn<ScenarioContext>;
+	beforeTestAgent?: HookFn<AgentContext>;
+	afterTestAgent?: HookFn<AgentContext>;
+	beforeJudgeAgent?: HookFn<AgentContext>;
+	afterJudgeAgent?: HookFn<AgentContext>;
+	afterScenario?: HookFn<ScenarioContext>;
+	afterAll?: HookFn<RunContext>;
 }
