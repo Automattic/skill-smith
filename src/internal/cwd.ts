@@ -1,7 +1,8 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { isDirectorySafe } from "./fs-util";
 
-const CONFIG_FILENAME = "skillsmith.config.ts";
+export const CONFIG_FILENAME = "skillsmith.config.ts";
 
 export interface ResolveCwdResult {
 	projectRoot: string;
@@ -31,13 +32,7 @@ export function resolveProjectRoot(
 	}
 	for (const entry of entries) {
 		const childPath = join(here, entry);
-		let isDir = false;
-		try {
-			isDir = statSync(childPath).isDirectory();
-		} catch {
-			isDir = false;
-		}
-		if (!isDir) continue;
+		if (!isDirectorySafe(childPath)) continue;
 		if (existsSync(join(childPath, CONFIG_FILENAME))) {
 			candidates.push(childPath);
 		}

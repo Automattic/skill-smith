@@ -1,24 +1,26 @@
 import { PreconditionError, resolveProjectRoot } from "./internal/cwd";
-import { makeRunId } from "./internal/run-id";
+import { runPipeline } from "./internal/pipeline";
 
 export interface RunOptions {
 	cwd?: string;
 }
 
+function makeRunId(now: Date = new Date()): string {
+	const pad = (n: number) => n.toString().padStart(2, "0");
+	return (
+		`${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+		`-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+	);
+}
+
 /**
  * Entrypoint for the `skillsmith` CLI. Returns a process exit code.
- *
- * The runner is being built incrementally per SPEC.md §T. T1 wires
- * cwd-resolve, runId derivation, and a delegate to the pipeline module
- * (filled in by T2–T14). On precondition failure it prints the reason
- * list and exits 1, per V21.
+ * On precondition failure prints the reason list and exits 1 (V21).
  */
 export async function run(options: RunOptions = {}): Promise<number> {
 	try {
 		const { projectRoot } = resolveProjectRoot(options.cwd ?? process.cwd());
-		const runId = makeRunId();
-		const { runPipeline } = await import("./internal/pipeline");
-		return await runPipeline({ projectRoot, runId });
+		return await runPipeline({ projectRoot, runId: makeRunId() });
 	} catch (err) {
 		if (err instanceof PreconditionError) {
 			console.error(err.message);

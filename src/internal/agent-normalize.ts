@@ -58,8 +58,6 @@ export function normalizeAgentConfig(config: AgentConfig): NormalizeResult {
 				source: config,
 				reason: `model not dispatchable: "${config}" not in alias table`,
 			});
-		} else if (config.length === 0) {
-			skipped.push({ source: config, reason: "missing model" });
 		} else {
 			entries.push({ alias, settings: { model: config } });
 		}

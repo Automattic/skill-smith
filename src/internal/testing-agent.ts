@@ -1,6 +1,5 @@
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { query } from "@anthropic-ai/claude-agent-sdk";
 import type {
 	AgentSettings,
 	Scenario,
@@ -9,7 +8,7 @@ import type {
 import type { TestingAgentResult } from "./agent-loop";
 import type { AgentAlias } from "./agent-normalize";
 import type { RunLog } from "./run-log";
-import { mapSettings } from "./sdk-passthrough";
+import { logUnplumbedSettings, runSdkQuery } from "./sdk-query";
 import { loadSkill } from "./skill-loader";
 
 export interface RunTestingAgentParams {
@@ -22,7 +21,6 @@ export interface RunTestingAgentParams {
 	log: RunLog;
 }
 
-const TESTING_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"];
 const TOOL_USE_WARNING_THRESHOLD = 50;
 
 /**
@@ -48,14 +46,12 @@ export async function runTestingAgent(
 	} = params;
 	const scope = `scenario:${scenario.name}/agent:${alias}`;
 
-	const sdkOpts = mapSettings(settings);
-	if (Object.keys(sdkOpts.unplumbed).length > 0) {
-		log.gap("unplumbedSettings", { scope, settings: sdkOpts.unplumbed });
-	}
+	logUnplumbedSettings(settings, scope, log);
 
 	const skillsRoot = resolve(projectRoot, config.paths.skills);
-	const skillSections = scenario.skills.map((id) => loadSkill(id, skillsRoot));
-	const skillBlob = skillSections.join("\n\n");
+	const skillBlob = scenario.skills
+		.map((id) => loadSkill(id, skillsRoot))
+		.join("\n\n");
 
 	const systemPrompt = [
 		skillBlob,
@@ -69,72 +65,49 @@ export async function runTestingAgent(
 
 	const before = snapshotWorkspace(agentWorkspace);
 
-	let toolUseCount = 0;
-	let finalText = "";
-	let errorMsg: string | undefined;
-
 	if (process.env.SKILLSMITH_DRY_RUN === "1") {
-		const { writeFileSync } = await import("node:fs");
 		writeFileSync(
 			join(agentWorkspace, "dry-run.txt"),
 			`dry run for ${alias}\n`,
 		);
-		const after = snapshotWorkspace(agentWorkspace);
-		const filesWritten = diffSnapshots(before, after);
+		const filesWritten = diffSnapshots(
+			before,
+			snapshotWorkspace(agentWorkspace),
+		);
 		log.info(
 			`testing-agent (${scope}): DRY_RUN files-written=[${filesWritten.join(", ")}]`,
 		);
 		return { finalText: "dry run", toolUseCount: 0, filesWritten };
 	}
 
-	try {
-		const stream = query({
-			prompt: scenario.prompt,
-			options: {
-				model: sdkOpts.model,
-				cwd: agentWorkspace,
-				systemPrompt,
-				tools: TESTING_TOOLS,
-				permissionMode: "bypassPermissions",
-				allowDangerouslySkipPermissions: true,
-			},
-		});
+	const sdk = await runSdkQuery({
+		prompt: scenario.prompt,
+		systemPrompt,
+		model: settings.model,
+		cwd: agentWorkspace,
+		tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+	});
 
-		for await (const message of stream) {
-			if (message.type === "assistant") {
-				for (const block of message.message.content ?? []) {
-					if (block.type === "tool_use") toolUseCount++;
-					if (block.type === "text") finalText = block.text;
-				}
-			} else if (message.type === "result") {
-				if (message.subtype === "success") {
-					finalText = message.result;
-				} else {
-					errorMsg = `result.${message.subtype}`;
-				}
-			}
-		}
-	} catch (err) {
-		errorMsg = err instanceof Error ? err.message : String(err);
-	}
-
-	if (toolUseCount > TOOL_USE_WARNING_THRESHOLD) {
+	if (sdk.toolUseCount > TOOL_USE_WARNING_THRESHOLD) {
 		log.info(
-			`tool-use warning (${scope}): ${toolUseCount} > ${TOOL_USE_WARNING_THRESHOLD}`,
+			`tool-use warning (${scope}): ${sdk.toolUseCount} > ${TOOL_USE_WARNING_THRESHOLD}`,
 		);
 	}
 
-	const after = snapshotWorkspace(agentWorkspace);
-	const filesWritten = diffSnapshots(before, after);
+	const filesWritten = diffSnapshots(before, snapshotWorkspace(agentWorkspace));
 
 	log.info(
-		`testing-agent (${scope}): tool-uses=${toolUseCount} files-written=[${filesWritten.join(", ")}]${
-			errorMsg ? ` error=${errorMsg}` : ""
+		`testing-agent (${scope}): tool-uses=${sdk.toolUseCount} files-written=[${filesWritten.join(", ")}]${
+			sdk.error ? ` error=${sdk.error}` : ""
 		}`,
 	);
 
-	const result: TestingAgentResult = { finalText, toolUseCount, filesWritten };
-	if (errorMsg !== undefined) result.error = errorMsg;
+	const result: TestingAgentResult = {
+		finalText: sdk.finalText,
+		toolUseCount: sdk.toolUseCount,
+		filesWritten,
+	};
+	if (sdk.error !== undefined) result.error = sdk.error;
 	return result;
 }
 
@@ -180,9 +153,11 @@ function diffSnapshots(
 	const written: string[] = [];
 	for (const [rel, post] of after) {
 		const pre = before.get(rel);
-		if (pre === undefined) {
-			written.push(rel);
-		} else if (pre.mtimeMs !== post.mtimeMs || pre.size !== post.size) {
+		if (
+			pre === undefined ||
+			pre.mtimeMs !== post.mtimeMs ||
+			pre.size !== post.size
+		) {
 			written.push(rel);
 		}
 	}

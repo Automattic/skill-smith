@@ -1,12 +1,11 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { query } from "@anthropic-ai/claude-agent-sdk";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { AgentConfig, Scenario, SkillsmithConfig } from "../config/types";
 import type { TestingAgentResult } from "./agent-loop";
 import { normalizeAgentConfig } from "./agent-normalize";
 import type { RunLog } from "./run-log";
-import { mapSettings } from "./sdk-passthrough";
+import { logUnplumbedSettings, runSdkQuery } from "./sdk-query";
 
 export interface RunJudgeAgentParams {
 	scenario: Scenario;
@@ -18,8 +17,6 @@ export interface RunJudgeAgentParams {
 	log: RunLog;
 	testingResult: TestingAgentResult;
 }
-
-const JUDGE_TOOLS = ["Read"];
 
 /**
  * Run the judge sub-agent for one (scenario, agent) pair (V1, V10,
@@ -68,11 +65,63 @@ export async function runJudgeAgent(
 	const judgeEntry = judgeNorm.entries[0];
 	if (judgeEntry === undefined) return;
 
-	const sdkOpts = mapSettings(judgeEntry.settings);
-	if (Object.keys(sdkOpts.unplumbed).length > 0) {
-		log.gap("unplumbedSettings", { scope, settings: sdkOpts.unplumbed });
+	logUnplumbedSettings(judgeEntry.settings, scope, log);
+
+	const systemPrompt = buildJudgeSystemPrompt(scenario, projectRoot, config);
+	const userMsg = buildUserMessage(
+		scenario,
+		agentWorkspace,
+		testingResult.filesWritten,
+	);
+
+	if (process.env.SKILLSMITH_DRY_RUN === "1") {
+		writeReview(agentDirectory, {
+			rubrics: Object.fromEntries(
+				scenario.rubrics.map((id) => [id, { pass: true, notes: "dry run" }]),
+			),
+			acceptance: scenario.acceptance.map((item) => ({
+				item,
+				pass: true,
+				notes: "dry run",
+			})),
+		});
+		log.info(`${scope}: DRY_RUN verdict written`);
+		return;
 	}
 
+	const sdk = await runSdkQuery({
+		prompt: userMsg,
+		systemPrompt,
+		model: judgeEntry.settings.model,
+		cwd: agentWorkspace,
+		tools: ["Read"],
+	});
+
+	if (sdk.error !== undefined) {
+		writeReview(agentDirectory, {
+			error: `judge dispatch failed: ${sdk.error}`,
+			raw: sdk.finalText,
+		});
+		log.info(`${scope}: dispatch failed — ${sdk.error}`);
+		return;
+	}
+
+	const parsed = parseJudgeYaml(sdk.finalText);
+	if (parsed === undefined) {
+		writeReview(agentDirectory, { error: "unparseable", raw: sdk.finalText });
+		log.info(`${scope}: judge YAML unparseable, raw stored`);
+		return;
+	}
+
+	writeReview(agentDirectory, parsed);
+	log.info(`${scope}: judge verdict written`);
+}
+
+function buildJudgeSystemPrompt(
+	scenario: Scenario,
+	projectRoot: string,
+	config: SkillsmithConfig,
+): string {
 	const rubricsRoot = resolve(projectRoot, config.paths.rubrics);
 	const rubricBlobs = scenario.rubrics.map((id) => {
 		const path = join(rubricsRoot, `${id}.md`);
@@ -98,86 +147,21 @@ export async function runJudgeAgent(
 		"Do not invoke `skillsmith` or any wrapper that would re-enter the harness.",
 	].join("\n");
 
-	const systemPrompt = [...rubricBlobs, acceptanceBlock, yamlInstruction].join(
-		"\n\n",
-	);
+	return [...rubricBlobs, acceptanceBlock, yamlInstruction].join("\n\n");
+}
 
-	const userMsg = buildUserMessage(
-		scenario,
-		agentWorkspace,
-		testingResult.filesWritten,
-	);
-
-	if (process.env.SKILLSMITH_DRY_RUN === "1") {
-		const verdict = {
-			rubrics: Object.fromEntries(
-				scenario.rubrics.map((id) => [id, { pass: true, notes: "dry run" }]),
-			),
-			acceptance: scenario.acceptance.map((item) => ({
-				item,
-				pass: true,
-				notes: "dry run",
-			})),
-		};
-		writeReview(agentDirectory, verdict);
-		log.info(`${scope}: DRY_RUN verdict written`);
-		return;
-	}
-
-	let finalText = "";
-	let dispatchError: string | undefined;
-	try {
-		const stream = query({
-			prompt: userMsg,
-			options: {
-				model: sdkOpts.model,
-				cwd: agentWorkspace,
-				systemPrompt,
-				tools: JUDGE_TOOLS,
-				permissionMode: "bypassPermissions",
-				allowDangerouslySkipPermissions: true,
-			},
-		});
-
-		for await (const message of stream) {
-			if (message.type === "assistant") {
-				for (const block of message.message.content ?? []) {
-					if (block.type === "text") finalText = block.text;
-				}
-			} else if (message.type === "result") {
-				if (message.subtype === "success") finalText = message.result;
-				else dispatchError = `result.${message.subtype}`;
-			}
-		}
-	} catch (err) {
-		dispatchError = err instanceof Error ? err.message : String(err);
-	}
-
-	if (dispatchError !== undefined) {
-		writeReview(agentDirectory, {
-			error: `judge dispatch failed: ${dispatchError}`,
-			raw: finalText,
-		});
-		log.info(`${scope}: dispatch failed — ${dispatchError}`);
-		return;
-	}
-
-	const yamlText = stripCodeFences(finalText);
+function parseJudgeYaml(finalText: string): object | undefined {
+	const trimmed = finalText.trim();
+	const fence = trimmed.match(/^```(?:[a-zA-Z]+)?\n([\s\S]*?)\n```$/);
+	const yamlText = fence?.[1] ?? trimmed;
 	let parsed: unknown;
 	try {
 		parsed = parseYaml(yamlText);
 	} catch {
-		parsed = undefined;
+		return undefined;
 	}
-
-	if (parsed === undefined || parsed === null || typeof parsed !== "object") {
-		writeReview(agentDirectory, { error: "unparseable", raw: finalText });
-		log.info(`${scope}: judge YAML unparseable, raw stored`);
-		return;
-	}
-
-	writeReview(agentDirectory, parsed);
-	log.info(`${scope}: judge verdict written`);
+	if (parsed === null || typeof parsed !== "object") return undefined;
+	return parsed;
 }
 
 function buildUserMessage(
@@ -193,25 +177,15 @@ function buildUserMessage(
 		try {
 			body = readFileSync(full, "utf8");
 		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			body = `<read error: ${msg}>`;
+			body = `<read error: ${err instanceof Error ? err.message : String(err)}>`;
 		}
 		sections.push(`=== ${rel} ===\n${body}`);
 	}
-	if (sections.length === 0) {
-		sections.push("=== (no files written) ===");
-	}
+	if (sections.length === 0) sections.push("=== (no files written) ===");
 	sections.push("\n--\n", scenario.description);
 	return sections.join("\n");
 }
 
 function writeReview(agentDirectory: string, body: unknown): void {
-	const target = join(agentDirectory, "judge-review.yaml");
-	writeFileSync(target, stringifyYaml(body));
-}
-
-function stripCodeFences(text: string): string {
-	const trimmed = text.trim();
-	const fence = trimmed.match(/^```(?:[a-zA-Z]+)?\n([\s\S]*?)\n```$/);
-	return fence?.[1] ?? trimmed;
+	writeFileSync(join(agentDirectory, "judge-review.yaml"), stringifyYaml(body));
 }

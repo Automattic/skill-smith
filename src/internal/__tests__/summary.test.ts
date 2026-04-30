@@ -18,24 +18,18 @@ function withReport(scenarios: Record<string, unknown>): {
 	return { runDirectory };
 }
 
-function captureStdout<T>(
-	fn: () => Promise<T>,
-): Promise<{ value: T; out: string }> {
+function captureStdout<T>(fn: () => T): { value: T; out: string } {
 	const lines: string[] = [];
 	const original = console.log;
 	console.log = (...args: unknown[]) => {
 		lines.push(args.join(" "));
 	};
-	return fn().then(
-		(value) => {
-			console.log = original;
-			return { value, out: lines.join("\n") };
-		},
-		(err) => {
-			console.log = original;
-			throw err;
-		},
-	);
+	try {
+		const value = fn();
+		return { value, out: lines.join("\n") };
+	} finally {
+		console.log = original;
+	}
 }
 
 test("V26: all-pass run exits 0 with RUN RESULT: PASS", async () => {
@@ -55,7 +49,7 @@ test("V26: all-pass run exits 0 with RUN RESULT: PASS", async () => {
 		},
 	});
 
-	const { value, out } = await captureStdout(() =>
+	const { value, out } = captureStdout(() =>
 		printSummary({ runDirectory, runId: "x" }),
 	);
 
@@ -79,7 +73,7 @@ test("V26: any failure → exit 1, FAIL, and per-scenario one-liner", async () =
 		},
 	});
 
-	const { value, out } = await captureStdout(() =>
+	const { value, out } = captureStdout(() =>
 		printSummary({ runDirectory, runId: "x" }),
 	);
 
@@ -97,7 +91,7 @@ test("V25: SKIPPED cells render with reason", async () => {
 		},
 	});
 
-	const { value, out } = await captureStdout(() =>
+	const { value, out } = captureStdout(() =>
 		printSummary({ runDirectory, runId: "x" }),
 	);
 

@@ -33,7 +33,6 @@ export function loadSkill(skillId: string, skillsRoot: string): string {
 		sections.push(`=== ${rel} ===\n${text}`);
 
 		// Enqueue links — only those resolving inside skillDir.
-		MD_LINK_RE.lastIndex = 0;
 		for (const match of text.matchAll(MD_LINK_RE)) {
 			const href = match[1];
 			if (href === undefined) continue;

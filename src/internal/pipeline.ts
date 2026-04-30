@@ -5,11 +5,15 @@ import type {
 	ScenarioContext,
 	SkillsmithConfig,
 } from "../config/types";
+import { runAgents } from "./agent-loop";
 import { loadConfig } from "./config-loader";
 import { PreconditionError } from "./cwd";
 import { tryHook } from "./hooks";
 import { RunLog } from "./run-log";
+import { aggregateRunReport } from "./run-report";
+import { aggregateScenarioReport } from "./scenario-report";
 import { type EnumeratedScenario, enumerateScenarios } from "./scenarios";
+import { printSummary } from "./summary";
 
 export interface PipelineParams {
 	projectRoot: string;
@@ -72,8 +76,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		await tryHook("afterAll", "run", config.hooks?.afterAll, runCtx, log);
 	}
 
-	const { aggregateRunReport } = await import("./run-report");
-	await aggregateRunReport({
+	aggregateRunReport({
 		runDirectory,
 		runId,
 		scenarios: scenarioRecords,
@@ -81,9 +84,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 	log.dump(runDirectory);
 
-	const { printSummary } = await import("./summary");
-	const exitCode = await printSummary({ runDirectory, runId });
-	return exitCode;
+	return printSummary({ runDirectory, runId });
 }
 
 interface ScenarioRunArgs {
@@ -122,7 +123,6 @@ async function runScenario(
 
 	try {
 		if (error === undefined) {
-			const { runAgents } = await import("./agent-loop");
 			await runAgents({
 				scenario,
 				scenarioDirectory,
@@ -133,8 +133,7 @@ async function runScenario(
 			});
 		}
 
-		const { aggregateScenarioReport } = await import("./scenario-report");
-		await aggregateScenarioReport({
+		aggregateScenarioReport({
 			scenarioDirectory,
 			scenarioName: scenario.name,
 			scenarioError: error,

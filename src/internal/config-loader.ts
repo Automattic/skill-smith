@@ -2,9 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { SkillsmithConfig } from "../config/types";
-import { PreconditionError } from "./cwd";
-
-const CONFIG_FILENAME = "skillsmith.config.ts";
+import { CONFIG_FILENAME, PreconditionError } from "./cwd";
 
 /**
  * Dynamically import `skillsmith.config.ts` from the project root and

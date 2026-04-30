@@ -8,7 +8,9 @@ import {
 	normalizeAgentConfig,
 } from "./agent-normalize";
 import { tryHook } from "./hooks";
+import { runJudgeAgent } from "./judge-agent";
 import type { RunLog } from "./run-log";
+import { runTestingAgent } from "./testing-agent";
 
 export interface RunAgentsParams {
 	scenario: Scenario;
@@ -36,22 +38,17 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 		log.info(
 			`agents.testing entry "${sk.source}" skipped (scenario=${scenario.name}): ${sk.reason}`,
 		);
-		writeSkippedReview({
-			scenarioDirectory,
-			alias: sk.source,
-			reason: sk.reason,
-		});
+		writeSkippedReview(join(scenarioDirectory, sk.source), sk.reason);
 	}
 
 	if (testingNorm.entries.length === 0 && testingNorm.emptyReason) {
 		log.info(
 			`agents.testing empty for scenario ${scenario.name}: ${testingNorm.emptyReason}`,
 		);
-		writeSkippedReview({
-			scenarioDirectory,
-			alias: "empty",
-			reason: testingNorm.emptyReason,
-		});
+		writeSkippedReview(
+			join(scenarioDirectory, "empty"),
+			testingNorm.emptyReason,
+		);
 		return;
 	}
 
@@ -116,7 +113,6 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 
 	let testingResult: TestingAgentResult | undefined;
 	try {
-		const { runTestingAgent } = await import("./testing-agent");
 		testingResult = await runTestingAgent({
 			scenario,
 			settings: entry.settings,
@@ -155,7 +151,6 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	);
 
 	try {
-		const { runJudgeAgent } = await import("./judge-agent");
 		await runJudgeAgent({
 			scenario,
 			judgeConfig: config.agents.judge,
@@ -169,12 +164,7 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		log.info(`judge-agent failed (${scope}): ${msg}`);
-		writeSkippedReview({
-			scenarioDirectory,
-			alias: agentId,
-			reason: `judge dispatch failed: ${msg}`,
-			agentDirectoryOverride: agentDirectory,
-		});
+		writeSkippedReview(agentDirectory, `judge dispatch failed: ${msg}`);
 	}
 
 	// V9: afterJudgeAgent always fires.
@@ -194,18 +184,10 @@ export interface TestingAgentResult {
 	error?: string;
 }
 
-interface WriteSkippedReviewParams {
-	scenarioDirectory: string;
-	alias: string;
-	reason: string;
-	agentDirectoryOverride?: string;
-}
-
-function writeSkippedReview(params: WriteSkippedReviewParams): void {
-	const dir =
-		params.agentDirectoryOverride ??
-		join(params.scenarioDirectory, params.alias);
-	mkdirSync(dir, { recursive: true });
-	const yaml = stringifyYaml({ skipped: params.reason });
-	writeFileSync(join(dir, "judge-review.yaml"), yaml);
+function writeSkippedReview(agentDirectory: string, reason: string): void {
+	mkdirSync(agentDirectory, { recursive: true });
+	writeFileSync(
+		join(agentDirectory, "judge-review.yaml"),
+		stringifyYaml({ skipped: reason }),
+	);
 }

@@ -14,9 +14,7 @@ export interface AggregateRunReportParams {
  * `${runDirectory}report.yaml` (V24). A missing scenario report →
  * `error: "missing scenario report"` for that slot.
  */
-export async function aggregateRunReport(
-	params: AggregateRunReportParams,
-): Promise<void> {
+export function aggregateRunReport(params: AggregateRunReportParams): void {
 	const { runDirectory, runId, scenarios } = params;
 
 	const out: Record<string, unknown> = { runId, scenarios: {} };

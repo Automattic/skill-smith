@@ -1,7 +1,8 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { Paths, Scenario } from "../config/types";
+import { isDirectorySafe } from "./fs-util";
 
 export interface EnumeratedScenario {
 	scenario: Scenario;
@@ -29,13 +30,7 @@ export function enumerateScenarios(
 
 	for (const entry of readdirSync(scenariosRoot)) {
 		const dir = join(scenariosRoot, entry);
-		let isDir = false;
-		try {
-			isDir = statSync(dir).isDirectory();
-		} catch {
-			isDir = false;
-		}
-		if (!isDir) continue;
+		if (!isDirectorySafe(dir)) continue;
 		const yamlPath = join(dir, "scenario.yaml");
 		if (!existsSync(yamlPath)) continue;
 
@@ -91,6 +86,12 @@ function stubScenario(dirName: string): Scenario {
 	};
 }
 
+function strArr(v: unknown): string[] {
+	return Array.isArray(v)
+		? v.filter((x): x is string => typeof x === "string")
+		: [];
+}
+
 function normalizeScenario(raw: unknown, dirName: string): Scenario {
 	if (raw === null || typeof raw !== "object") return stubScenario(dirName);
 	const r = raw as Record<string, unknown>;
@@ -98,15 +99,9 @@ function normalizeScenario(raw: unknown, dirName: string): Scenario {
 		...r,
 		name: typeof r.name === "string" && r.name.length > 0 ? r.name : dirName,
 		description: typeof r.description === "string" ? r.description : "",
-		skills: Array.isArray(r.skills)
-			? r.skills.filter((x): x is string => typeof x === "string")
-			: [],
+		skills: strArr(r.skills),
 		prompt: typeof r.prompt === "string" ? r.prompt : "",
-		acceptance: Array.isArray(r.acceptance)
-			? r.acceptance.filter((x): x is string => typeof x === "string")
-			: [],
-		rubrics: Array.isArray(r.rubrics)
-			? r.rubrics.filter((x): x is string => typeof x === "string")
-			: [],
+		acceptance: strArr(r.acceptance),
+		rubrics: strArr(r.rubrics),
 	};
 }

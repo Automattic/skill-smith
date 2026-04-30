@@ -1,12 +1,7 @@
-import {
-	existsSync,
-	readdirSync,
-	readFileSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { isDirectorySafe } from "./fs-util";
 
 export interface AggregateScenarioReportParams {
 	scenarioDirectory: string;
@@ -23,26 +18,17 @@ interface AgentVerdict {
  * `${scenarioDirectory}report.yaml` (V23). Missing review →
  * `error: "missing judge-review"` for that agent.
  */
-export async function aggregateScenarioReport(
+export function aggregateScenarioReport(
 	params: AggregateScenarioReportParams,
-): Promise<void> {
+): void {
 	const { scenarioDirectory, scenarioName, scenarioError } = params;
 
 	const agents: Record<string, AgentVerdict | { error: string }> = {};
 
-	if (
-		existsSync(scenarioDirectory) &&
-		statSync(scenarioDirectory).isDirectory()
-	) {
+	if (isDirectorySafe(scenarioDirectory)) {
 		for (const entry of readdirSync(scenarioDirectory)) {
 			const full = join(scenarioDirectory, entry);
-			let isDir = false;
-			try {
-				isDir = statSync(full).isDirectory();
-			} catch {
-				isDir = false;
-			}
-			if (!isDir) continue;
+			if (!isDirectorySafe(full)) continue;
 			const reviewPath = join(full, "judge-review.yaml");
 			if (!existsSync(reviewPath)) {
 				agents[entry] = { error: "missing judge-review" };
