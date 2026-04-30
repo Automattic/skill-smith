@@ -22,6 +22,10 @@ test("V28: ignores external URLs and out-of-skill paths", () => {
 
 	// External + out-of-skill paths must not produce a `=== ... ===` section.
 	const sections = blob.match(/===.*?===/g) ?? [];
-	const allowed = new Set(["=== multi/SKILL.md ===", "=== multi/sub/helper.md ==="]);
-	for (const s of sections) assert.ok(allowed.has(s), `unexpected section: ${s}`);
+	const allowed = new Set([
+		"=== multi/SKILL.md ===",
+		"=== multi/sub/helper.md ===",
+	]);
+	for (const s of sections)
+		assert.ok(allowed.has(s), `unexpected section: ${s}`);
 });
