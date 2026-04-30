@@ -18,6 +18,9 @@
 	"bin": {
 		"skillsmith": "./bin/skillsmith.mjs"
 	},
+	"exports": {
+		".": "./src/index.ts"
+	},
 	"scripts": {
 		"lint": "biome lint .",
 		"lint:fix": "biome lint --write .",
@@ -29,11 +32,11 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.4.12",
 		"@types/node": "^25.6.0",
-		"tsx": "^4.21.0",
 		"typescript": "6.0.3"
 	},
 	"dependencies": {
 		"@anthropic-ai/claude-agent-sdk": "^0.2.123",
+		"tsx": "^4.21.0",
 		"yaml": "^2.8.3"
 	}
 }

@@ -8,8 +8,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-// Projects would import from 'skillsmith' in a real project.
-import { defineConfig } from "../src";
+import { defineConfig } from "skillsmith";
 
 const PROJECT_ROOT = dirname(fileURLToPath(import.meta.url));
 const BLOCK_NAME = "testing-block";
