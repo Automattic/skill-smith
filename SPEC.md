@@ -83,7 +83,7 @@ Codify `src/run.md` into TS runtime: load config, fan out (scenario × testing-a
 | T12 | x      | scenario report aggregator: walk `${scenarioDirectory}*/judge-review.yaml` → `${scenarioDirectory}report.yaml`; missing → `error: "missing judge-review"`                                          | V23,I.fs                                       |
 | T13 | x      | run report aggregator: walk `${runDirectory}*/report.yaml` → `${runDirectory}report.yaml`; missing → `error: "missing scenario report"`                                                            | V24,I.fs                                       |
 | T14 | x      | console summary printer + exit signal: dyn col widths; cells PASS\|FAIL\|SKIPPED; `RUN RESULT: PASS\|FAIL` + first-failure-per-scenario one-liner                                                  | V25,V26                                        |
-| T15 | .      | smoke test against `testing-project/` fixture: full matrix, assert reports + summary shape                                                                                                         | V5,V25                                         |
+| T15 | x      | smoke test against `testing-project/` fixture: full matrix, assert reports + summary shape                                                                                                         | V5,V25                                         |
 
 ## §B Bugs
 

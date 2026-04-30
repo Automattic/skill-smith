@@ -108,6 +108,22 @@ export async function runJudgeAgent(
 		testingResult.filesWritten,
 	);
 
+	if (process.env.SKILLSMITH_DRY_RUN === "1") {
+		const verdict = {
+			rubrics: Object.fromEntries(
+				scenario.rubrics.map((id) => [id, { pass: true, notes: "dry run" }]),
+			),
+			acceptance: scenario.acceptance.map((item) => ({
+				item,
+				pass: true,
+				notes: "dry run",
+			})),
+		};
+		writeReview(agentDirectory, verdict);
+		log.info(`${scope}: DRY_RUN verdict written`);
+		return;
+	}
+
 	let finalText = "";
 	let dispatchError: string | undefined;
 	try {

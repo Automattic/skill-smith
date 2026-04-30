@@ -73,6 +73,20 @@ export async function runTestingAgent(
 	let finalText = "";
 	let errorMsg: string | undefined;
 
+	if (process.env.SKILLSMITH_DRY_RUN === "1") {
+		const { writeFileSync } = await import("node:fs");
+		writeFileSync(
+			join(agentWorkspace, "dry-run.txt"),
+			`dry run for ${alias}\n`,
+		);
+		const after = snapshotWorkspace(agentWorkspace);
+		const filesWritten = diffSnapshots(before, after);
+		log.info(
+			`testing-agent (${scope}): DRY_RUN files-written=[${filesWritten.join(", ")}]`,
+		);
+		return { finalText: "dry run", toolUseCount: 0, filesWritten };
+	}
+
 	try {
 		const stream = query({
 			prompt: scenario.prompt,
