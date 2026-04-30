@@ -7,20 +7,30 @@ type HookOutcome = "invoked" | "noop" | "error";
  * In-memory accumulator for the run log (per run.md §8). Dumped to
  * `${runDirectory}run.log` at the end of the run. Hook outcomes are
  * recorded as `invoked | noop | error` per V8.
+ *
+ * Lines are also mirrored to stderr as they are appended so the user
+ * sees live progress during long SDK queries; the dump on disk is the
+ * authoritative artifact, the stderr stream is a tail.
  */
 export class RunLog {
 	private readonly lines: string[] = [];
 
+	private append(line: string): void {
+		this.lines.push(line);
+		process.stderr.write(`${line}\n`);
+	}
+
 	header(line: string): void {
-		this.lines.push(`# ${line}`);
+		this.append(`# ${line}`);
 	}
 
 	section(title: string): void {
-		this.lines.push("", `## ${title}`);
+		this.append("");
+		this.append(`## ${title}`);
 	}
 
 	info(line: string): void {
-		this.lines.push(line);
+		this.append(line);
 	}
 
 	hook(
@@ -30,12 +40,12 @@ export class RunLog {
 		detail?: string,
 	): void {
 		const tail = detail ? ` — ${detail}` : "";
-		this.lines.push(`hook[${scope}] ${hook}: ${outcome}${tail}`);
+		this.append(`hook[${scope}] ${hook}: ${outcome}${tail}`);
 	}
 
 	gap(category: string, value: unknown): void {
 		const rendered = typeof value === "string" ? value : JSON.stringify(value);
-		this.lines.push(`gap[${category}] ${rendered}`);
+		this.append(`gap[${category}] ${rendered}`);
 	}
 
 	dump(runDirectory: string): string {

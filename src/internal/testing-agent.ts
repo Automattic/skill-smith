@@ -80,6 +80,8 @@ export async function runTestingAgent(
 		return { finalText: "dry run", toolUseCount: 0, filesWritten };
 	}
 
+	log.info(`testing-agent starting (${scope}): model=${settings.model}`);
+
 	const sdk = await runSdkQuery({
 		prompt: scenario.prompt,
 		systemPrompt,

@@ -89,6 +89,8 @@ export async function runJudgeAgent(
 		return;
 	}
 
+	log.info(`${scope}: judge starting model=${judgeEntry.settings.model}`);
+
 	const sdk = await runSdkQuery({
 		prompt: userMsg,
 		systemPrompt,
