@@ -7,7 +7,6 @@ import type {
 	SkillsmithConfig,
 } from "../config/types";
 import { getProvider } from "../providers/registry";
-import type { Tool } from "../providers/types";
 import type { RunLog } from "../util/run-log";
 import type { TestingAgentResult } from "./agent-loop";
 
@@ -21,8 +20,6 @@ export interface RunJudgeAgentParams {
 	log: RunLog;
 	testingResult: TestingAgentResult;
 }
-
-const JUDGE_TOOLS: readonly Tool[] = ["Read"];
 
 /**
  * Run the judge sub-agent for one (scenario, agent) pair. The judge
@@ -81,7 +78,7 @@ export async function runJudgeAgent(
 		systemPrompt,
 		prompt: userMsg,
 		cwd: agentWorkspace,
-		tools: JUDGE_TOOLS,
+		role: "judge",
 	});
 
 	if (result.error !== undefined) {

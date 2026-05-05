@@ -1,5 +1,10 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { InvokeParams, InvokeResult, Provider } from "./types";
+import type { InvokeParams, InvokeResult, Provider, Role } from "./types";
+
+const TOOLS_BY_ROLE: Record<Role, string[]> = {
+	testing: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+	judge: ["Read"],
+};
 
 export const claudeCodeProvider: Provider = {
 	id: "claude-code",
@@ -15,7 +20,7 @@ export const claudeCodeProvider: Provider = {
 					model: params.agent.model,
 					cwd: params.cwd,
 					systemPrompt: params.systemPrompt,
-					tools: [...params.tools],
+					tools: TOOLS_BY_ROLE[params.role],
 					permissionMode: "bypassPermissions",
 					allowDangerouslySkipPermissions: true,
 				},

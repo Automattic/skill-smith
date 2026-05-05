@@ -6,7 +6,6 @@ import type {
 	SkillsmithConfig,
 } from "../config/types";
 import { getProvider } from "../providers/registry";
-import type { Tool } from "../providers/types";
 import { loadSkill } from "../scenarios/skill-loader";
 import type { RunLog } from "../util/run-log";
 import type { TestingAgentResult } from "./agent-loop";
@@ -21,14 +20,6 @@ export interface RunTestingAgentParams {
 }
 
 const TOOL_USE_WARNING_THRESHOLD = 50;
-const TESTING_TOOLS: readonly Tool[] = [
-	"Read",
-	"Write",
-	"Edit",
-	"Glob",
-	"Grep",
-	"Bash",
-];
 
 /**
  * Run the testing sub-agent for one (scenario, agent) pair. The system
@@ -74,7 +65,7 @@ export async function runTestingAgent(
 		systemPrompt,
 		prompt: scenario.prompt,
 		cwd: agentWorkspace,
-		tools: TESTING_TOOLS,
+		role: "testing",
 	});
 
 	if (result.toolUseCount > TOOL_USE_WARNING_THRESHOLD) {

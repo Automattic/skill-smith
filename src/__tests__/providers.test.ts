@@ -31,7 +31,7 @@ test("openai-api and codex providers throw on invoke (not implemented)", async (
 				systemPrompt: "",
 				prompt: "",
 				cwd: "/tmp",
-				tools: [],
+				role: "testing",
 			}),
 		/not implemented/,
 	);
@@ -42,7 +42,7 @@ test("openai-api and codex providers throw on invoke (not implemented)", async (
 				systemPrompt: "",
 				prompt: "",
 				cwd: "/tmp",
-				tools: [],
+				role: "testing",
 			}),
 		/not implemented/,
 	);

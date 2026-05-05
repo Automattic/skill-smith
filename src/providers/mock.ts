@@ -3,21 +3,22 @@ import { join } from "node:path";
 import type { InvokeParams, InvokeResult, Provider } from "./types";
 
 /**
- * Deterministic provider used by tests and dry runs. Simulates the two
- * sub-agent shapes by inspecting the tool set: Write present → testing
- * agent, drops a sentinel file in cwd; Read-only → judge, returns a
- * passing YAML verdict.
+ * Deterministic provider used by tests and dry runs. Drops a sentinel
+ * file in the workspace for the testing role; returns a passing YAML
+ * verdict for the judge role.
  */
 export const mockProvider: Provider = {
 	id: "mock",
 	async invoke(params: InvokeParams): Promise<InvokeResult> {
-		const isTesting = params.tools.includes("Write");
-		if (isTesting) {
+		if (params.role === "testing") {
 			writeFileSync(
 				join(params.cwd, "mock-output.txt"),
 				`mock testing output for ${params.agent.id}\n`,
 			);
-			return { finalText: `mock testing output for ${params.agent.id}`, toolUseCount: 0 };
+			return {
+				finalText: `mock testing output for ${params.agent.id}`,
+				toolUseCount: 0,
+			};
 		}
 		const yaml = [
 			"rubrics:",
