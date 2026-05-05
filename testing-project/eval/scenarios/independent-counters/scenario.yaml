@@ -1,0 +1,25 @@
+name: independent-counters
+description: Build a counter block where each instance maintains independent state via local context.
+skills:
+  - wp-interactivity-api
+
+prompt: |
+  Create an interactive tally-counter block for WordPress. The block should:
+  1. Render a counter (starting at 0) and an "Increment" button.
+  2. Maintain INDEPENDENT state per instance — when the same block is
+     placed multiple times on a page, clicking Increment on one instance
+     must not change the counters of the other instances.
+
+  Use local context, not global state, so each instance owns its own
+  counter value.
+
+acceptance:
+  - Each instance initializes its own counter via data-wp-context (e.g. '{ "counter": 0 }')
+  - Counter renders via data-wp-text="context.counter" (NOT state.counter)
+  - Increment button uses data-wp-on--click bound to a store action
+  - Action accesses and mutates the value via getContext() (NOT global state)
+  - No wp_interactivity_state call is used to hold the counter
+  - Initial server-rendered HTML shows "0" inside each instance
+
+rubrics:
+  - wp-interactivity-api-best-practices

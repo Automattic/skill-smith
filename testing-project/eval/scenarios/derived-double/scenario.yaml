@@ -1,0 +1,26 @@
+name: derived-double
+description: Build a counter that displays its doubled value via a derived getter.
+skills:
+  - wp-interactivity-api
+
+prompt: |
+  Create an interactive double-counter block for WordPress. The block should:
+  1. Display a counter starting at 1.
+  2. Display a second number — always exactly twice the counter — beside it.
+  3. Render an "Increment" button that increases the counter by 1.
+
+  The doubled value MUST be computed via a derived state getter (e.g.
+  `get double()`), never stored as a separate field. The increment action
+  must mutate ONLY the counter — it must not assign anything to the
+  doubled value.
+
+acceptance:
+  - State holds only one mutable numeric counter (e.g. state.counter)
+  - State defines a getter that returns counter * 2 (e.g. `get double()`)
+  - Counter rendered via data-wp-text bound to the counter property
+  - Doubled value rendered via data-wp-text bound to the getter property
+  - Increment action mutates ONLY the counter; never assigns to the getter property
+  - Initial server-rendered HTML contains both "1" and "2" inside the block
+
+rubrics:
+  - wp-interactivity-api-best-practices

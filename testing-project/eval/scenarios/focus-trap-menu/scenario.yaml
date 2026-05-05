@@ -1,0 +1,34 @@
+name: focus-trap-menu
+description: Build an accessible hamburger menu with Tab focus trap, Escape-to-close, and focus restoration.
+skills:
+  - wp-interactivity-api
+
+prompt: |
+  Create an interactive drawer-menu block for WordPress. The block should:
+  1. Render a hamburger button with accessible name "Menu" and a drawer
+     containing exactly three navigation links with the visible names
+     "Home", "About", and "Contact" (use real <a href="#..."> elements).
+  2. Hide the drawer initially. Clicking the hamburger opens it.
+  3. Reflect open/closed state on the hamburger button via aria-expanded.
+  4. While the drawer is open, trap Tab focus inside the three links —
+     pressing Tab on Contact (the last) must move focus to Home (the
+     first); pressing Shift+Tab on Home must move focus to Contact.
+  5. Pressing Escape while the drawer is open must close it AND return
+     keyboard focus to the hamburger button.
+
+  The drawer's visibility must be driven by the Interactivity API (via
+  data-wp-bind, e.g. data-wp-bind--hidden). Do not toggle visibility by
+  directly mutating element style/classList from view.js outside of
+  directives.
+
+acceptance:
+  - Hamburger button uses data-wp-on--click bound to a toggle action
+  - Hamburger button uses data-wp-bind--aria-expanded reflecting an open boolean
+  - Drawer's visibility is bound via data-wp-bind (e.g. data-wp-bind--hidden) to that boolean
+  - Drawer (or its container) has data-wp-on--keydown handling Tab, Shift+Tab, and Escape
+  - On Escape, the open boolean is set to false and focus is returned to the hamburger button
+  - Tab on the last drawer link moves focus to the first; Shift+Tab on the first moves focus to the last
+  - block.json declares supports.interactivity and a viewScriptModule entry
+
+rubrics:
+  - wp-interactivity-api-best-practices

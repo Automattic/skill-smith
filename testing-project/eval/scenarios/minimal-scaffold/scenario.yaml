@@ -1,0 +1,27 @@
+name: minimal-scaffold
+description: Build the smallest correctly-wired Interactivity API block.
+skills:
+  - wp-interactivity-api
+
+prompt: |
+  Create the smallest possible WordPress Interactivity API block. The block should:
+  1. Render a single element containing the literal text "Hello from iAPI".
+  2. On hydration, log the literal string "iapi-ready" to the console
+     exactly once. Use a data-wp-init callback (NOT a top-level statement
+     in view.js) so the log fires only after the runtime mounts the block.
+
+  The goal is the smallest correctly-wired block that the Interactivity
+  API runtime actually picks up and hydrates — the wiring (block.json
+  fields, namespace consistency, module imports) is what matters.
+
+acceptance:
+  - block.json declares supports.interactivity (e.g. "supports": { "interactivity": true })
+  - block.json declares "viewScriptModule" pointing at the view JS file (NOT "viewScript")
+  - render.php emits a wrapper element carrying data-wp-interactive set to a namespace string
+  - view.js imports `store` from @wordpress/interactivity
+  - The wrapper element has data-wp-init bound to a callback in the store
+  - The init callback calls console.log with the exact string "iapi-ready"
+  - The rendered HTML contains the literal text "Hello from iAPI"
+
+rubrics:
+  - wp-interactivity-api-best-practices

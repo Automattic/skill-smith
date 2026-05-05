@@ -1,0 +1,36 @@
+name: config-fetch
+description: Build a block that fetches a post via REST using config-supplied URL and nonce.
+skills:
+  - wp-interactivity-api
+
+prompt: |
+  Create an interactive post-fetcher block for WordPress. The block should:
+  1. Render a "Load post" button and a paragraph that initially shows
+     "(no post loaded yet)".
+  2. When the button is clicked, fetch the post with ID 1 from the
+     WordPress REST API and display its title in the paragraph.
+
+  Constraints:
+
+  - The REST endpoint URL and a CSRF nonce MUST be supplied to the
+    front-end via wp_interactivity_config — NOT via wp_interactivity_state.
+    Use rest_url('wp/v2/posts/1') and wp_create_nonce('wp_rest').
+  - On the client, retrieve them via getConfig() and never re-derive the
+    URL by hand.
+  - The fetch action MUST be a generator function (function* / *name) using
+    `yield` rather than async/await.
+  - The fetch request MUST send the nonce in the X-WP-Nonce header.
+  - The displayed title must update reactively when the fetch resolves.
+
+acceptance:
+  - render.php calls wp_interactivity_config with restUrl and nonce keys
+  - render.php does NOT pass restUrl or nonce via wp_interactivity_state
+  - view.js imports getConfig from @wordpress/interactivity and reads both values from it
+  - The fetch action is a generator function (declared with function* or *name)
+  - The fetch action uses `yield` (not `await`) on fetch() and .json()
+  - The fetch request sends the nonce as the X-WP-Nonce header
+  - The post title is rendered via data-wp-text bound to a state/context property
+  - Title appears in the DOM after the fetch resolves
+
+rubrics:
+  - wp-interactivity-api-best-practices

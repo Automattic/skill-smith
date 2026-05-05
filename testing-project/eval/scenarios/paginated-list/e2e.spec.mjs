@@ -1,0 +1,85 @@
+import { expect, test } from "@wordpress/e2e-test-utils-playwright";
+
+/**
+ * E2E tests for the paginated-list scenario.
+ *
+ * Creates 5 plain posts plus a host post that embeds the block. With 6
+ * posts total at 3 per page, we expect 2 pages. The test asserts that:
+ *   - Page 1 contains the newest test post.
+ *   - Clicking Next updates the URL to ?pg=2 WITHOUT a full page reload
+ *     (a JS sentinel set on window before the click survives).
+ *   - Page 2 contains the oldest test post.
+ */
+
+test.describe("paginated-list scenario", () => {
+	let post;
+	test.beforeAll(async ({ requestUtils }, workerInfo) => {
+		await requestUtils.activatePlugin(
+			`plugin-paginated-list-${workerInfo.project.metadata.agentId}`,
+		);
+		// Five test posts, oldest first so requestUtils assigns ascending IDs.
+		for (let i = 1; i <= 5; i++) {
+			await requestUtils.createPost({
+				title: `Test post ${i}`,
+				status: "publish",
+			});
+		}
+		post = await requestUtils.createPost({
+			title: "Block host",
+			content: "<!-- wp:skillsmith/testing-block /-->",
+			status: "publish",
+		});
+	});
+
+	test.beforeEach(async ({ page }) => {
+		await page.goto(`/?p=${post.id}`);
+	});
+
+	test.afterAll(async ({ requestUtils }, workerInfo) => {
+		await requestUtils.deleteAllPosts();
+		await requestUtils.deactivatePlugin(
+			`plugin-paginated-list-${workerInfo.project.metadata.agentId}`,
+		);
+	});
+
+	test("renders the first page of 3 newest posts server-side", async ({
+		page,
+	}) => {
+		const region = page.locator("[data-wp-router-region]");
+		await expect(region).toBeVisible();
+
+		// Newest first: the host post + Test post 5 + Test post 4.
+		await expect(region).toContainText("Test post 5");
+		await expect(region).toContainText("Test post 4");
+		// Test post 1 is the oldest — should not be on page 1.
+		await expect(region).not.toContainText("Test post 1");
+
+		// Previous link should not be available on page 1.
+		await expect(page.getByRole("link", { name: /^previous$/i })).toHaveCount(
+			0,
+		);
+	});
+
+	test("Next link navigates client-side to page 2 without a full reload", async ({
+		page,
+	}) => {
+		// Plant a sentinel on window. A full reload would wipe it.
+		await page.evaluate(() => {
+			window.__noReloadSentinel = true;
+		});
+
+		await page.getByRole("link", { name: /^next$/i }).click();
+
+		await page.waitForURL(/[?&]pg=2(\b|&)/);
+
+		const survived = await page.evaluate(
+			() => window.__noReloadSentinel === true,
+		);
+		expect(survived).toBe(true);
+
+		// Page 2 should now show the oldest test post and NOT the newest.
+		const region = page.locator("[data-wp-router-region]");
+		await expect(region).toContainText("Test post 1");
+		await expect(region).not.toContainText("Test post 5");
+	});
+});
