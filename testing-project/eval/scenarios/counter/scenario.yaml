@@ -4,7 +4,7 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  Create a WordPress block plugin called "interactive-counter". The block should:
+  Create an interactive counter block for WordPress. The block should:
   1. Display a counter value (starting at 5)
   2. Have "Increment" and "Decrement" buttons that change the counter value
 
