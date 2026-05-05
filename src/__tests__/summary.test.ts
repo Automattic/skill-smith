@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { stringify as stringifyYaml } from "yaml";
-import { printSummary } from "../summary";
+import { printSummary } from "../reports/summary";
 
 function withReport(scenarios: Record<string, unknown>): {
 	runDirectory: string;
@@ -32,7 +32,7 @@ function captureStdout<T>(fn: () => T): { value: T; out: string } {
 	}
 }
 
-test("V26: all-pass run exits 0 with RUN RESULT: PASS", async () => {
+test("all-pass run exits 0 with RUN RESULT: PASS", async () => {
 	const { runDirectory } = withReport({
 		"counter-block": {
 			scenario: "counter-block",
@@ -59,7 +59,7 @@ test("V26: all-pass run exits 0 with RUN RESULT: PASS", async () => {
 	assert.match(out, /RUN RESULT: PASS/);
 });
 
-test("V26: any failure → exit 1, FAIL, and per-scenario one-liner", async () => {
+test("any failure → exit 1, FAIL, and per-scenario one-liner", async () => {
 	const { runDirectory } = withReport({
 		"counter-block": {
 			scenario: "counter-block",
@@ -83,7 +83,7 @@ test("V26: any failure → exit 1, FAIL, and per-scenario one-liner", async () =
 	assert.match(out, /counter-block: opus: rubric r1 not pass/);
 });
 
-test("V25: SKIPPED cells render with reason", async () => {
+test("SKIPPED cells render with reason", async () => {
 	const { runDirectory } = withReport({
 		"counter-block": {
 			scenario: "counter-block",

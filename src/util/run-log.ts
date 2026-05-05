@@ -4,13 +4,9 @@ import { dirname, join } from "node:path";
 type HookOutcome = "invoked" | "noop" | "error";
 
 /**
- * In-memory accumulator for the run log (per run.md §8). Dumped to
- * `${runDirectory}run.log` at the end of the run. Hook outcomes are
- * recorded as `invoked | noop | error` per V8.
- *
- * Lines are also mirrored to stderr as they are appended so the user
- * sees live progress during long SDK queries; the dump on disk is the
- * authoritative artifact, the stderr stream is a tail.
+ * In-memory accumulator for the run log. Mirrored to stderr live so
+ * users see progress during long agent calls; dumped to
+ * `${runDirectory}/run.log` at the end as the authoritative artifact.
  */
 export class RunLog {
 	private readonly lines: string[] = [];

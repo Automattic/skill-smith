@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_PATHS } from "../../config/defaults";
-import { enumerateScenarios } from "../scenarios";
+import { DEFAULT_PATHS } from "../config/defaults";
+import { enumerateScenarios } from "../scenarios/enumerate";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(here, "fixtures", "proj1");
 
-test("V11: scenarios with unresolved refs are flagged but others continue", () => {
+test("scenarios with unresolved refs are flagged but others continue", () => {
 	const found = enumerateScenarios(DEFAULT_PATHS, projectRoot);
 
 	const byName = new Map(found.map((s) => [s.scenario.name, s]));

@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { isDirectorySafe } from "./fs-util";
+import { isDirectorySafe } from "../util/fs";
 
 export interface AggregateScenarioReportParams {
 	scenarioDirectory: string;
@@ -14,8 +14,8 @@ interface AgentVerdict {
 }
 
 /**
- * Aggregate `${scenarioDirectory}*\/judge-review.yaml` into
- * `${scenarioDirectory}report.yaml` (V23). Missing review →
+ * Aggregate `${scenarioDirectory}/<agent>/judge-review.yaml` into
+ * `${scenarioDirectory}/report.yaml`. Missing review →
  * `error: "missing judge-review"` for that agent.
  */
 export function aggregateScenarioReport(

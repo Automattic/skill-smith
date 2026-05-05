@@ -26,7 +26,7 @@
 		"lint:fix": "biome lint --write .",
 		"format": "biome format --write .",
 		"typecheck": "tsc --noEmit",
-		"test": "node --import tsx --test src/internal/__tests__/*.test.ts",
+		"test": "node --import tsx --test src/__tests__/*.test.ts",
 		"smoke": "node bin/skillsmith.mjs"
 	},
 	"devDependencies": {

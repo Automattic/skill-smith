@@ -82,22 +82,31 @@ function blockJson(): string {
 
 export default defineConfig({
 	agents: {
-		testing: {
-			haiku: "claude-haiku-4-5-20251001",
-			sonnet: "claude-sonnet-4-6",
-			opus: "claude-opus-4-7",
-		},
-		judge: {
-			opus: { model: "claude-opus-4-7", effort: "xhigh" },
-		},
+		testing: [
+			{
+				id: "haiku",
+				provider: "claude-code",
+				model: "claude-haiku-4-5-20251001",
+			},
+			{ id: "sonnet", provider: "claude-code", model: "claude-sonnet-4-6" },
+			{ id: "opus", provider: "claude-code", model: "claude-opus-4-7" },
+		],
+		judge: [
+			{
+				id: "opus",
+				provider: "claude-code",
+				model: "claude-opus-4-7",
+				effort: "xhigh",
+			},
+		],
 	},
 
 	hooks: {
 		// Plugin slug stays unique per (scenario, agent) so afterAll can
 		// activate them independently; the block name is fixed because the
 		// e2e specs reference it directly.
-		beforeTestAgent: ({ scenario, agentId, agentWorkspace }) => {
-			const slug = pluginSlug(scenario.name, agentId);
+		beforeTestAgent: ({ scenario, agent, agentWorkspace }) => {
+			const slug = pluginSlug(scenario.name, agent.id);
 			const pluginDir = join(agentWorkspace, slug);
 			const blockDir = join(pluginDir, "src", "blocks", "testing-block");
 

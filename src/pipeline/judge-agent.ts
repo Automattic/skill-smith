@@ -1,15 +1,19 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import type { AgentConfig, Scenario, SkillsmithConfig } from "../config/types";
+import type {
+	AgentDefinition,
+	Scenario,
+	SkillsmithConfig,
+} from "../config/types";
+import { getProvider } from "../providers/registry";
+import type { Tool } from "../providers/types";
+import type { RunLog } from "../util/run-log";
 import type { TestingAgentResult } from "./agent-loop";
-import { normalizeAgentConfig } from "./agent-normalize";
-import type { RunLog } from "./run-log";
-import { logUnplumbedSettings, runSdkQuery } from "./sdk-query";
 
 export interface RunJudgeAgentParams {
 	scenario: Scenario;
-	judgeConfig: AgentConfig;
+	judges: AgentDefinition[];
 	agentDirectory: string;
 	agentWorkspace: string;
 	projectRoot: string;
@@ -18,24 +22,25 @@ export interface RunJudgeAgentParams {
 	testingResult: TestingAgentResult;
 }
 
+const JUDGE_TOOLS: readonly Tool[] = ["Read"];
+
 /**
- * Run the judge sub-agent for one (scenario, agent) pair (V1, V10,
- * V13, V18, V22, V29, V30). The judge never sees the skill text.
+ * Run the judge sub-agent for one (scenario, agent) pair. The judge
+ * never sees the skill text — only the rubrics, the inline acceptance
+ * items, and the files the testing agent produced.
  *
- * - System: rubric bodies + inline acceptance + a YAML-shape demand.
- * - User: workspace files concatenated with `=== <rel-path> ===`
- *   headers, plus `scenario.description`.
- * - Tools: `Read` only.
+ * If `judges` has more than one entry the harness uses the first and
+ * logs a `multiJudge` gap; cross-judge aggregation is not yet defined.
  *
- * Output → `${agentDirectory}judge-review.yaml`. Unparseable → write
- * raw + `error: "unparseable"` (V10).
+ * Output → `${agentDirectory}/judge-review.yaml`. Unparseable model
+ * output → write the raw text alongside `error: "unparseable"`.
  */
 export async function runJudgeAgent(
 	params: RunJudgeAgentParams,
 ): Promise<void> {
 	const {
 		scenario,
-		judgeConfig,
+		judges,
 		agentDirectory,
 		agentWorkspace,
 		projectRoot,
@@ -45,27 +50,19 @@ export async function runJudgeAgent(
 	} = params;
 	const scope = `judge:${scenario.name}@${relative(projectRoot, agentDirectory)}`;
 
-	const judgeNorm = normalizeAgentConfig(judgeConfig);
-	if (judgeNorm.entries.length === 0) {
-		writeReview(agentDirectory, {
-			error: "judge has no dispatchable entries",
-			skipped: judgeNorm.skipped,
-			emptyReason: judgeNorm.emptyReason,
-		});
-		log.info(`${scope}: no dispatchable judge entries`);
+	const judge = judges[0];
+	if (judge === undefined) {
+		writeReview(agentDirectory, { error: "no judge configured" });
+		log.info(`${scope}: no judge configured`);
 		return;
 	}
-	if (judgeNorm.entries.length > 1) {
+	if (judges.length > 1) {
 		log.gap("multiJudge", {
 			scope,
-			used: judgeNorm.entries[0]?.alias,
-			ignored: judgeNorm.entries.slice(1).map((e) => e.alias),
+			used: judge.id,
+			ignored: judges.slice(1).map((j) => j.id),
 		});
 	}
-	const judgeEntry = judgeNorm.entries[0];
-	if (judgeEntry === undefined) return;
-
-	logUnplumbedSettings(judgeEntry.settings, scope, log);
 
 	const systemPrompt = buildJudgeSystemPrompt(scenario, projectRoot, config);
 	const userMsg = buildUserMessage(
@@ -74,43 +71,31 @@ export async function runJudgeAgent(
 		testingResult.filesWritten,
 	);
 
-	if (process.env.SKILLSMITH_DRY_RUN === "1") {
-		writeReview(agentDirectory, {
-			rubrics: Object.fromEntries(
-				scenario.rubrics.map((id) => [id, { pass: true, notes: "dry run" }]),
-			),
-			acceptance: scenario.acceptance.map((item) => ({
-				item,
-				pass: true,
-				notes: "dry run",
-			})),
-		});
-		log.info(`${scope}: DRY_RUN verdict written`);
-		return;
-	}
+	log.info(
+		`${scope}: judge starting provider=${judge.provider} model=${judge.model}`,
+	);
 
-	log.info(`${scope}: judge starting model=${judgeEntry.settings.model}`);
-
-	const sdk = await runSdkQuery({
-		prompt: userMsg,
+	const provider = getProvider(judge.provider);
+	const result = await provider.invoke({
+		agent: judge,
 		systemPrompt,
-		model: judgeEntry.settings.model,
+		prompt: userMsg,
 		cwd: agentWorkspace,
-		tools: ["Read"],
+		tools: JUDGE_TOOLS,
 	});
 
-	if (sdk.error !== undefined) {
+	if (result.error !== undefined) {
 		writeReview(agentDirectory, {
-			error: `judge dispatch failed: ${sdk.error}`,
-			raw: sdk.finalText,
+			error: `judge dispatch failed: ${result.error}`,
+			raw: result.finalText,
 		});
-		log.info(`${scope}: dispatch failed — ${sdk.error}`);
+		log.info(`${scope}: dispatch failed — ${result.error}`);
 		return;
 	}
 
-	const parsed = parseJudgeYaml(sdk.finalText);
+	const parsed = parseJudgeYaml(result.finalText);
 	if (parsed === undefined) {
-		writeReview(agentDirectory, { error: "unparseable", raw: sdk.finalText });
+		writeReview(agentDirectory, { error: "unparseable", raw: result.finalText });
 		log.info(`${scope}: judge YAML unparseable, raw stored`);
 		return;
 	}

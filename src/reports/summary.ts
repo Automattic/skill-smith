@@ -19,9 +19,9 @@ interface Row {
 }
 
 /**
- * Render the console summary table from `${runDirectory}report.yaml`
- * and emit `RUN RESULT: PASS|FAIL` (V25, V26). Returns the process
- * exit code: 0 if every cell is PASS, 1 otherwise.
+ * Render the console summary table from `${runDirectory}/report.yaml`
+ * and emit `RUN RESULT: PASS|FAIL`. Returns the process exit code: 0
+ * if every cell is PASS, 1 otherwise.
  */
 export function printSummary(params: PrintSummaryParams): number {
 	const { runDirectory } = params;

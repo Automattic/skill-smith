@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { Paths, Scenario } from "../config/types";
-import { isDirectorySafe } from "./fs-util";
+import { isDirectorySafe } from "../util/fs";
 
 export interface EnumeratedScenario {
 	scenario: Scenario;
@@ -11,10 +11,12 @@ export interface EnumeratedScenario {
 }
 
 /**
- * Walk `paths.scenarios/*\/scenario.yaml`, parse, and validate
- * `skills[*]` and `rubrics[*]` references resolve under `paths.skills/`
- * and `paths.rubrics/` respectively. Bad refs → fail that scenario
- * with `error: "unresolved reference"`, others continue (V11).
+ * Walk `paths.scenarios/*\/scenario.yaml`, parse, and validate that
+ * `skills[*]` and `rubrics[*]` references resolve under
+ * `paths.skills/` and `paths.rubrics/` respectively.
+ *
+ * Bad refs or malformed YAML → fail that scenario with an `error`,
+ * others continue.
  */
 export function enumerateScenarios(
 	paths: Paths,
@@ -47,8 +49,17 @@ export function enumerateScenarios(
 			continue;
 		}
 
-		const scenario = normalizeScenario(parsed, entry);
+		if (!isScenarioShape(parsed)) {
+			out.push({
+				scenario: stubScenario(entry),
+				dirName: entry,
+				error:
+					"scenario.yaml malformed: expected name/description/skills/prompt/acceptance/rubrics",
+			});
+			continue;
+		}
 
+		const scenario = parsed;
 		const missing: string[] = [];
 		for (const id of scenario.skills) {
 			if (!existsSync(join(skillsRoot, id, "SKILL.md"))) {
@@ -86,22 +97,19 @@ function stubScenario(dirName: string): Scenario {
 	};
 }
 
-function strArr(v: unknown): string[] {
-	return Array.isArray(v)
-		? v.filter((x): x is string => typeof x === "string")
-		: [];
-}
-
-function normalizeScenario(raw: unknown, dirName: string): Scenario {
-	if (raw === null || typeof raw !== "object") return stubScenario(dirName);
+function isScenarioShape(raw: unknown): raw is Scenario {
+	if (raw === null || typeof raw !== "object") return false;
 	const r = raw as Record<string, unknown>;
-	return {
-		...r,
-		name: typeof r.name === "string" && r.name.length > 0 ? r.name : dirName,
-		description: typeof r.description === "string" ? r.description : "",
-		skills: strArr(r.skills),
-		prompt: typeof r.prompt === "string" ? r.prompt : "",
-		acceptance: strArr(r.acceptance),
-		rubrics: strArr(r.rubrics),
-	};
+	return (
+		typeof r.name === "string" &&
+		r.name.length > 0 &&
+		typeof r.description === "string" &&
+		Array.isArray(r.skills) &&
+		r.skills.every((s) => typeof s === "string") &&
+		typeof r.prompt === "string" &&
+		Array.isArray(r.acceptance) &&
+		r.acceptance.every((s) => typeof s === "string") &&
+		Array.isArray(r.rubrics) &&
+		r.rubrics.every((s) => typeof s === "string")
+	);
 }

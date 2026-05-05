@@ -1,20 +1,19 @@
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import type {
-	AgentSettings,
+	AgentDefinition,
 	Scenario,
 	SkillsmithConfig,
 } from "../config/types";
+import { getProvider } from "../providers/registry";
+import type { Tool } from "../providers/types";
+import { loadSkill } from "../scenarios/skill-loader";
+import type { RunLog } from "../util/run-log";
 import type { TestingAgentResult } from "./agent-loop";
-import type { AgentAlias } from "./agent-normalize";
-import type { RunLog } from "./run-log";
-import { logUnplumbedSettings, runSdkQuery } from "./sdk-query";
-import { loadSkill } from "./skill-loader";
 
 export interface RunTestingAgentParams {
 	scenario: Scenario;
-	settings: AgentSettings;
-	alias: AgentAlias;
+	agent: AgentDefinition;
 	agentWorkspace: string;
 	projectRoot: string;
 	config: SkillsmithConfig;
@@ -22,32 +21,26 @@ export interface RunTestingAgentParams {
 }
 
 const TOOL_USE_WARNING_THRESHOLD = 50;
+const TESTING_TOOLS: readonly Tool[] = [
+	"Read",
+	"Write",
+	"Edit",
+	"Glob",
+	"Grep",
+	"Bash",
+];
 
 /**
- * Run the testing sub-agent for one (scenario, alias) pair (V2, V17,
- * V19, V20, V22). The system context is the skill blob (V28), the
- * pre-existing workspace contents, a workspace
- * constraint, and a recursion-decline note. The user message is
+ * Run the testing sub-agent for one (scenario, agent) pair. The system
+ * prompt carries the skill blob, a snapshot of the workspace, a write
+ * constraint, and a recursion guard. The user message is
  * `scenario.prompt` verbatim.
- *
- * Returns the final assistant text, the count of tool uses, and the
- * list of files added/modified in `agentWorkspace`.
  */
 export async function runTestingAgent(
 	params: RunTestingAgentParams,
 ): Promise<TestingAgentResult> {
-	const {
-		scenario,
-		settings,
-		alias,
-		agentWorkspace,
-		projectRoot,
-		config,
-		log,
-	} = params;
-	const scope = `scenario:${scenario.name}/agent:${alias}`;
-
-	logUnplumbedSettings(settings, scope, log);
+	const { scenario, agent, agentWorkspace, projectRoot, config, log } = params;
+	const scope = `scenario:${scenario.name}/agent:${agent.id}`;
 
 	const skillsRoot = resolve(projectRoot, config.paths.skills);
 	const skillBlob = scenario.skills
@@ -71,52 +64,40 @@ export async function runTestingAgent(
 		"You are running inside the skillsmith harness. Do not invoke `skillsmith` or any wrapper that would re-enter the harness.",
 	].join("\n");
 
-	if (process.env.SKILLSMITH_DRY_RUN === "1") {
-		writeFileSync(
-			join(agentWorkspace, "dry-run.txt"),
-			`dry run for ${alias}\n`,
-		);
-		const filesWritten = diffSnapshots(
-			before,
-			snapshotWorkspace(agentWorkspace),
-		);
-		log.info(
-			`testing-agent (${scope}): DRY_RUN files-written=[${filesWritten.join(", ")}]`,
-		);
-		return { finalText: "dry run", toolUseCount: 0, filesWritten };
-	}
+	log.info(
+		`testing-agent starting (${scope}): provider=${agent.provider} model=${agent.model}`,
+	);
 
-	log.info(`testing-agent starting (${scope}): model=${settings.model}`);
-
-	const sdk = await runSdkQuery({
-		prompt: scenario.prompt,
+	const provider = getProvider(agent.provider);
+	const result = await provider.invoke({
+		agent,
 		systemPrompt,
-		model: settings.model,
+		prompt: scenario.prompt,
 		cwd: agentWorkspace,
-		tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+		tools: TESTING_TOOLS,
 	});
 
-	if (sdk.toolUseCount > TOOL_USE_WARNING_THRESHOLD) {
+	if (result.toolUseCount > TOOL_USE_WARNING_THRESHOLD) {
 		log.info(
-			`tool-use warning (${scope}): ${sdk.toolUseCount} > ${TOOL_USE_WARNING_THRESHOLD}`,
+			`tool-use warning (${scope}): ${result.toolUseCount} > ${TOOL_USE_WARNING_THRESHOLD}`,
 		);
 	}
 
 	const filesWritten = diffSnapshots(before, snapshotWorkspace(agentWorkspace));
 
 	log.info(
-		`testing-agent (${scope}): tool-uses=${sdk.toolUseCount} files-written=[${filesWritten.join(", ")}]${
-			sdk.error ? ` error=${sdk.error}` : ""
+		`testing-agent (${scope}): tool-uses=${result.toolUseCount} files-written=[${filesWritten.join(", ")}]${
+			result.error ? ` error=${result.error}` : ""
 		}`,
 	);
 
-	const result: TestingAgentResult = {
-		finalText: sdk.finalText,
-		toolUseCount: sdk.toolUseCount,
+	const out: TestingAgentResult = {
+		finalText: result.finalText,
+		toolUseCount: result.toolUseCount,
 		filesWritten,
 	};
-	if (sdk.error !== undefined) result.error = sdk.error;
-	return result;
+	if (result.error !== undefined) out.error = result.error;
+	return out;
 }
 
 interface FileEntry {

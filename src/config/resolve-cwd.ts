@@ -1,6 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { isDirectorySafe } from "./fs-util";
+import { isDirectorySafe } from "../util/fs";
 
 export const CONFIG_FILENAME = "skillsmith.config.ts";
 
@@ -9,7 +9,7 @@ export interface ResolveCwdResult {
 }
 
 /**
- * Resolve the project-under-test root per run.md §0.
+ * Locate the project-under-test root.
  *
  * - If `${cwd}/skillsmith.config.ts` exists → already there.
  * - Else, if exactly one immediate child directory contains it → use that.

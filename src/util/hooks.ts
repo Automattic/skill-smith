@@ -4,9 +4,8 @@ import type { RunLog } from "./run-log";
 /**
  * Try-fire a project hook. The harness never crashes on a hook —
  * undefined hooks are recorded as `noop`, throwing hooks as `error`,
- * everything else as `invoked` (V8). Always-fire semantics for
- * `after*` hooks (V9) come from the call site running this in a
- * `finally` block.
+ * everything else as `invoked`. Always-fire semantics for `after*`
+ * hooks come from call sites that wrap this in `finally`.
  */
 export async function tryHook<Ctx>(
 	name: string,

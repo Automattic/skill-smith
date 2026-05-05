@@ -4,10 +4,10 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 const MD_LINK_RE = /\[(?:[^\]]*?)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 
 /**
- * Load a skill's full text per V28: the SKILL.md plus every md-linked
- * file under the skill directory, verbatim. Output is a single
- * concatenated blob with `=== <skill-id>/<rel-path> ===` headers per
- * file. Cycles and external/absolute links are ignored.
+ * Load a skill's full text: SKILL.md plus every md-linked file under
+ * the skill directory, verbatim. Output is a single concatenated blob
+ * with `=== <skill-id>/<rel-path> ===` headers per file. Cycles and
+ * external/absolute links are ignored.
  */
 export function loadSkill(skillId: string, skillsRoot: string): string {
 	const skillDir = resolve(skillsRoot, skillId);

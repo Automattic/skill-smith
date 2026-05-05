@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 
 /**
- * `statSync(p).isDirectory()` with the EACCES/ENOENT/etc. surface area
+ * `statSync(p).isDirectory()` with the EACCES/ENOENT surface area
  * collapsed to `false`. Used by directory walks where the only question
  * is "should I descend into this entry".
  */

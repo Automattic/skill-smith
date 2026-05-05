@@ -1,5 +1,5 @@
-import { PreconditionError, resolveProjectRoot } from "./internal/cwd";
-import { runPipeline } from "./internal/pipeline";
+import { PreconditionError, resolveProjectRoot } from "./config/resolve-cwd";
+import { runPipeline } from "./pipeline/pipeline";
 
 export interface RunOptions {
 	cwd?: string;
@@ -14,8 +14,8 @@ function makeRunId(now: Date = new Date()): string {
 }
 
 /**
- * Entrypoint for the `skillsmith` CLI. Returns a process exit code.
- * On precondition failure prints the reason list and exits 1 (V21).
+ * Entrypoint for the `skillsmith` CLI. Returns a process exit code:
+ * 0 on all-pass, 1 on any failure or precondition error.
  */
 export async function run(options: RunOptions = {}): Promise<number> {
 	try {

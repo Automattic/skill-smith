@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import type { ScenarioRunRecord } from "./pipeline";
+import type { ScenarioRunRecord } from "../pipeline/pipeline";
 
 export interface AggregateRunReportParams {
 	runDirectory: string;
@@ -10,8 +10,8 @@ export interface AggregateRunReportParams {
 }
 
 /**
- * Aggregate every `${runDirectory}<scenario>/report.yaml` into
- * `${runDirectory}report.yaml` (V24). A missing scenario report →
+ * Aggregate every `${runDirectory}/<scenario>/report.yaml` into
+ * `${runDirectory}/report.yaml`. A missing scenario report →
  * `error: "missing scenario report"` for that slot.
  */
 export function aggregateRunReport(params: AggregateRunReportParams): void {

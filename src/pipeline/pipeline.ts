@@ -1,19 +1,22 @@
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import { loadConfig } from "../config/load";
+import { PreconditionError } from "../config/resolve-cwd";
 import type {
 	RunContext,
 	ScenarioContext,
 	SkillsmithConfig,
 } from "../config/types";
+import { aggregateRunReport } from "../reports/run-report";
+import { aggregateScenarioReport } from "../reports/scenario-report";
+import { printSummary } from "../reports/summary";
+import {
+	type EnumeratedScenario,
+	enumerateScenarios,
+} from "../scenarios/enumerate";
+import { tryHook } from "../util/hooks";
+import { RunLog } from "../util/run-log";
 import { runAgents } from "./agent-loop";
-import { loadConfig } from "./config-loader";
-import { PreconditionError } from "./cwd";
-import { tryHook } from "./hooks";
-import { RunLog } from "./run-log";
-import { aggregateRunReport } from "./run-report";
-import { aggregateScenarioReport } from "./scenario-report";
-import { type EnumeratedScenario, enumerateScenarios } from "./scenarios";
-import { printSummary } from "./summary";
 
 export interface PipelineParams {
 	projectRoot: string;
@@ -29,11 +32,8 @@ export interface ScenarioRunRecord {
 
 /**
  * Top-level pipeline: load config, validate preconditions, enumerate
- * scenarios, fan out the scenario loop in parallel (T6/V7), aggregate
- * the run report (T13), then print the summary (T14).
- *
- * T6 wires only the scenario-loop scaffold — agent dispatch + report
- * aggregation are filled in by T7–T14 in their own modules.
+ * scenarios, fan out the scenario loop in parallel, aggregate the run
+ * report, then print the summary.
  */
 export async function runPipeline(params: PipelineParams): Promise<number> {
 	const { projectRoot, runId } = params;

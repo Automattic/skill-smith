@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { loadSkill } from "../skill-loader";
+import { loadSkill } from "../scenarios/skill-loader";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const skillsRoot = join(here, "fixtures", "skills");
 
-test("V28: loads SKILL.md and follows md-links inside the skill dir", () => {
+test("loads SKILL.md and follows md-links inside the skill dir", () => {
 	const blob = loadSkill("multi", skillsRoot);
 
 	assert.match(blob, /=== multi\/SKILL\.md ===/);
@@ -17,10 +17,9 @@ test("V28: loads SKILL.md and follows md-links inside the skill dir", () => {
 	assert.equal(skillHeaderCount, 1, "no cycles");
 });
 
-test("V28: ignores external URLs and out-of-skill paths", () => {
+test("ignores external URLs and out-of-skill paths", () => {
 	const blob = loadSkill("multi", skillsRoot);
 
-	// External + out-of-skill paths must not produce a `=== ... ===` section.
 	const sections = blob.match(/===.*?===/g) ?? [];
 	const allowed = new Set([
 		"=== multi/SKILL.md ===",
