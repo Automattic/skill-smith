@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "skillsmith";
 
 const PROJECT_ROOT = dirname(fileURLToPath(import.meta.url));
-const BLOCK_NAME = "testing-block";
+const BLOCK_NAME = "skillsmith/testing-block";
 const SLUG_PATTERN = /^[a-z0-9-]+$/;
 
 function pluginSlug(scenarioName: string, agentId: string): string {
@@ -58,6 +58,14 @@ add_action(
 `;
 }
 
+function agentsMd(slug: string): string {
+	return `# Workspace instructions
+
+A WordPress plugin scaffold lives at \`${slug}/\`. Implement the requested work inside this scaffold — do not create a new plugin or rename the existing one.
+A block named \`${BLOCK_NAME}\` lives at \`${slug}/src/blocks/testing-block/\` and is registered in \`${slug}/index.php\`. Implement the block as needed for the task, but do not change the block name or registration mechanism.
+`;
+}
+
 function blockJson(): string {
 	return `${JSON.stringify(
 		{
@@ -66,7 +74,6 @@ function blockJson(): string {
 			name: BLOCK_NAME,
 			title: "Testing Block",
 			category: "widgets",
-			textdomain: "testing-plugin",
 		},
 		null,
 		2,
@@ -97,6 +104,7 @@ export default defineConfig({
 			mkdirSync(blockDir, { recursive: true });
 			writeFileSync(join(pluginDir, "index.php"), pluginIndexPhp(slug));
 			writeFileSync(join(blockDir, "block.json"), blockJson());
+			writeFileSync(join(agentWorkspace, "AGENTS.md"), agentsMd(slug));
 		},
 
 		afterAll: ({ runId, config }) => {

@@ -1,4 +1,4 @@
-import { readdirSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import type {
 	AgentSettings,
@@ -25,9 +25,10 @@ const TOOL_USE_WARNING_THRESHOLD = 50;
 
 /**
  * Run the testing sub-agent for one (scenario, alias) pair (V2, V17,
- * V19, V20, V22). The system context is the skill blob (V28) plus a
- * workspace constraint and a recursion-decline note. The user message
- * is `scenario.prompt` verbatim.
+ * V19, V20, V22). The system context is the skill blob (V28), the
+ * pre-existing workspace contents, a workspace
+ * constraint, and a recursion-decline note. The user message is
+ * `scenario.prompt` verbatim.
  *
  * Returns the final assistant text, the count of tool uses, and the
  * list of files added/modified in `agentWorkspace`.
@@ -53,17 +54,22 @@ export async function runTestingAgent(
 		.map((id) => loadSkill(id, skillsRoot))
 		.join("\n\n");
 
+	const before = snapshotWorkspace(agentWorkspace);
+	const workspaceContents = buildWorkspaceContents(agentWorkspace, before);
+
 	const systemPrompt = [
 		skillBlob,
 		"",
 		"# Workspace constraint",
 		`Only write files under ${agentWorkspace}. Do not read or modify any files outside this directory.`,
 		"",
+		"# Workspace contents",
+		"These files already exist in your working directory before you start.",
+		workspaceContents,
+		"",
 		"# Recursion guard",
 		"You are running inside the skillsmith harness. Do not invoke `skillsmith` or any wrapper that would re-enter the harness.",
 	].join("\n");
-
-	const before = snapshotWorkspace(agentWorkspace);
 
 	if (process.env.SKILLSMITH_DRY_RUN === "1") {
 		writeFileSync(
@@ -146,6 +152,25 @@ function walk(root: string, dir: string, out: Map<string, FileEntry>): void {
 			out.set(rel, { mtimeMs: s.mtimeMs, size: s.size });
 		}
 	}
+}
+
+function buildWorkspaceContents(
+	workspace: string,
+	snapshot: Map<string, FileEntry>,
+): string {
+	const sections: string[] = [];
+	for (const rel of [...snapshot.keys()].sort()) {
+		const full = join(workspace, rel);
+		let body: string;
+		try {
+			body = readFileSync(full, "utf8");
+		} catch (err) {
+			body = `<read error: ${err instanceof Error ? err.message : String(err)}>`;
+		}
+		sections.push(`=== ${rel} ===\n${body}`);
+	}
+	if (sections.length === 0) return "(empty workspace)";
+	return sections.join("\n\n");
 }
 
 function diffSnapshots(
