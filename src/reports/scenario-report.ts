@@ -1,4 +1,10 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { isDirectorySafe } from "../util/fs";
@@ -54,6 +60,7 @@ export function aggregateScenarioReport(
 	};
 	if (scenarioError !== undefined) body.error = scenarioError;
 
+	mkdirSync(scenarioDirectory, { recursive: true });
 	const target = join(scenarioDirectory, "report.yaml");
 	writeFileSync(target, stringifyYaml(body));
 }
