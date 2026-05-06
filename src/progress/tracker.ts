@@ -1,11 +1,10 @@
-import { renderTree } from "./render";
+import { renderSnapshot } from "./render";
 import type {
-	AgentNode,
-	NodeStatus,
+	Failure,
 	PhaseName,
-	PhaseNode,
-	RunTree,
-	ScenarioNode,
+	RunCounters,
+	RunSnapshot,
+	TerminalStatus,
 } from "./types";
 
 export interface TrackerInit {
@@ -17,69 +16,106 @@ export interface TrackerOptions {
 	stream?: NodeJS.WritableStream;
 	color?: boolean;
 	/**
-	 * When true, repaints overwrite the previous snapshot in place using
-	 * ANSI cursor escapes instead of appending. Defaults to true when the
-	 * stream is a TTY. Set to false when something else may be writing to
-	 * the same stream (e.g. verbose log mirroring) — otherwise the cursor
-	 * math gets corrupted and the display garbles.
+	 * When true, repaints overwrite the prior block in place using ANSI
+	 * cursor escapes. Defaults to true when the stream is a TTY. Set
+	 * false when something else may write to the same stream (e.g.
+	 * verbose log mirroring) — otherwise the cursor math gets garbled.
 	 */
 	interactive?: boolean;
+	/**
+	 * Minimum milliseconds between repaints in interactive mode. The
+	 * first event paints immediately; subsequent events are coalesced
+	 * until the throttle elapses. `finish()` always paints. Defaults
+	 * to 200 ms.
+	 */
+	throttleMs?: number;
+	/** Override `Date.now()` — used by tests. */
+	now?: () => number;
 }
 
 export interface PhaseResult {
-	status: Extract<NodeStatus, "passed" | "failed" | "skipped">;
+	status: TerminalStatus;
 	durationMs?: number;
 	detail?: string;
 }
 
+interface ScenarioState {
+	name: string;
+	agentIds: string[];
+	skipped: boolean;
+	skipReason?: string;
+	phases: Map<string, { testing: PhaseSlot; judge: PhaseSlot }>;
+}
+
+type PhaseSlot = "pending" | "running" | "passed" | "failed" | "skipped";
+
 /**
- * Owns a `RunTree` and writes a snapshot of it to `stream` (default
- * stderr) whenever a state-change method is called. Repaints are
- * coalesced via `setImmediate` so a burst of synchronous events
- * produces a single snapshot.
+ * Owns the run's aggregate counters and failures list. Repaints a
+ * compact dashboard block to `stream` (default stderr), overwriting
+ * the prior block in interactive mode.
  */
 export class ProgressTracker {
 	private readonly stream: NodeJS.WritableStream;
 	private readonly color: boolean;
 	private readonly interactive: boolean;
-	private readonly tree: RunTree;
-	private pending: NodeJS.Immediate | null = null;
+	private readonly throttleMs: number;
+	private readonly nowFn: () => number;
+	private readonly runId: string;
+	private readonly startedAt: number;
+	private readonly scenarios: Map<string, ScenarioState>;
+	private readonly failures: Failure[] = [];
+	private finished = false;
+
+	private lastPaintAt = 0;
 	private lastPaintedLines = 0;
+	private pendingTimer: NodeJS.Timeout | null = null;
 
 	constructor(init: TrackerInit, opts: TrackerOptions = {}) {
 		this.stream = opts.stream ?? process.stderr;
 		this.color = opts.color ?? defaultColor(this.stream);
 		this.interactive = opts.interactive ?? isTty(this.stream);
-		this.tree = {
-			runId: init.runId,
-			startedAt: Date.now(),
-			scenarios: init.scenarios.map((s) => ({
-				name: s.name,
-				status: "pending",
-				agents: s.agentIds.map((id) => ({
-					id,
-					phases: [
-						{ name: "testing", status: "pending" },
-						{ name: "judge", status: "pending" },
-					],
-				})),
-			})),
-		};
+		this.throttleMs = opts.throttleMs ?? 200;
+		this.nowFn = opts.now ?? (() => Date.now());
+		this.runId = init.runId;
+		this.startedAt = this.nowFn();
+		this.scenarios = new Map(
+			init.scenarios.map((s) => [
+				s.name,
+				{
+					name: s.name,
+					agentIds: s.agentIds,
+					skipped: false,
+					phases: new Map(
+						s.agentIds.map((id) => [
+							id,
+							{ testing: "pending", judge: "pending" },
+						]),
+					),
+				},
+			]),
+		);
 	}
 
 	scenarioSkipped(name: string, reason: string): void {
 		const s = this.scenario(name);
-		s.status = "skipped";
-		s.error = reason;
-		this.scheduleRepaint();
+		if (s.skipped) return;
+		s.skipped = true;
+		s.skipReason = reason;
+		this.failures.push({
+			scenario: name,
+			agentId: "—",
+			phase: undefined,
+			detail: reason,
+		});
+		this.requestPaint();
 	}
 
 	phaseStarted(scenarioName: string, agentId: string, phase: PhaseName): void {
 		const s = this.scenario(scenarioName);
-		const p = this.phase(this.agent(s, agentId), phase);
-		p.status = "running";
-		if (s.status === "pending") s.status = "running";
-		this.scheduleRepaint();
+		if (s.skipped) return;
+		const slots = this.slots(s, agentId);
+		slots[phase] = "running";
+		this.requestPaint();
 	}
 
 	phaseFinished(
@@ -89,62 +125,150 @@ export class ProgressTracker {
 		result: PhaseResult,
 	): void {
 		const s = this.scenario(scenarioName);
-		const p = this.phase(this.agent(s, agentId), phase);
-		p.status = result.status;
-		if (result.durationMs !== undefined) p.durationMs = result.durationMs;
-		if (result.detail !== undefined) p.detail = result.detail;
-		recomputeScenarioStatus(s);
-		this.scheduleRepaint();
+		if (s.skipped) return;
+		const slots = this.slots(s, agentId);
+		slots[phase] = result.status;
+		if (result.status === "failed") {
+			this.failures.push({
+				scenario: scenarioName,
+				agentId,
+				phase,
+				detail: result.detail ?? "(no detail)",
+			});
+		}
+		this.requestPaint();
 	}
 
 	finish(): void {
-		if (this.pending) {
-			clearImmediate(this.pending);
-			this.pending = null;
+		this.finished = true;
+		if (this.pendingTimer) {
+			clearTimeout(this.pendingTimer);
+			this.pendingTimer = null;
 		}
 		this.flush();
 	}
 
-	private scheduleRepaint(): void {
-		if (this.pending) return;
-		this.pending = setImmediate(() => {
-			this.pending = null;
+	private requestPaint(): void {
+		if (this.finished) return;
+		const now = this.nowFn();
+		const sinceLast = now - this.lastPaintAt;
+		if (this.lastPaintAt === 0 || sinceLast >= this.throttleMs) {
 			this.flush();
-		});
+			return;
+		}
+		if (this.pendingTimer) return;
+		this.pendingTimer = setTimeout(
+			() => {
+				this.pendingTimer = null;
+				this.flush();
+			},
+			Math.max(0, this.throttleMs - sinceLast),
+		);
 	}
 
 	private flush(): void {
-		const snapshot = renderTree(this.tree, { color: this.color });
+		this.lastPaintAt = this.nowFn();
+		const snapshot: RunSnapshot = {
+			runId: this.runId,
+			startedAt: this.startedAt,
+			now: this.lastPaintAt,
+			counters: this.counters(),
+			failures: this.failures.slice(),
+			finished: this.finished,
+		};
+		const block = renderSnapshot(snapshot, { color: this.color });
 		if (this.interactive) {
 			const erase =
 				this.lastPaintedLines > 0
 					? `\x1b[${this.lastPaintedLines}A\x1b[0J`
 					: "";
-			this.stream.write(`${erase}${snapshot}\n`);
-			this.lastPaintedLines = snapshot.split("\n").length;
-		} else {
-			this.stream.write(`\n${snapshot}\n`);
+			this.stream.write(`${erase}${block}\n`);
+			this.lastPaintedLines = block.split("\n").length;
+		} else if (this.finished) {
+			this.stream.write(`${block}\n`);
 		}
 	}
 
-	private scenario(name: string): ScenarioNode {
-		const s = this.tree.scenarios.find((x) => x.name === name);
+	private counters(): RunCounters {
+		const sc = {
+			total: this.scenarios.size,
+			passed: 0,
+			failed: 0,
+			skipped: 0,
+			running: 0,
+			pending: 0,
+		};
+		const ph = {
+			total: 0,
+			passed: 0,
+			failed: 0,
+			skipped: 0,
+			running: 0,
+			pending: 0,
+		};
+		for (const s of this.scenarios.values()) {
+			if (s.skipped) {
+				sc.skipped++;
+				ph.total += s.agentIds.length * 2;
+				ph.skipped += s.agentIds.length * 2;
+				continue;
+			}
+			let anyRunning = false;
+			let anyTerminal = false;
+			let anyFailed = false;
+			let allTerminal = true;
+			for (const slots of s.phases.values()) {
+				ph.total += 2;
+				for (const slot of [slots.testing, slots.judge]) {
+					if (slot === "passed") {
+						ph.passed++;
+						anyTerminal = true;
+					} else if (slot === "failed") {
+						ph.failed++;
+						anyTerminal = true;
+						anyFailed = true;
+					} else if (slot === "skipped") {
+						ph.skipped++;
+						anyTerminal = true;
+					} else if (slot === "running") {
+						ph.running++;
+						anyRunning = true;
+						allTerminal = false;
+					} else {
+						ph.pending++;
+						allTerminal = false;
+					}
+				}
+			}
+			if (allTerminal) {
+				if (anyFailed) sc.failed++;
+				else sc.passed++;
+			} else if (anyRunning || anyTerminal) {
+				sc.running++;
+			} else {
+				sc.pending++;
+			}
+		}
+		return { scenarios: sc, phases: ph };
+	}
+
+	private scenario(name: string): ScenarioState {
+		const s = this.scenarios.get(name);
 		if (!s) throw new Error(`progress: unknown scenario "${name}"`);
 		return s;
 	}
 
-	private agent(s: ScenarioNode, agentId: string): AgentNode {
-		const a = s.agents.find((x) => x.id === agentId);
-		if (!a) {
+	private slots(
+		s: ScenarioState,
+		agentId: string,
+	): { testing: PhaseSlot; judge: PhaseSlot } {
+		const slots = s.phases.get(agentId);
+		if (!slots) {
 			throw new Error(
 				`progress: unknown agent "${agentId}" in scenario "${s.name}"`,
 			);
 		}
-		return a;
-	}
-
-	private phase(a: AgentNode, phase: PhaseName): PhaseNode {
-		return phase === "testing" ? a.phases[0] : a.phases[1];
+		return slots;
 	}
 }
 
@@ -155,26 +279,4 @@ function isTty(stream: NodeJS.WritableStream): boolean {
 function defaultColor(stream: NodeJS.WritableStream): boolean {
 	const noColor = process.env.NO_COLOR !== undefined;
 	return isTty(stream) && !noColor;
-}
-
-function recomputeScenarioStatus(s: ScenarioNode): void {
-	if (s.status === "skipped") return;
-	const phases = s.agents.flatMap((a) => a.phases);
-	if (phases.some((p) => p.status === "failed")) {
-		s.status = "failed";
-		return;
-	}
-	if (phases.length > 0 && phases.every((p) => p.status === "passed")) {
-		s.status = "passed";
-		return;
-	}
-	if (phases.length > 0 && phases.every((p) => p.status === "skipped")) {
-		s.status = "skipped";
-		return;
-	}
-	if (phases.some((p) => p.status !== "pending")) {
-		s.status = "running";
-		return;
-	}
-	s.status = "pending";
 }

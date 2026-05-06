@@ -1,4 +1,4 @@
-export { renderTree } from "./render";
+export { renderSnapshot } from "./render";
 export type { RenderOptions } from "./render";
 export { ProgressTracker } from "./tracker";
 export type {
@@ -7,10 +7,9 @@ export type {
 	TrackerOptions,
 } from "./tracker";
 export type {
-	AgentNode,
-	NodeStatus,
+	Failure,
 	PhaseName,
-	PhaseNode,
-	RunTree,
-	ScenarioNode,
+	RunCounters,
+	RunSnapshot,
+	TerminalStatus,
 } from "./types";
