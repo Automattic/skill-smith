@@ -149,6 +149,76 @@ test("scenarioSkipped wins over later phase events (sticky)", () => {
 	assert.match(out, /⊘ s1 {2}· {2}no rubrics/);
 });
 
+test("interactive mode: first paint omits leading newline", async () => {
+	const { stream, chunks } = captureStream();
+	const tracker = new ProgressTracker(
+		{ runId: "r1", scenarios: [{ name: "s1", agentIds: ["sonnet"] }] },
+		{ stream, color: false, interactive: true },
+	);
+
+	tracker.phaseStarted("s1", "sonnet", "testing");
+	await nextTick();
+
+	assert.equal(chunks.length, 1);
+	assert.ok(
+		!chunks[0]?.startsWith("\n"),
+		"first interactive paint should not lead with a blank line",
+	);
+	assert.ok(
+		!chunks[0]?.startsWith("\x1b["),
+		"first paint has no prior block to erase",
+	);
+});
+
+test("interactive mode: subsequent paints erase the prior block in place", async () => {
+	const { stream, chunks } = captureStream();
+	const tracker = new ProgressTracker(
+		{ runId: "r1", scenarios: [{ name: "s1", agentIds: ["sonnet"] }] },
+		{ stream, color: false, interactive: true },
+	);
+
+	tracker.phaseStarted("s1", "sonnet", "testing");
+	await nextTick();
+	const firstPaint = chunks[0] ?? "";
+	const firstLineCount = firstPaint.replace(/\n$/, "").split("\n").length;
+
+	tracker.phaseFinished("s1", "sonnet", "testing", {
+		status: "passed",
+		durationMs: 100,
+	});
+	await nextTick();
+
+	assert.equal(chunks.length, 2);
+	const second = chunks[1] ?? "";
+	const eraseRe = new RegExp(`^\\x1b\\[${firstLineCount}A\\x1b\\[0J`);
+	assert.match(second, eraseRe);
+});
+
+test("non-interactive mode keeps appending with leading newline", async () => {
+	const { stream, chunks } = captureStream();
+	const tracker = new ProgressTracker(
+		{ runId: "r1", scenarios: [{ name: "s1", agentIds: ["sonnet"] }] },
+		{ stream, color: false, interactive: false },
+	);
+
+	tracker.phaseStarted("s1", "sonnet", "testing");
+	await nextTick();
+	tracker.phaseFinished("s1", "sonnet", "testing", {
+		status: "passed",
+		durationMs: 10,
+	});
+	await nextTick();
+
+	assert.equal(chunks.length, 2);
+	for (const c of chunks) {
+		assert.ok(c.startsWith("\n"), "non-interactive paints lead with newline");
+		assert.ok(
+			!c.includes("\x1b["),
+			"non-interactive paints emit no cursor escapes",
+		);
+	}
+});
+
 test("throws on unknown scenario", () => {
 	const { stream } = captureStream();
 	const tracker = new ProgressTracker(

@@ -67,13 +67,16 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		log.info(`  - ${s.scenario.name}${s.error ? ` [error: ${s.error}]` : ""}`);
 	}
 
-	const tracker = new ProgressTracker({
-		runId,
-		scenarios: scenarios.map((s) => ({
-			name: s.scenario.name,
-			agentIds: config.agents.testing.map((a) => a.id),
-		})),
-	});
+	const tracker = new ProgressTracker(
+		{
+			runId,
+			scenarios: scenarios.map((s) => ({
+				name: s.scenario.name,
+				agentIds: config.agents.testing.map((a) => a.id),
+			})),
+		},
+		verbose ? { interactive: false } : {},
+	);
 	for (const s of scenarios) {
 		if (s.error !== undefined) {
 			tracker.scenarioSkipped(s.scenario.name, s.error);

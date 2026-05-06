@@ -16,6 +16,14 @@ export interface TrackerInit {
 export interface TrackerOptions {
 	stream?: NodeJS.WritableStream;
 	color?: boolean;
+	/**
+	 * When true, repaints overwrite the previous snapshot in place using
+	 * ANSI cursor escapes instead of appending. Defaults to true when the
+	 * stream is a TTY. Set to false when something else may be writing to
+	 * the same stream (e.g. verbose log mirroring) — otherwise the cursor
+	 * math gets corrupted and the display garbles.
+	 */
+	interactive?: boolean;
 }
 
 export interface PhaseResult {
@@ -33,12 +41,15 @@ export interface PhaseResult {
 export class ProgressTracker {
 	private readonly stream: NodeJS.WritableStream;
 	private readonly color: boolean;
+	private readonly interactive: boolean;
 	private readonly tree: RunTree;
 	private pending: NodeJS.Immediate | null = null;
+	private lastPaintedLines = 0;
 
 	constructor(init: TrackerInit, opts: TrackerOptions = {}) {
 		this.stream = opts.stream ?? process.stderr;
 		this.color = opts.color ?? defaultColor(this.stream);
+		this.interactive = opts.interactive ?? isTty(this.stream);
 		this.tree = {
 			runId: init.runId,
 			startedAt: Date.now(),
@@ -103,7 +114,17 @@ export class ProgressTracker {
 	}
 
 	private flush(): void {
-		this.stream.write(`\n${renderTree(this.tree, { color: this.color })}\n`);
+		const snapshot = renderTree(this.tree, { color: this.color });
+		if (this.interactive) {
+			const erase =
+				this.lastPaintedLines > 0
+					? `\x1b[${this.lastPaintedLines}A\x1b[0J`
+					: "";
+			this.stream.write(`${erase}${snapshot}\n`);
+			this.lastPaintedLines = snapshot.split("\n").length;
+		} else {
+			this.stream.write(`\n${snapshot}\n`);
+		}
 	}
 
 	private scenario(name: string): ScenarioNode {
@@ -127,11 +148,13 @@ export class ProgressTracker {
 	}
 }
 
+function isTty(stream: NodeJS.WritableStream): boolean {
+	return "isTTY" in stream && (stream as { isTTY?: boolean }).isTTY === true;
+}
+
 function defaultColor(stream: NodeJS.WritableStream): boolean {
-	const isTty =
-		"isTTY" in stream && (stream as { isTTY?: boolean }).isTTY === true;
 	const noColor = process.env.NO_COLOR !== undefined;
-	return isTty && !noColor;
+	return isTty(stream) && !noColor;
 }
 
 function recomputeScenarioStatus(s: ScenarioNode): void {
