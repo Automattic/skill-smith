@@ -1,195 +1,281 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderTree } from "../progress/render";
-import type { AgentNode, RunTree, ScenarioNode } from "../progress/types";
+import { renderSnapshot } from "../progress/render";
+import type { Failure, RunSnapshot } from "../progress/types";
 
-function agent(id: string, phases: AgentNode["phases"]): AgentNode {
-	return { id, phases };
+function snap(overrides: Partial<RunSnapshot> = {}): RunSnapshot {
+	return {
+		runId: "20260506-170805",
+		startedAt: 0,
+		now: 0,
+		counters: {
+			scenarios: {
+				total: 0,
+				passed: 0,
+				failed: 0,
+				skipped: 0,
+				running: 0,
+				pending: 0,
+			},
+			phases: {
+				total: 0,
+				passed: 0,
+				failed: 0,
+				skipped: 0,
+				running: 0,
+				pending: 0,
+			},
+		},
+		failures: [],
+		finished: false,
+		...overrides,
+	};
 }
 
-function pendingAgent(id: string): AgentNode {
-	return agent(id, [
-		{ name: "testing", status: "pending" },
-		{ name: "judge", status: "pending" },
-	]);
-}
-
-function scenario(
-	name: string,
-	status: ScenarioNode["status"],
-	agents: AgentNode[],
-	error?: string,
-): ScenarioNode {
-	return error === undefined
-		? { name, status, agents }
-		: { name, status, agents, error };
-}
-
-function tree(scenarios: ScenarioNode[]): RunTree {
-	return { runId: "r1", startedAt: 0, scenarios };
-}
-
-test("renders all-pending tree", () => {
-	const t = tree([
-		scenario("s1", "pending", [pendingAgent("sonnet"), pendingAgent("opus")]),
-		scenario("s2", "pending", [pendingAgent("sonnet"), pendingAgent("opus")]),
-	]);
-
-	const expected = [
-		"skillsmith run r1",
-		"└─ scenarios (2)",
-		"   ├─ ◯ s1",
-		"   │  ├─ ◯ sonnet  testing ◯  judge ◯",
-		"   │  └─ ◯ opus    testing ◯  judge ◯",
-		"   └─ ◯ s2",
-		"      ├─ ◯ sonnet  testing ◯  judge ◯",
-		"      └─ ◯ opus    testing ◯  judge ◯",
-	].join("\n");
-
-	assert.equal(renderTree(t), expected);
-});
-
-test("renders mixed-running tree with durations", () => {
-	const t = tree([
-		scenario("s1", "running", [
-			agent("sonnet", [
-				{ name: "testing", status: "passed", durationMs: 12300 },
-				{ name: "judge", status: "running" },
-			]),
-			agent("opus", [
-				{ name: "testing", status: "running" },
-				{ name: "judge", status: "pending" },
-			]),
-		]),
-	]);
-
-	const expected = [
-		"skillsmith run r1",
-		"└─ scenarios (1)",
-		"   └─ ◐ s1",
-		"      ├─ ◐ sonnet  testing ✓ 12.3s  judge ◐",
-		"      └─ ◐ opus    testing ◐  judge ◯",
-	].join("\n");
-
-	assert.equal(renderTree(t), expected);
-});
-
-test("renders all-passed tree with sub-second formatting", () => {
-	const t = tree([
-		scenario("s1", "passed", [
-			agent("sonnet", [
-				{ name: "testing", status: "passed", durationMs: 12300 },
-				{ name: "judge", status: "passed", durationMs: 800 },
-			]),
-		]),
-	]);
-
-	const expected = [
-		"skillsmith run r1",
-		"└─ scenarios (1)",
-		"   └─ ✓ s1",
-		"      └─ ✓ sonnet  testing ✓ 12.3s  judge ✓ 800ms",
-	].join("\n");
-
-	assert.equal(renderTree(t), expected);
-});
-
-test("renders one-failed-with-detail (truncates long detail)", () => {
-	const t = tree([
-		scenario("s1", "failed", [
-			agent("sonnet", [
-				{ name: "testing", status: "passed", durationMs: 12300 },
-				{
-					name: "judge",
-					status: "failed",
-					detail: "rubric preserves-dates not pass",
+test("renders header, two bars, elapsed and ETA when running", () => {
+	const out = renderSnapshot(
+		snap({
+			startedAt: 0,
+			now: 4 * 60_000 + 12_000,
+			counters: {
+				scenarios: {
+					total: 45,
+					passed: 10,
+					failed: 2,
+					skipped: 0,
+					running: 1,
+					pending: 32,
 				},
-			]),
-		]),
-	]);
+				phases: {
+					total: 135,
+					passed: 25,
+					failed: 6,
+					skipped: 0,
+					running: 2,
+					pending: 102,
+				},
+			},
+		}),
+		{ barWidth: 30 },
+	);
 
-	const expected = [
-		"skillsmith run r1",
-		"└─ scenarios (1)",
-		"   └─ ✗ s1",
-		"      └─ ✗ sonnet  testing ✓ 12.3s  judge ✗ (rubric preserves-dates not pass)",
-	].join("\n");
-
-	assert.equal(renderTree(t), expected);
+	const lines = out.split("\n");
+	assert.equal(lines[0], "skillsmith run 20260506-170805");
+	assert.match(lines[1] ?? "", /^scenarios  /);
+	assert.match(lines[1] ?? "", /12\/45/);
+	assert.match(lines[1] ?? "", /pass 10 · fail 2 · run 1/);
+	assert.match(lines[2] ?? "", /^phases     /);
+	assert.match(lines[2] ?? "", /31\/135/);
+	assert.match(lines[3] ?? "", /^elapsed 04:12   ETA ~/);
 });
 
-test("renders skipped scenario with reason and no agent rows", () => {
-	const t = tree([
-		scenario(
-			"s1",
-			"skipped",
-			[pendingAgent("sonnet"), pendingAgent("opus")],
-			"rubric file missing",
-		),
-	]);
-
-	const expected = [
-		"skillsmith run r1",
-		"└─ scenarios (1)",
-		"   └─ ⊘ s1  ·  rubric file missing",
-	].join("\n");
-
-	assert.equal(renderTree(t), expected);
+test("bar fill scales with done/total", () => {
+	const half = renderSnapshot(
+		snap({
+			counters: {
+				scenarios: {
+					total: 10,
+					passed: 5,
+					failed: 0,
+					skipped: 0,
+					running: 0,
+					pending: 5,
+				},
+				phases: {
+					total: 20,
+					passed: 10,
+					failed: 0,
+					skipped: 0,
+					running: 0,
+					pending: 10,
+				},
+			},
+		}),
+		{ barWidth: 10 },
+	);
+	const scenarioBar = half.split("\n")[1] ?? "";
+	const filled = (scenarioBar.match(/█/g) ?? []).length;
+	const empty = (scenarioBar.match(/░/g) ?? []).length;
+	assert.equal(filled, 5);
+	assert.equal(empty, 5);
 });
 
-test("derives agent status from phases (failed wins, skipped requires both)", () => {
-	const t = tree([
-		scenario("s1", "failed", [
-			// failed wins over skipped
-			agent("a-failed", [
-				{ name: "testing", status: "failed" },
-				{ name: "judge", status: "skipped" },
-			]),
-			// fully skipped
-			agent("a-skipped", [
-				{ name: "testing", status: "skipped" },
-				{ name: "judge", status: "skipped" },
-			]),
-			// passed + pending → running (transient between phases)
-			agent("a-mixed", [
-				{ name: "testing", status: "passed" },
-				{ name: "judge", status: "pending" },
-			]),
-		]),
-	]);
-
-	const expected = [
-		"skillsmith run r1",
-		"└─ scenarios (1)",
-		"   └─ ✗ s1",
-		"      ├─ ✗ a-failed   testing ✗  judge ⊘",
-		"      ├─ ⊘ a-skipped  testing ⊘  judge ⊘",
-		"      └─ ◐ a-mixed    testing ✓  judge ◯",
-	].join("\n");
-
-	assert.equal(renderTree(t), expected);
+test("zero-total bars render as fully empty", () => {
+	const out = renderSnapshot(snap({}), { barWidth: 8 });
+	const scenarioBar = out.split("\n")[1] ?? "";
+	assert.match(scenarioBar, /░{8}/);
 });
 
-test("color: true wraps status glyphs in ANSI escape codes", () => {
-	const t = tree([
-		scenario("s1", "passed", [
-			agent("sonnet", [
-				{ name: "testing", status: "passed", durationMs: 12300 },
-				{ name: "judge", status: "passed", durationMs: 3800 },
-			]),
-		]),
-	]);
+test("finished snapshot says 'done' and omits ETA", () => {
+	const out = renderSnapshot(
+		snap({
+			startedAt: 0,
+			now: 16 * 60_000 + 48_000,
+			finished: true,
+			counters: {
+				scenarios: {
+					total: 45,
+					passed: 41,
+					failed: 3,
+					skipped: 1,
+					running: 0,
+					pending: 0,
+				},
+				phases: {
+					total: 135,
+					passed: 128,
+					failed: 6,
+					skipped: 1,
+					running: 0,
+					pending: 0,
+				},
+			},
+		}),
+	);
+	assert.match(out, /elapsed 16:48   done/);
+	assert.doesNotMatch(out, /ETA/);
+});
 
-	const colored = renderTree(t, { color: true });
-	const plain = renderTree(t);
+test("renders failures block with aligned columns", () => {
+	const failures: Failure[] = [
+		{
+			scenario: "follow-instructions",
+			agentId: "opus",
+			phase: "judge",
+			detail: 'rubric "no-emojis" not pass',
+		},
+		{
+			scenario: "no-emojis",
+			agentId: "sonnet",
+			phase: "testing",
+			detail: "agent timeout after 60s",
+		},
+	];
+	const out = renderSnapshot(
+		snap({
+			counters: {
+				scenarios: {
+					total: 45,
+					passed: 10,
+					failed: 2,
+					skipped: 0,
+					running: 0,
+					pending: 33,
+				},
+				phases: {
+					total: 135,
+					passed: 25,
+					failed: 6,
+					skipped: 0,
+					running: 0,
+					pending: 104,
+				},
+			},
+			failures,
+		}),
+	);
+
+	assert.match(out, /\nfailures \(2\):\n/);
+	assert.match(
+		out,
+		/✗ follow-instructions {2}opus {4}judge {4}rubric "no-emojis" not pass/,
+	);
+	assert.match(
+		out,
+		/✗ no-emojis {12}sonnet {2}testing {2}agent timeout after 60s/,
+	);
+});
+
+test("no failures: omits failures section entirely", () => {
+	const out = renderSnapshot(
+		snap({
+			counters: {
+				scenarios: {
+					total: 3,
+					passed: 3,
+					failed: 0,
+					skipped: 0,
+					running: 0,
+					pending: 0,
+				},
+				phases: {
+					total: 6,
+					passed: 6,
+					failed: 0,
+					skipped: 0,
+					running: 0,
+					pending: 0,
+				},
+			},
+			finished: true,
+		}),
+	);
+	assert.doesNotMatch(out, /failures/);
+});
+
+test("color: true wraps the cross glyph in red ANSI", () => {
+	const out = renderSnapshot(
+		snap({
+			counters: {
+				scenarios: {
+					total: 1,
+					passed: 0,
+					failed: 1,
+					skipped: 0,
+					running: 0,
+					pending: 0,
+				},
+				phases: {
+					total: 2,
+					passed: 0,
+					failed: 1,
+					skipped: 1,
+					running: 0,
+					pending: 0,
+				},
+			},
+			failures: [
+				{
+					scenario: "s",
+					agentId: "a",
+					phase: "judge",
+					detail: "boom",
+				},
+			],
+			finished: true,
+		}),
+		{ color: true },
+	);
 
 	const ESC = String.fromCharCode(27);
-	assert.ok(
-		colored.includes(`${ESC}[32m✓${ESC}[0m`),
-		"expected green-wrapped check glyph",
-	);
-	assert.ok(!plain.includes(ESC), "expected no escape codes when color off");
+	assert.ok(out.includes(`${ESC}[31m✗${ESC}[0m`), "expected red cross glyph");
+});
 
-	const ansiPattern = new RegExp(`${ESC}\\[\\d+m`, "g");
-	assert.equal(colored.replace(ansiPattern, ""), plain);
+test("formats hh:mm:ss when run exceeds an hour", () => {
+	const out = renderSnapshot(
+		snap({
+			startedAt: 0,
+			now: (1 * 3600 + 23 * 60 + 7) * 1000,
+			finished: true,
+			counters: {
+				scenarios: {
+					total: 1,
+					passed: 1,
+					failed: 0,
+					skipped: 0,
+					running: 0,
+					pending: 0,
+				},
+				phases: {
+					total: 2,
+					passed: 2,
+					failed: 0,
+					skipped: 0,
+					running: 0,
+					pending: 0,
+				},
+			},
+		}),
+	);
+	assert.match(out, /elapsed 1:23:07   done/);
 });
