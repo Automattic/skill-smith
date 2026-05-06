@@ -22,6 +22,7 @@ import { runAgents } from "./agent-loop";
 export interface PipelineParams {
 	projectRoot: string;
 	runId: string;
+	verbose?: boolean;
 }
 
 export interface ScenarioRunRecord {
@@ -37,14 +38,14 @@ export interface ScenarioRunRecord {
  * report, then print the summary.
  */
 export async function runPipeline(params: PipelineParams): Promise<number> {
-	const { projectRoot, runId } = params;
+	const { projectRoot, runId, verbose } = params;
 
 	const config = await loadConfig(projectRoot);
 	checkPaths(config, projectRoot);
 
 	const runDirectory = resolve(projectRoot, config.paths.base, runId);
 
-	const log = new RunLog();
+	const log = new RunLog({ mirrorStderr: verbose ?? false });
 	log.header(`skillsmith run ${runId}`);
 	log.info(`projectRoot=${projectRoot}`);
 	log.info(`runDirectory=${runDirectory}`);

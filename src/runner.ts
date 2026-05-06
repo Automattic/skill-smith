@@ -3,6 +3,7 @@ import { runPipeline } from "./pipeline/pipeline";
 
 export interface RunOptions {
 	cwd?: string;
+	verbose?: boolean;
 }
 
 function makeRunId(now: Date = new Date()): string {
@@ -20,7 +21,11 @@ function makeRunId(now: Date = new Date()): string {
 export async function run(options: RunOptions = {}): Promise<number> {
 	try {
 		const { projectRoot } = resolveProjectRoot(options.cwd ?? process.cwd());
-		return await runPipeline({ projectRoot, runId: makeRunId() });
+		return await runPipeline({
+			projectRoot,
+			runId: makeRunId(),
+			verbose: options.verbose ?? false,
+		});
 	} catch (err) {
 		if (err instanceof PreconditionError) {
 			console.error(err.message);
