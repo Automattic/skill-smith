@@ -7,6 +7,7 @@ import type {
 	ScenarioContext,
 	SkillsmithConfig,
 } from "../config/types";
+import { ProgressTracker } from "../progress";
 import { aggregateRunReport } from "../reports/run-report";
 import { aggregateScenarioReport } from "../reports/scenario-report";
 import { printSummary } from "../reports/summary";
@@ -65,15 +66,36 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		log.info(`  - ${s.scenario.name}${s.error ? ` [error: ${s.error}]` : ""}`);
 	}
 
+	const tracker = new ProgressTracker({
+		runId,
+		scenarios: scenarios.map((s) => ({
+			name: s.scenario.name,
+			agentIds: config.agents.testing.map((a) => a.id),
+		})),
+	});
+	for (const s of scenarios) {
+		if (s.error !== undefined) {
+			tracker.scenarioSkipped(s.scenario.name, s.error);
+		}
+	}
+
 	let scenarioRecords: ScenarioRunRecord[];
 	try {
 		scenarioRecords = await Promise.all(
 			scenarios.map((s) =>
-				runScenario(s, { runId, config, projectRoot, runDirectory, log }),
+				runScenario(s, {
+					runId,
+					config,
+					projectRoot,
+					runDirectory,
+					log,
+					tracker,
+				}),
 			),
 		);
 	} finally {
 		await tryHook("afterAll", "run", config.hooks?.afterAll, runCtx, log);
+		tracker.finish();
 	}
 
 	aggregateRunReport({
@@ -93,6 +115,7 @@ interface ScenarioRunArgs {
 	projectRoot: string;
 	runDirectory: string;
 	log: RunLog;
+	tracker: ProgressTracker;
 }
 
 async function runScenario(
@@ -130,6 +153,7 @@ async function runScenario(
 				runId: args.runId,
 				projectRoot: args.projectRoot,
 				log: args.log,
+				tracker: args.tracker,
 			});
 		}
 

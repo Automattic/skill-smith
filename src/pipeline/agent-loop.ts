@@ -7,6 +7,7 @@ import type {
 	Scenario,
 	SkillsmithConfig,
 } from "../config/types";
+import type { ProgressTracker } from "../progress";
 import { tryHook } from "../util/hooks";
 import type { RunLog } from "../util/run-log";
 import { runJudgeAgent } from "./judge-agent";
@@ -19,6 +20,7 @@ export interface RunAgentsParams {
 	runId: string;
 	projectRoot: string;
 	log: RunLog;
+	tracker: ProgressTracker;
 }
 
 export interface TestingAgentResult {
@@ -34,8 +36,15 @@ export interface TestingAgentResult {
  * parallel across testing entries.
  */
 export async function runAgents(params: RunAgentsParams): Promise<void> {
-	const { scenario, scenarioDirectory, config, runId, projectRoot, log } =
-		params;
+	const {
+		scenario,
+		scenarioDirectory,
+		config,
+		runId,
+		projectRoot,
+		log,
+		tracker,
+	} = params;
 
 	await Promise.all(
 		config.agents.testing.map((agent) =>
@@ -47,6 +56,7 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 				runId,
 				projectRoot,
 				log,
+				tracker,
 			}),
 		),
 	);
@@ -60,6 +70,7 @@ interface RunAgentPairParams {
 	runId: string;
 	projectRoot: string;
 	log: RunLog;
+	tracker: ProgressTracker;
 }
 
 async function runAgentPair(params: RunAgentPairParams): Promise<void> {
@@ -71,6 +82,7 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		runId,
 		projectRoot,
 		log,
+		tracker,
 	} = params;
 	const agentDirectory = join(scenarioDirectory, agent.id);
 	const agentWorkspace = join(agentDirectory, "workspace");
@@ -95,6 +107,8 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		log,
 	);
 
+	tracker.phaseStarted(scenario.name, agent.id, "testing");
+	const testingStart = Date.now();
 	let testingResult: TestingAgentResult;
 	try {
 		testingResult = await runTestingAgent({
@@ -115,6 +129,11 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 			error: msg,
 		};
 	}
+	tracker.phaseFinished(scenario.name, agent.id, "testing", {
+		status: testingResult.error === undefined ? "passed" : "failed",
+		durationMs: Date.now() - testingStart,
+		detail: testingResult.error,
+	});
 
 	await tryHook(
 		"afterTestAgent",
@@ -132,6 +151,9 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		log,
 	);
 
+	tracker.phaseStarted(scenario.name, agent.id, "judge");
+	const judgeStart = Date.now();
+	let judgeError: string | undefined;
 	try {
 		await runJudgeAgent({
 			scenario,
@@ -147,7 +169,13 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		const msg = err instanceof Error ? err.message : String(err);
 		log.info(`judge-agent failed (${scope}): ${msg}`);
 		writeSkippedReview(agentDirectory, `judge dispatch failed: ${msg}`);
+		judgeError = msg;
 	}
+	tracker.phaseFinished(scenario.name, agent.id, "judge", {
+		status: judgeError === undefined ? "passed" : "failed",
+		durationMs: Date.now() - judgeStart,
+		detail: judgeError,
+	});
 
 	await tryHook(
 		"afterJudgeAgent",
