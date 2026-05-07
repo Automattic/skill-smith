@@ -29,6 +29,13 @@ export interface TrackerOptions {
 	 * to 200 ms.
 	 */
 	throttleMs?: number;
+	/**
+	 * Wall-clock repaint interval in interactive mode, used to refresh
+	 * the elapsed/ETA line even while no scenario events arrive. Set
+	 * to 0 to disable. Defaults to 1000 ms. Ticks are skipped until the
+	 * first event-driven paint and stop when `finish()` is called.
+	 */
+	tickMs?: number;
 	/** Override `Date.now()` — used by tests. */
 	now?: () => number;
 }
@@ -59,6 +66,7 @@ export class ProgressTracker {
 	private readonly color: boolean;
 	private readonly interactive: boolean;
 	private readonly throttleMs: number;
+	private readonly tickMs: number;
 	private readonly nowFn: () => number;
 	private readonly runId: string;
 	private readonly startedAt: number;
@@ -69,12 +77,14 @@ export class ProgressTracker {
 	private lastPaintAt = 0;
 	private lastPaintedLines = 0;
 	private pendingTimer: NodeJS.Timeout | null = null;
+	private tickTimer: NodeJS.Timeout | null = null;
 
 	constructor(init: TrackerInit, opts: TrackerOptions = {}) {
 		this.stream = opts.stream ?? process.stderr;
 		this.color = opts.color ?? defaultColor(this.stream);
 		this.interactive = opts.interactive ?? isTty(this.stream);
 		this.throttleMs = opts.throttleMs ?? 200;
+		this.tickMs = opts.tickMs ?? 1000;
 		this.nowFn = opts.now ?? (() => Date.now());
 		this.runId = init.runId;
 		this.startedAt = this.nowFn();
@@ -94,6 +104,21 @@ export class ProgressTracker {
 				},
 			]),
 		);
+
+		if (this.interactive && this.tickMs > 0) {
+			this.tickTimer = setInterval(() => this.onTick(), this.tickMs);
+			if (typeof this.tickTimer.unref === "function") {
+				this.tickTimer.unref();
+			}
+		}
+	}
+
+	private onTick(): void {
+		if (this.finished) return;
+		// Skip until first event-driven paint so we don't display an
+		// empty block before anything has happened.
+		if (this.lastPaintAt === 0) return;
+		this.flush();
 	}
 
 	scenarioSkipped(name: string, reason: string): void {
@@ -144,6 +169,10 @@ export class ProgressTracker {
 		if (this.pendingTimer) {
 			clearTimeout(this.pendingTimer);
 			this.pendingTimer = null;
+		}
+		if (this.tickTimer) {
+			clearInterval(this.tickTimer);
+			this.tickTimer = null;
 		}
 		this.flush();
 	}

@@ -39,6 +39,7 @@ test("first event paints immediately in interactive mode", () => {
 			color: false,
 			interactive: true,
 			throttleMs: 200,
+			tickMs: 0,
 			now: clock.now,
 		},
 	);
@@ -62,6 +63,7 @@ test("throttle coalesces rapid events; trailing paint fires after delay", async 
 			color: false,
 			interactive: true,
 			throttleMs: 50,
+			tickMs: 0,
 			now: clock.now,
 		},
 	);
@@ -89,6 +91,7 @@ test("subsequent paints erase the prior block via cursor escape", () => {
 			color: false,
 			interactive: true,
 			throttleMs: 0,
+			tickMs: 0,
 			now: clock.now,
 		},
 	);
@@ -172,6 +175,7 @@ test("finish() always paints, even when throttled", () => {
 			color: false,
 			interactive: true,
 			throttleMs: 1000,
+			tickMs: 0,
 			now: clock.now,
 		},
 	);
@@ -214,6 +218,51 @@ test("counters: scenario passes only when every phase is terminal-non-failed", (
 	const out = chunks.join("");
 	assert.match(out, /scenarios.*2\/3/);
 	assert.match(out, /pass 1 · fail 1 · run 1/);
+});
+
+test("wall-clock tick repaints to refresh elapsed even with no events", async () => {
+	const { stream, chunks } = captureStream();
+	const tracker = new ProgressTracker(
+		{ runId: "r1", scenarios: [{ name: "s1", agentIds: ["sonnet"] }] },
+		{
+			stream,
+			color: false,
+			interactive: true,
+			throttleMs: 0,
+			tickMs: 25,
+		},
+	);
+
+	tracker.phaseStarted("s1", "sonnet", "testing");
+	const afterFirst = chunks.length;
+	assert.equal(afterFirst, 1, "first event paints");
+
+	await new Promise((r) => setTimeout(r, 90));
+	tracker.finish();
+
+	assert.ok(
+		chunks.length >= afterFirst + 2,
+		`expected wall-clock ticks to repaint while idle, got ${chunks.length} chunk(s)`,
+	);
+	assert.match(chunks.at(-1) ?? "", /done/);
+});
+
+test("tick is suppressed before the first event-driven paint", async () => {
+	const { stream, chunks } = captureStream();
+	const tracker = new ProgressTracker(
+		{ runId: "r1", scenarios: [{ name: "s1", agentIds: ["sonnet"] }] },
+		{
+			stream,
+			color: false,
+			interactive: true,
+			throttleMs: 0,
+			tickMs: 15,
+		},
+	);
+
+	await new Promise((r) => setTimeout(r, 60));
+	assert.equal(chunks.length, 0, "no paint before first event, even with ticks");
+	tracker.finish();
 });
 
 test("throws on unknown scenario", () => {
