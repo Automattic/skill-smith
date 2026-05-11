@@ -1,0 +1,34 @@
+name: paginated-list
+description: Build a paginated post-list block using a router region for client-side navigation.
+skills:
+  - wp-interactivity-api
+
+prompt: |
+  Create an interactive paginated-list block for WordPress. The block should:
+  1. Render the 3 most recent published posts on the front-end, newest first.
+     Each post is shown with its title (a link to the post is fine).
+  2. Render Next/Previous pagination links underneath, with text "Next" and
+     "Previous" respectively. Hide the Previous link on page 1 and the Next
+     link on the last page.
+  3. When Next/Previous is clicked, update the list CLIENT-SIDE — no full
+     page reload — using the Interactivity API router.
+
+  The page number must be carried in the URL query parameter `pg` (e.g.
+  ?pg=2). Do NOT use the `paged` parameter (it collides with WordPress's
+  built-in main-query pagination).
+
+  The pagination links must remain real <a href="..."> anchors so they
+  still work without JavaScript.
+
+acceptance:
+  - The block's wrapper has data-wp-router-region with a unique namespaced ID
+  - Pagination links are rendered as <a> elements with valid href values that include ?pg=<n>
+  - Pagination links use data-wp-on--click bound to an action that calls actions.navigate(href)
+  - The action is wrapped with withSyncEvent and calls event.preventDefault()
+  - view.js imports the router via dynamic `yield import('@wordpress/interactivity-router')`
+  - block.json declares supports.interactivity (with clientNavigation true) and a viewScriptModule entry
+  - render.php reads $_GET['pg'] (with a fallback to 1) and uses it to compute the slice of posts
+  - On click, the URL updates to ?pg=2 without a full page reload
+
+rubrics:
+  - wp-interactivity-api-best-practices

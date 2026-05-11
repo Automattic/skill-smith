@@ -1,0 +1,26 @@
+name: toggle-visibility
+description: Build an interactive expandable note with a show/hide toggle.
+skills:
+  - wp-interactivity-api
+
+prompt: |
+  Create an interactive expandable-note block for WordPress. The block should:
+  1. Render a button followed by a short paragraph beneath it.
+  2. Toggle the paragraph's visibility when the button is clicked.
+  3. Reflect the open/closed state on the button via aria-expanded.
+  4. The paragraph must be hidden initially (before any JavaScript runs).
+
+  Drive both the button's aria-expanded state and the paragraph's
+  visibility from a single boolean — do not maintain two independent
+  flags.
+
+acceptance:
+  - Uses data-wp-context (or wp_interactivity_state) to hold a single boolean visibility flag
+  - Button uses data-wp-on--click bound to a store action
+  - Button uses data-wp-bind--aria-expanded reflecting that boolean
+  - Paragraph uses data-wp-bind--hidden bound to the negated boolean
+  - Toggle action mutates the boolean via getContext() (or state) — no manual DOM manipulation in view.js
+  - Initial server-rendered HTML has the paragraph with the hidden attribute set and aria-expanded="false" on the button
+
+rubrics:
+  - wp-interactivity-api-best-practices

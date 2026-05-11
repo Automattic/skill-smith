@@ -1,0 +1,28 @@
+name: async-fetch
+description: Build a block with a button that fetches JSON via a generator action.
+skills:
+  - wp-interactivity-api
+
+prompt: |
+  Create an interactive joke-fetcher block for WordPress. The block should:
+  1. Render a "Fetch joke" button and an empty paragraph beneath it.
+  2. When the button is clicked, fetch JSON from the URL
+     `https://jsonplaceholder.example/joke` (a stub URL — the test
+     intercepts and mocks the response).
+  3. Update the paragraph to display the response's `joke` string.
+
+  The fetch must run inside a store action implemented as an Interactivity
+  API generator function (declared with `function*` or `*name()`),
+  yielding on the fetch and on `.json()`. Do NOT use async/await.
+  State or context must be mutated only AFTER the yielded fetch resolves.
+
+acceptance:
+  - The fetch action is declared as a generator (function* or *name())
+  - The action uses `yield` (not `await`) on both fetch() and the .json() chain
+  - State or context is updated only after the yield completes
+  - Joke text is rendered via data-wp-text bound to a state/context property
+  - block.json declares supports.interactivity and a viewScriptModule entry
+  - view.js imports `store` from @wordpress/interactivity
+
+rubrics:
+  - wp-interactivity-api-best-practices

@@ -1,0 +1,28 @@
+name: fruit-list-each
+description: Build a fruit list rendered server-side via data-wp-each, with an Add button that appends.
+skills:
+  - wp-interactivity-api
+
+prompt: |
+  Create an interactive fruit-list block for WordPress. The block should:
+  1. Initialize a fruit list in PHP with these initial values:
+     ["Apple", "Banana", "Cherry"].
+  2. Render the list as a <ul> where each fruit is an <li> using the
+     Interactivity API's data-wp-each directive (with a <template> tag).
+  3. Include an "Add Mango" button that appends "Mango" to the list when
+     clicked.
+
+  The initial three fruits must appear in the server-rendered HTML before
+  any JavaScript runs.
+
+acceptance:
+  - PHP calls wp_interactivity_state with a `fruits` array containing Apple, Banana, Cherry
+  - List uses <template data-wp-each="state.fruits"> wrapping the <li> template
+  - Inside the template, each <li> renders the fruit name via data-wp-text="context.item"
+  - Initial server-rendered HTML contains <li> elements for "Apple", "Banana", and "Cherry" (no JS required)
+  - Add Mango button uses data-wp-on--click bound to a store action
+  - Action mutates state.fruits via .push() (no array reassignment)
+  - After clicking Add Mango, a new <li> with text "Mango" appears as the last item
+
+rubrics:
+  - wp-interactivity-api-best-practices

@@ -1,0 +1,1297 @@
+# Candidate Interactivity API scenarios mined from Gutenberg docs and canonical
+# interactive blocks. Grouped by primary concept; ordered simple → advanced
+# within each group. Each entry mirrors counter/scenario.yaml shape minus the
+# `skills:` and `rubrics:` keys (consumer to fill in).
+#
+# Source files (relative to /Users/darerodz/Code/gutenberg):
+#   - docs/reference-guides/interactivity-api/{README, iapi-about, iapi-faq,
+#     iapi-quick-start-guide, directives-and-store}.md
+#   - docs/reference-guides/interactivity-api/core-concepts/*.md
+#   - packages/interactivity/{README, CHANGELOG}.md
+#   - packages/block-library/src/{query,navigation,image,search,file}/*
+
+# =============================================================================
+# Group A — Reactive bindings (data-wp-bind, -class, -style, -text)
+# =============================================================================
+
+- name: toggle-visibility-with-bind
+  description: Toggle paragraph visibility with aria-expanded reflecting state.
+  difficulty: simple
+  concepts: [data-wp-bind, data-wp-context, data-wp-on--click]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/iapi-about.md
+    - docs/reference-guides/interactivity-api/directives-and-store.md
+  prompt: |
+    Build an interactive block called "expandable-note" with a button that
+    shows or hides a short paragraph beneath it. The button should announce
+    its state to assistive tech, and clicking it should toggle visibility
+    without a page reload.
+  acceptance:
+    - data-wp-context initializes a boolean (e.g. isOpen) on the wrapper
+    - Button uses data-wp-on--click bound to a store action
+    - Button uses data-wp-bind--aria-expanded reflecting the boolean
+    - Paragraph uses data-wp-bind--hidden negating the boolean (e.g. !context.isOpen)
+    - Action mutates the context boolean via getContext(); no manual DOM updates
+
+- name: dynamic-text-binding
+  description: Render reactive text content from state via data-wp-text.
+  difficulty: simple
+  concepts: [data-wp-text, data-wp-context, data-wp-on--click]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/directives-and-store.md]
+  prompt: |
+    Create a block called "greeting-rotator" that displays a greeting
+    string and a button that cycles through three greetings on each
+    click. The displayed text must update reactively from store data.
+  acceptance:
+    - Greeting text rendered via data-wp-text bound to a state or context property
+    - Button uses data-wp-on--click bound to a store action that mutates the value
+    - No imperative innerText/textContent assignment in view.js
+    - Server-rendered HTML contains the initial greeting
+
+- name: kebab-case-class-toggle
+  description: Toggle a CSS class with kebab-case naming via data-wp-class.
+  difficulty: simple
+  concepts: [data-wp-class, data-wp-context, data-wp-on--click]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/directives-and-store.md]
+  prompt: |
+    Create a "selectable-tile" block that renders a tile with a Select
+    button. Clicking the button toggles a `is-selected` CSS class on the
+    tile.
+  acceptance:
+    - data-wp-class--is-selected bound to a boolean context/state property
+    - Class name is lower-kebab-case (matches CSS convention)
+    - Action toggles the boolean via getContext() or state mutation
+    - Initial server HTML reflects the initial selected state
+
+- name: inline-style-binding
+  description: Bind a CSS property value via data-wp-style--<prop>.
+  difficulty: simple
+  concepts: [data-wp-style, data-wp-context, data-wp-on--click]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/directives-and-store.md]
+  prompt: |
+    Create a "color-toggle" block that displays a paragraph and a button
+    that flips the paragraph's text color between red and blue on each
+    click.
+  acceptance:
+    - Paragraph uses data-wp-style--color bound to a context/state property
+    - Action mutates the color value (no element.style.color assignment)
+    - data-wp-on--click triggers the action
+    - Initial color appears in server-rendered style attribute
+
+- name: derived-aria-label-toggle
+  description: Use a getter to switch aria-label between two phrases based on state.
+  difficulty: simple
+  concepts: [derived state, data-wp-bind, getContext]
+  source: derived
+  source_files: [packages/block-library/src/search/view.js]
+  prompt: |
+    Build a "details-disclosure" block: a button with hidden content
+    beneath it. The button's aria-label must read "Show details" when
+    collapsed and "Hide details" when expanded — updated from a single
+    boolean state value via a derived getter.
+  acceptance:
+    - State exposes an `ariaLabel` getter that reads the boolean and returns one of two strings
+    - Button uses data-wp-bind--aria-label bound to that getter
+    - No conditional logic embedded in the directive expression itself
+    - Toggle action mutates only the boolean; getter recomputes automatically
+
+- name: dynamic-role-and-aria-modal
+  description: Conditionally bind role="dialog" and aria-modal="true" via getters.
+  difficulty: intermediate
+  concepts: [derived state, data-wp-bind, accessibility]
+  source: derived
+  source_files: [packages/block-library/src/image/view.js]
+  prompt: |
+    Build an "info-overlay" block where clicking an inline trigger opens
+    a fullscreen panel. While open, the panel must expose
+    `role="dialog"` and `aria-modal="true"`; while closed, those
+    attributes must be absent (not just empty strings).
+  acceptance:
+    - State exposes computed getters that return "dialog"/"true" when open and null when closed
+    - Panel uses data-wp-bind--role and data-wp-bind--aria-modal bound to those getters
+    - When the boolean is false, neither attribute is present in the DOM (null removes the attribute)
+    - aria-label is also bound conditionally and absent when closed
+
+# =============================================================================
+# Group B — Local context (data-wp-context) and scoping
+# =============================================================================
+
+- name: independent-counter-instances
+  description: Multiple instances of a counter block keep separate state via local context.
+  difficulty: simple
+  concepts: [data-wp-context, getContext, data-wp-text, data-wp-on--click]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/core-concepts/understanding-global-state-local-context-derived-state-and-config.md
+    - docs/reference-guides/interactivity-api/core-concepts/README.md
+  prompt: |
+    Create a "tally-counter" block that displays a count and an
+    Increment button. Adding the block multiple times to a page must
+    produce independent counters — clicking Increment on one instance
+    must not change the others.
+  acceptance:
+    - Each instance initializes its own counter via data-wp-context (e.g. '{ "counter": 0 }')
+    - Counter renders via data-wp-text="context.counter" (NOT state.counter)
+    - Increment action accesses the value via getContext() and mutates context.counter
+    - No wp_interactivity_state call anywhere — the block uses purely local context
+    - Multiple instances on one page increment independently
+
+- name: nested-context-inheritance
+  description: Child context inherits parent values and overrides selected keys.
+  difficulty: intermediate
+  concepts: [data-wp-context (nested), context inheritance, data-wp-text]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/directives-and-store.md
+    - docs/reference-guides/interactivity-api/iapi-quick-start-guide.md
+  prompt: |
+    Build a "themed-card" block whose outer wrapper sets a default
+    theme and label, with a nested inner panel that overrides the
+    theme but inherits the label. Both values are rendered as text.
+  acceptance:
+    - Outer element declares data-wp-context with two keys (e.g. theme="light", label="Hello")
+    - Inner element declares its own data-wp-context overriding only `theme`
+    - Outer text shows the parent theme; inner text shows the overridden theme
+    - Both elements render the inherited label identically
+    - No use of global state — only nested local contexts
+
+- name: php-context-helper
+  description: Inject local context from PHP using wp_interactivity_data_wp_context.
+  difficulty: simple
+  concepts: [data-wp-context, wp_interactivity_data_wp_context]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/server-side-rendering.md]
+  prompt: |
+    Create a "fruit-picker" block whose initial fruits list is built in
+    PHP and serialised into the wrapper as local context (not global
+    state). The block must use the WordPress helper function rather
+    than hand-rolled JSON encoding.
+  acceptance:
+    - render.php calls wp_interactivity_data_wp_context() to emit the data-wp-context attribute
+    - The helper output appears on the wrapper (no manual json_encode + esc_attr)
+    - List items render via data-wp-each iterating context.fruits
+    - No wp_interactivity_state used for the fruit list
+
+# =============================================================================
+# Group C — Global state and cross-block communication
+# =============================================================================
+
+- name: shared-state-across-blocks
+  description: Two independent blocks read/write the same counter via global state.
+  difficulty: intermediate
+  concepts: [global state, wp_interactivity_state, data-wp-interactive, data-wp-text]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/core-concepts/README.md
+    - docs/reference-guides/interactivity-api/core-concepts/understanding-global-state-local-context-derived-state-and-config.md
+  prompt: |
+    Create two separate blocks: "vote-display" (read-only) and
+    "vote-button" (an Upvote button). Both belong to the same plugin
+    namespace. Placed anywhere on the same page, the display must
+    reflect the count and update live whenever the button is clicked,
+    even if the two blocks are not nested.
+  acceptance:
+    - PHP initialises the count via wp_interactivity_state('namespace', ['count' => 0])
+    - Both blocks share a single data-wp-interactive namespace string
+    - Display block uses data-wp-text="state.count" (no data-wp-context)
+    - Button block's action mutates state.count (e.g. state.count += 1)
+    - The two blocks remain completely independent in the DOM (not nested)
+
+- name: locked-private-store
+  description: Initialise a store with lock:true to prevent external namespace re-entry.
+  difficulty: advanced
+  concepts: [store, lock option, namespace encapsulation]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/iapi-quick-start-guide.md]
+  prompt: |
+    Build a "secure-counter" block that exposes a counter and Increment
+    button but locks its store namespace so that other plugins cannot
+    inject or override its actions. The lock can be a literal `true`
+    or a shared secret string.
+  acceptance:
+    - store() call passes a third argument with `lock: true` (or a string secret)
+    - The same namespace cannot be re-opened from another store() call without the matching lock
+    - Increment action mutates state.count and is callable from data-wp-on--click
+    - block.json correctly declares supports.interactivity and a viewScriptModule entry
+
+# =============================================================================
+# Group D — Derived state (getters)
+# =============================================================================
+
+- name: derived-double-getter
+  description: Derived state computed via a getter recomputes when its dependency changes.
+  difficulty: intermediate
+  concepts: [derived state, getter, data-wp-text]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/core-concepts/understanding-global-state-local-context-derived-state-and-config.md
+    - docs/reference-guides/interactivity-api/core-concepts/README.md
+  prompt: |
+    Build a "double-counter" block that shows both a counter and its
+    doubled value. There must be a single source of truth (the
+    counter); the doubled value must be a derived getter, never stored
+    directly.
+  acceptance:
+    - State holds only `counter` as mutable data
+    - State defines a `double` getter that returns counter * 2
+    - View renders counter via data-wp-text="state.counter" and double via data-wp-text="state.double"
+    - Increment action mutates only state.counter (no manual update of double)
+    - No second numeric field is stored anywhere in state or context
+
+- name: derived-from-local-context
+  description: Getter reads getContext() so the same derived key returns different values per instance.
+  difficulty: intermediate
+  concepts: [derived state, getContext inside getter, data-wp-context]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/core-concepts/understanding-global-state-local-context-derived-state-and-config.md
+  prompt: |
+    Build a "price-with-vat" block where each instance is given a base
+    price via local context, and a single derived getter on the global
+    store computes that price including 21% VAT. Two instances on a
+    page with different base prices must show different totals via the
+    same getter.
+  acceptance:
+    - data-wp-context provides `priceWithoutVat` per instance
+    - State exposes a `priceWithVat` getter that calls getContext() and reads priceWithoutVat
+    - Two instances with different context values render different totals from `state.priceWithVat`
+    - The getter is defined once globally — not duplicated per instance
+
+- name: derived-mixing-global-and-context
+  description: Derived getter combines a global state value with a per-instance context value.
+  difficulty: advanced
+  concepts: [derived state, global state, local context, getContext]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/core-concepts/understanding-global-state-local-context-derived-state-and-config.md
+  prompt: |
+    Build a "tax-calculator" block. Global state holds a single
+    editable tax rate; each block instance carries its own pre-tax
+    price in local context. Each instance must display its
+    post-tax price via a derived getter that mixes the two scopes.
+    Editing the global tax rate must update all instances; editing
+    one instance must not affect others.
+  acceptance:
+    - wp_interactivity_state initialises `taxRate` globally
+    - data-wp-context provides `priceWithoutTax` per instance
+    - State exposes a `priceWithTax` getter combining state.taxRate and getContext().priceWithoutTax
+    - An action that mutates state.taxRate updates every instance's displayed total
+    - An action that mutates context.priceWithoutTax updates only the originating instance
+
+- name: server-derived-conditional-icon
+  description: Derived state computed both server-side and client-side renders the right icon per row in initial HTML.
+  difficulty: advanced
+  concepts: [derived state, wp_interactivity_state with callable, wp_interactivity_get_context, getContext, data-wp-each]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/server-side-rendering.md]
+  prompt: |
+    Create a "shopping-list" block that renders a list of items.
+    Items present in a separate "cart" array must show a 🛒 icon next
+    to their name; others must show nothing. The server-rendered
+    HTML must already contain the correct icon for each row before
+    JavaScript runs (no flash of wrong content), and adding/removing
+    items from the cart at runtime must update the icons reactively.
+  acceptance:
+    - wp_interactivity_state declares the derived value as a PHP callable that uses wp_interactivity_get_context() to inspect the current row
+    - Client-side store defines an equivalent JS getter using getContext()
+    - Initial HTML contains the icon character (or empty string) inline for each item
+    - Toggling an item in the cart array updates the icon without re-rendering the whole list
+    - The same key (e.g. state.icon) drives both server and client output
+
+# =============================================================================
+# Group E — Config (non-reactive server-injected values)
+# =============================================================================
+
+- name: config-rest-url-and-nonce
+  description: Pass a REST URL and nonce via wp_interactivity_config; consume via getConfig().
+  difficulty: intermediate
+  concepts: [wp_interactivity_config, getConfig, fetch with X-WP-Nonce]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/core-concepts/understanding-global-state-local-context-derived-state-and-config.md
+    - docs/reference-guides/interactivity-api/iapi-quick-start-guide.md
+  prompt: |
+    Create a "latest-comment-fetcher" block: a button that, when
+    clicked, fetches the most recent comment from the REST API and
+    displays it. The REST endpoint and a CSRF nonce must be supplied
+    by PHP through config (not state) so they don't appear as
+    serialised state in the public DOM.
+  acceptance:
+    - render.php calls wp_interactivity_config('namespace', ['restUrl' => ..., 'nonce' => ...])
+    - view.js retrieves the values via getConfig() (NOT state)
+    - fetch() request passes the nonce as the `X-WP-Nonce` header
+    - Config values are not surfaced via wp_interactivity_state anywhere
+    - The nonce/restUrl are not mutated at runtime (treated as immutable)
+
+# =============================================================================
+# Group F — Event handlers (data-wp-on family)
+# =============================================================================
+
+- name: window-resize-listener
+  description: Attach a window-level event listener via data-wp-on-window--resize.
+  difficulty: intermediate
+  concepts: [data-wp-on-window, callbacks]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/directives-and-store.md]
+  prompt: |
+    Build a "viewport-width-display" block that shows the current
+    window inner width as text. The value must update whenever the
+    user resizes their browser, with the listener attached and
+    detached based on the element's lifecycle.
+  acceptance:
+    - data-wp-on-window--resize binds a callback that updates state/context with window.innerWidth
+    - Width is rendered via data-wp-text
+    - No manual addEventListener('resize', ...) call anywhere
+    - Initial value reflects the current window width on load
+
+- name: document-keydown-listener
+  description: Attach a document-level keydown listener via data-wp-on-document--keydown.
+  difficulty: intermediate
+  concepts: [data-wp-on-document, key handling]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/directives-and-store.md]
+  prompt: |
+    Build a "keystroke-log" block that displays the most recently
+    pressed key anywhere on the page. The block must listen at the
+    document level so it captures keystrokes regardless of focus.
+  acceptance:
+    - data-wp-on-document--keydown binds to a callback receiving the Event
+    - Callback writes event.key into state/context
+    - Display element renders the key via data-wp-text
+    - No manual document.addEventListener('keydown', ...) anywhere
+
+- name: async-event-handler
+  description: Use data-wp-on-async to handle a click without blocking the main thread.
+  difficulty: intermediate
+  concepts: [data-wp-on-async, async actions]
+  source: docs
+  source_files: [packages/interactivity/CHANGELOG.md]
+  prompt: |
+    Build a "deferred-counter" block whose Increment button triggers
+    a heavier-than-usual update. Use the async variant of the click
+    directive so the framework can yield to the browser before
+    running the handler.
+  acceptance:
+    - Button uses data-wp-on-async--click (NOT data-wp-on--click)
+    - Action is a generator function (uses `function*` and `yield`)
+    - Action does NOT call event.preventDefault() / stopPropagation() / synchronous methods on the event
+    - State mutation is observable in the DOM after the yield resolves
+
+- name: with-sync-event-prevent-default
+  description: Wrap a handler with withSyncEvent to call event.preventDefault().
+  difficulty: intermediate
+  concepts: [withSyncEvent, data-wp-on, event.preventDefault]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/directives-and-store.md]
+  prompt: |
+    Build a "form-guard" block that wraps a `<form>` with a Submit
+    button. Clicking Submit must call `event.preventDefault()` from
+    the action handler so the form never posts; the handler also
+    flips a `submitted` flag in context that the UI then reflects.
+  acceptance:
+    - The action is wrapped with withSyncEvent imported from @wordpress/interactivity
+    - Inside the wrapped function, event.preventDefault() is called synchronously
+    - The form's data-wp-on--submit binds to that action
+    - Form does not POST when Submit is clicked (verifiable via no navigation)
+
+# =============================================================================
+# Group G — Async actions, generators, splitTask
+# =============================================================================
+
+- name: async-fetch-action
+  description: Generator action yields a fetch and mutates state with the response.
+  difficulty: advanced
+  concepts: [generator action, yield, fetch, getContext after yield]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/directives-and-store.md
+    - docs/reference-guides/interactivity-api/iapi-quick-start-guide.md
+  prompt: |
+    Build a "joke-of-the-day" block with a "Fetch new joke" button
+    that calls a public JSON API (you may use a placeholder URL) and
+    displays the returned joke text. The fetch must run inside a
+    store action that uses the iAPI's generator pattern so context
+    remains valid across the await boundary.
+  acceptance:
+    - Action is declared as a generator function (`*fetchJoke() { ... }`)
+    - Uses `yield` (not `await`) for the fetch / .json() chain
+    - State or context is mutated only after the yield resolves
+    - Joke text rendered via data-wp-text reactive to that state/context value
+
+- name: split-task-yield
+  description: Use splitTask inside a long-running action to yield to the main thread.
+  difficulty: advanced
+  concepts: [splitTask, generator action, performance]
+  source: docs
+  source_files:
+    - packages/interactivity/CHANGELOG.md
+    - docs/reference-guides/interactivity-api/directives-and-store.md
+  prompt: |
+    Build a "batch-processor" block: clicking a button starts
+    processing a list of 200 items, updating a progress counter as
+    it goes. The action must yield to the browser between batches
+    so the page stays responsive.
+  acceptance:
+    - Action is a generator and imports splitTask from @wordpress/interactivity
+    - Action calls `yield splitTask()` periodically inside its loop
+    - A progress counter in state/context is updated incrementally and renders via data-wp-text
+    - No setTimeout/requestIdleCallback workaround is used
+
+# =============================================================================
+# Group H — Lifecycle: data-wp-watch, -init, -run, watch()
+# =============================================================================
+
+- name: watch-callback-on-context-change
+  description: Run a callback whenever a context value changes via data-wp-watch.
+  difficulty: simple
+  concepts: [data-wp-watch, callbacks, getContext]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/core-concepts/the-reactive-and-declarative-mindset.md
+    - docs/reference-guides/interactivity-api/core-concepts/README.md
+  prompt: |
+    Build a "logged-counter" block: counter with Increment button.
+    Whenever the counter changes, a callback must log the new value
+    to the console — wired up declaratively, not through a manual
+    event listener.
+  acceptance:
+    - Wrapper element has data-wp-watch="callbacks.<name>"
+    - Callback uses getContext() (or state access) to read the counter value
+    - No subscribe()/addEventListener('change') call — reactivity is declarative
+    - Callback fires on initial mount AND on every counter change
+
+- name: watch-cleanup-function
+  description: Watch callback returns a cleanup function that runs before re-execution and on unmount.
+  difficulty: intermediate
+  concepts: [data-wp-watch, cleanup, lifecycle]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/directives-and-store.md]
+  prompt: |
+    Build a "subscribed-status" block whose data-wp-watch callback
+    starts a setInterval (echoing a tick number into state) when the
+    element mounts and clears it when the element re-runs the watch
+    or is removed. A toggle button can flip a watched flag to force
+    re-execution and prove the cleanup runs.
+  acceptance:
+    - Watch callback returns a function (the cleanup) instead of nothing
+    - Cleanup calls clearInterval on the stored handle
+    - Toggling the watched flag causes cleanup to run before the next callback execution
+    - No leftover timer keeps running once the wrapper element is removed
+
+- name: init-focus-first-input
+  description: Run setup once on mount via data-wp-init using getElement().
+  difficulty: simple
+  concepts: [data-wp-init, getElement, focus management]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/directives-and-store.md]
+  prompt: |
+    Build a "quick-poll" block: an inline form that becomes visible
+    after a button click. When the form mounts, the first input must
+    receive focus automatically using an init callback (not a watch
+    or a manual DOMContentLoaded).
+  acceptance:
+    - Form wrapper uses data-wp-init bound to a callback
+    - Callback retrieves the form's element via getElement().ref
+    - Callback calls .focus() on the first input inside the ref
+    - Init callback runs on mount only (not on every state change)
+
+- name: multi-init-three-hyphen
+  description: Two data-wp-init callbacks on one element using the ---suffix syntax.
+  difficulty: simple
+  concepts: [data-wp-init---<id>, multiple directives per element]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/directives-and-store.md]
+  prompt: |
+    Build a "first-render-instrumented" block that runs TWO separate
+    init callbacks on its wrapper at mount: one to log a marker to
+    the console, the other to focus the first focusable child. They
+    must be wired with the iAPI multi-directive syntax, not combined
+    into one callback.
+  acceptance:
+    - Wrapper has both `data-wp-init---log` and `data-wp-init---focus` (note the triple hyphen)
+    - Each binds to a distinct callback in the store
+    - Both callbacks run once on mount
+    - The block does NOT use the legacy `data-wp-init--<name>` (double-hyphen) form
+
+- name: run-with-hooks
+  description: Use data-wp-run with useState/useEffect to integrate a custom hook (e.g. IntersectionObserver).
+  difficulty: advanced
+  concepts: [data-wp-run, useState, useEffect, getElement]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/directives-and-store.md]
+  prompt: |
+    Build an "in-view-banner" block: a banner that switches its
+    background color the first time it scrolls into view. Implement
+    the scroll-detection logic using data-wp-run with the
+    Interactivity API's hook ecosystem (useState/useEffect plus an
+    IntersectionObserver), not a watch directive.
+  acceptance:
+    - Wrapper uses data-wp-run bound to a callback
+    - Callback uses useState and useEffect imported from @wordpress/interactivity
+    - useEffect sets up an IntersectionObserver on getElement().ref
+    - Color change is driven by hook state (not direct DOM mutation)
+    - Observer is cleaned up in useEffect's return value
+
+- name: programmatic-watch-api
+  description: Use the watch() function imported from @wordpress/interactivity at module load.
+  difficulty: advanced
+  concepts: [watch() function, programmatic subscription]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/directives-and-store.md
+    - packages/interactivity/CHANGELOG.md
+  prompt: |
+    Build an "analytics-bridge" block: at view.js load time (no
+    directive, no element), subscribe to a single global state
+    property and forward any changes to a stub `track()` function
+    you import or define. The subscription must support unsubscribe.
+  acceptance:
+    - view.js imports `watch` from @wordpress/interactivity
+    - watch() is called at module top level (outside any callback/action)
+    - watch() callback fires on signal changes after the initial run
+    - The return value of watch() is captured (the unwatch function)
+
+- name: with-scope-for-set-interval
+  description: Wrap a setInterval callback with withScope so getContext/getElement still work.
+  difficulty: advanced
+  concepts: [withScope, setInterval outside iAPI runtime]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/directives-and-store.md]
+  prompt: |
+    Build a "ticking-clock" block whose context holds a counter that
+    a setInterval increments every second. Because setInterval fires
+    outside the iAPI runtime, the callback must be wrapped so that
+    getContext() and getElement() still resolve correctly.
+  acceptance:
+    - The interval callback is wrapped with withScope (imported from @wordpress/interactivity)
+    - Inside the wrapped callback, getContext() returns the correct context object
+    - The interval is started in a data-wp-init callback and cleaned up in its return
+    - context.counter increments visibly via data-wp-text
+
+# =============================================================================
+# Group I — Lists: data-wp-each, -each-key, -each-child
+# =============================================================================
+
+- name: each-fruit-list
+  description: Render an array as <li> elements via a <template data-wp-each> tag.
+  difficulty: intermediate
+  concepts: [data-wp-each, <template>, context.item, data-wp-text]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/core-concepts/server-side-rendering.md
+    - docs/reference-guides/interactivity-api/directives-and-store.md
+  prompt: |
+    Create a "fruit-list" block whose initial fruits are seeded
+    server-side and rendered as a <ul>. Below the list, an "Add
+    Mango" button appends a new item to the array; the new <li>
+    must appear in the DOM without re-rendering the rest of the list.
+  acceptance:
+    - PHP initialises state with wp_interactivity_state and a `fruits` array
+    - List uses <template data-wp-each="state.fruits"> wrapping the <li> template
+    - Inside the template, data-wp-text="context.item" renders the fruit name
+    - Initial server-rendered HTML already contains <li> elements for each seeded fruit
+    - Add Mango action mutates state.fruits via .push() (no array reassignment)
+
+- name: each-with-explicit-key
+  description: Iterate an array of objects using data-wp-each-key for stable identity.
+  difficulty: intermediate
+  concepts: [data-wp-each, data-wp-each-key, custom item alias]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/directives-and-store.md]
+  prompt: |
+    Build a "todo-list" block where todos are objects with `id` and
+    `text`. The list must be keyed by `id` so reordering items does
+    not destroy and recreate DOM nodes. Use the iAPI's named-alias
+    syntax to refer to each item as `todo` rather than the default.
+  acceptance:
+    - <template> uses `data-wp-each--todo="state.todos"` (custom alias `todo`)
+    - <template> ALSO has `data-wp-each-key="context.todo.id"` (NOT data-wp-key on the child)
+    - Inside the template, data-wp-text references context.todo.text
+    - Reordering the array (e.g. via a Move Up action) reuses existing DOM nodes
+
+- name: each-child-server-hydration
+  description: Server-rendered list items carry data-wp-each-child for correct hydration.
+  difficulty: intermediate
+  concepts: [data-wp-each-child, SSR hydration]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/directives-and-store.md]
+  prompt: |
+    Build a "team-roster" block where the team list is server-rendered
+    (no JS required for the initial display) but becomes interactive
+    after hydration. The PHP must produce list items with the marker
+    attribute that signals to the iAPI runtime which children belong
+    to the each-template.
+  acceptance:
+    - Server-rendered <li> elements each carry `data-wp-each-child` (no value needed)
+    - The wrapping <template data-wp-each="..."> defines the iteration source
+    - Initial HTML is fully populated before any JS runs
+    - Adding a new member at runtime appends a new <li> without duplicating server-rendered ones
+
+# =============================================================================
+# Group J — Server-side rendering
+# =============================================================================
+
+- name: ssr-state-with-i18n
+  description: Initialise state with translated strings via __() inside wp_interactivity_state.
+  difficulty: intermediate
+  concepts: [wp_interactivity_state, __() i18n, data-wp-text]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/core-concepts/server-side-rendering.md
+    - docs/reference-guides/interactivity-api/iapi-faq.md
+  prompt: |
+    Create a "welcome-banner" block whose greeting text is initialised
+    server-side and runs through WordPress translation functions, so
+    `mybanner` plugin's localisation kicks in automatically. The
+    block must NOT translate the string client-side.
+  acceptance:
+    - render.php calls wp_interactivity_state with values wrapped in __() / _e() and a textdomain
+    - The store action that updates the greeting reads from state (already translated), not raw English
+    - view.js performs no string translation
+    - Initial HTML contains the translated greeting
+
+- name: ssr-classic-theme-process-directives
+  description: Use wp_interactivity_process_directives + ob_start in a classic theme template.
+  difficulty: intermediate
+  concepts: [wp_interactivity_process_directives, ob_start, classic theme]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/server-side-rendering.md]
+  prompt: |
+    In a classic theme template (NOT a block), build an interactive
+    snippet — say a banner that hides itself on click — using iAPI
+    directives. Server-process the directives so that PHP-only
+    rendering paths can opt in without going through a block.json.
+  acceptance:
+    - Template calls wp_interactivity_state to seed the namespace
+    - Template uses ob_start() to capture the markup, then wp_interactivity_process_directives() on the captured HTML
+    - The processed HTML is what gets emitted (no double-output)
+    - There is no block.json or block registration involved
+
+- name: ssr-static-derived-no-fluff
+  description: Static derived getter computed in PHP eliminates initial-render layout shift.
+  difficulty: intermediate
+  concepts: [wp_interactivity_state with derived value, data-wp-bind--hidden]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/server-side-rendering.md]
+  prompt: |
+    Build a "results-panel" block: a list of items plus a "No
+    results" message. The message must be hidden on initial render
+    when there ARE items, with no flash-of-unhidden-message before
+    JavaScript runs. The decision must be computable in PHP from the
+    same state the client-side getter would use.
+  acceptance:
+    - PHP wp_interactivity_state initialises both the list and a `hasResults` boolean (or equivalent derived value)
+    - <p data-wp-bind--hidden="!state.hasResults"> applies the hidden attribute server-side already
+    - Initial HTML's <p> already has the `hidden` attribute (or not) matching the data
+    - Client-side store mirrors the same logic so the post-hydration value never flips wrongly
+
+# =============================================================================
+# Group K — Client-side navigation, router region, prefetch
+# =============================================================================
+
+- name: declare-client-navigation-support
+  description: Declare clientNavigation in block.json supports.
+  difficulty: simple
+  concepts: [supports.interactivity.clientNavigation, block.json]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/client-side-navigation-compatibility.md]
+  prompt: |
+    Convert a static "site-footer" block (no JS) to declare itself
+    compatible with site-wide client-side navigation, so it survives
+    soft transitions when other blocks navigate. The block must
+    NOT register a viewScriptModule — it just opts in.
+  acceptance:
+    - block.json has `"supports": { "interactivity": { "clientNavigation": true } }` (or the shorthand boolean form)
+    - render.php emits no `data-wp-on*`, `data-wp-bind*`, or other JS-driving directives
+    - block.json declares no `viewScriptModule`
+    - Block's HTML structure remains identical across pages (per compatibility rules)
+
+- name: router-region-pagination
+  description: Wrap a paginated list in data-wp-router-region; pagination uses actions.navigate.
+  difficulty: intermediate
+  concepts: [data-wp-router-region, actions.navigate, withSyncEvent, data-wp-key]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/core-concepts/client-side-navigation.md
+    - packages/block-library/src/query/view.js
+  prompt: |
+    Build a "post-cards" block that lists post cards with paginated
+    next/prev links. Clicking a pagination link must update only the
+    list region client-side (no full page reload). Each card should
+    be keyed by its post ID so identical posts on adjacent pages
+    re-use existing DOM nodes.
+  acceptance:
+    - Wrapper element carries `data-wp-router-region` with a unique namespaced ID
+    - Pagination link click triggers an action that calls actions.navigate(href)
+    - Action is wrapped with withSyncEvent to call event.preventDefault()
+    - Each post card has data-wp-key="post-<id>"
+    - Modifier-key clicks (Ctrl/Cmd/Shift/middle button) skip the router and let the browser navigate
+
+- name: prefetch-on-hover-navigate-on-click
+  description: Combine prefetch on mouseenter with navigate on click for pagination.
+  difficulty: intermediate
+  concepts: [actions.prefetch, actions.navigate, data-wp-on--mouseenter]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/core-concepts/client-side-navigation.md
+    - packages/block-library/src/query/view.js
+  prompt: |
+    Extend a paginated list block so that hovering a pagination link
+    pre-fetches the target page in the background while clicking
+    still navigates client-side. Both behaviours must come through
+    the iAPI router rather than a manual fetch.
+  acceptance:
+    - Each pagination anchor has data-wp-on--mouseenter bound to an action that calls actions.prefetch(href)
+    - Same anchor has data-wp-on--click bound to an action calling actions.navigate(href)
+    - Router module is imported from @wordpress/interactivity-router (e.g. via dynamic yield import)
+    - Both prefetch and navigate are no-ops for cross-origin or modifier-key clicks
+
+- name: navigate-with-replace-history
+  description: Use { replace: true } in actions.navigate so back-button doesn't iterate filter changes.
+  difficulty: intermediate
+  concepts: [actions.navigate, replace history option]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/client-side-navigation.md]
+  prompt: |
+    Build a "filter-bar" block where changing a select control
+    updates the URL query string and re-renders the matching
+    results, but uses replaceState semantics so the user's back
+    button doesn't have to step through every filter change.
+  acceptance:
+    - Filter change handler builds a new URL and calls actions.navigate(url, { replace: true })
+    - The wrapping list is in a data-wp-router-region
+    - Browser history length does not grow on each filter change
+    - Initial filter values are read from the current URL on render
+
+- name: navigate-force-fresh-after-mutation
+  description: Use { force: true } in actions.navigate to bypass cache after a POST.
+  difficulty: intermediate
+  concepts: [actions.navigate, force option]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/client-side-navigation.md]
+  prompt: |
+    Build a "comment-form" block: after the form successfully POSTs
+    a new comment, the page must navigate (still client-side) back
+    to itself but with the cached version DISCARDED so the new
+    comment appears in the refreshed list.
+  acceptance:
+    - On successful POST response, action calls actions.navigate(window.location.href, { force: true })
+    - The action that performs the fetch is a generator yielding fetch()
+    - Navigation happens only after the POST response is OK
+    - The previously cached page entry is replaced by the fresh response
+
+- name: scroll-to-top-after-navigate
+  description: Scroll to top after yielding actions.navigate completes.
+  difficulty: simple
+  concepts: [actions.navigate, post-navigation side effect, window.scrollTo]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/client-side-navigation.md]
+  prompt: |
+    Build a "section-jump-list" block where each link does a soft
+    navigation. After the navigation resolves, the page should
+    smoothly scroll to the top — implemented as part of the same
+    action, not a separate listener.
+  acceptance:
+    - Action is a generator that uses `yield actions.navigate(href)`
+    - After the yield, the action calls window.scrollTo({ top: 0, behavior: 'smooth' })
+    - Default browser link navigation is prevented (withSyncEvent + preventDefault)
+    - No `popstate` listener is added manually
+
+- name: stable-id-via-wp-unique-id-from-values
+  description: Use wp_unique_id_from_values for stable IDs across navigations.
+  difficulty: intermediate
+  concepts: [wp_unique_id_from_values, stable selectors]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/client-side-navigation-compatibility.md]
+  prompt: |
+    Take a "tabbed-panel" block whose render.php currently calls
+    wp_unique_id() to generate the panel's id and ARIA attribute
+    targets. Refactor it so the IDs are deterministic across page
+    loads and across client-side navigations, while still being
+    unique per block instance configuration.
+  acceptance:
+    - render.php uses wp_unique_id_from_values(...) (with the block's relevant attributes) instead of wp_unique_id()
+    - The resulting ID is the same on repeated reloads with identical attributes
+    - aria-controls / aria-labelledby pairs reference that stable ID
+    - No remaining wp_unique_id() call in the block
+
+- name: script-module-not-script
+  description: Register the view JS as a script module, not a regular script.
+  difficulty: intermediate
+  concepts: [viewScriptModule, <script type="module">, ES imports]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/client-side-navigation-compatibility.md]
+  prompt: |
+    Convert an existing interactive block whose view JS uses a
+    classic register_block_script + window.wp.* globals into the
+    iAPI's expected setup, where the view file is a script module
+    that imports from `@wordpress/interactivity` and re-runs
+    correctly across client-side navigations.
+  acceptance:
+    - block.json declares `viewScriptModule` (NOT `viewScript`)
+    - view.js uses ES import statements for @wordpress/interactivity
+    - No reliance on `window.wp.*` globals anywhere in view.js
+    - Inline `<script type="module">` is NOT used; the module is referenced by src
+
+- name: navigation-watch-on-router-state
+  description: Run an analytics callback on every navigation by watching router state.
+  difficulty: intermediate
+  concepts: [data-wp-watch, store('core/router'), reactive subscription]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/client-side-navigation-compatibility.md]
+  prompt: |
+    Build an "analytics-tracker" block that fires a `track('pageview', url)`
+    call on every client-side navigation, plus the initial page
+    load. Wire it through the iAPI router state, not DOMContentLoaded.
+  acceptance:
+    - A callback referenced via data-wp-watch reads `store('core/router').state.url` (or equivalent)
+    - Callback fires on initial mount AND on every URL change
+    - No DOMContentLoaded, popstate, or load listener is registered manually
+    - The callback never references window.location directly inside the watch (uses the reactive value)
+
+- name: router-region-attach-to
+  description: Use the router-region attachTo option to inject a region into the body.
+  difficulty: advanced
+  concepts: [data-wp-router-region, attachTo option, dynamic region injection]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/client-side-navigation.md]
+  prompt: |
+    Build a "site-toast-host" block that, when present on any page,
+    becomes a global toast/notification region attached to <body>.
+    The block must declare the region with the iAPI's attachTo
+    option so the runtime injects it during navigation even if a
+    different page template doesn't already render the host.
+  acceptance:
+    - Element uses `data-wp-router-region` with a JSON-encoded value containing `attachTo: "body"` (or another CSS selector)
+    - Region wrapper carries data-wp-interactive
+    - On navigation to a page without the host, the runtime appends the region to the configured selector
+    - Removing the host on navigation (back to a page without it) removes it from the DOM
+
+- name: navigate-custom-error-fallback
+  description: Catch fetch errors and pass custom HTML to actions.navigate.
+  difficulty: advanced
+  concepts: [withSyncEvent, fetch try/catch, actions.navigate html option]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/client-side-navigation.md]
+  prompt: |
+    Build an "error-resilient-link" block where clicking the link
+    fetches the destination manually first; if the fetch fails
+    (network error or non-2xx), the block injects a fallback HTML
+    error panel via the router's html option instead of doing a
+    full-page reload.
+  acceptance:
+    - Action wraps fetch() in try/catch and checks response.ok
+    - On error, action calls actions.navigate(url, { html: <fallback string> })
+    - On success, action calls actions.navigate(url, { html: <response text> })
+    - Default link behaviour is prevented via withSyncEvent + preventDefault
+
+# =============================================================================
+# Group L — Server state sync (getServerState / getServerContext)
+# =============================================================================
+
+- name: get-server-state-on-navigation
+  description: Use getServerState to refresh part of state across client-side navigation.
+  difficulty: advanced
+  concepts: [getServerState, data-wp-watch, actions.navigate]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/core-concepts/understanding-global-state-local-context-derived-state-and-config.md
+    - docs/reference-guides/interactivity-api/core-concepts/README.md
+    - docs/reference-guides/interactivity-api/directives-and-store.md
+  prompt: |
+    Build a multi-page "quiz" block: each page renders a different
+    question (server-driven) but a countdown timer must persist
+    untouched across navigations. After each navigation, the
+    question text must be replaced from the freshly-rendered server
+    state — without trampling the timer value.
+  acceptance:
+    - PHP renders both `question` and `timeLeft` into wp_interactivity_state per page
+    - A data-wp-watch callback calls getServerState() and copies ONLY `question` into client state
+    - timeLeft is left untouched across navigations
+    - Mutating the object returned by getServerState() does NOT mutate the actual server state (deep clone)
+    - The watch callback fires on every navigation, even when state.question hasn't changed
+
+- name: get-server-context-on-navigation
+  description: Sync local context with server-rendered context on each navigation.
+  difficulty: advanced
+  concepts: [getServerContext, data-wp-watch, local context]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/understanding-global-state-local-context-derived-state-and-config.md]
+  prompt: |
+    Build a "page-recipe-card" block that uses local context (not
+    global state) for the recipe title displayed at the top. After
+    each client-side navigation, the title must be re-synced from
+    the new page's server-rendered context, while client-side
+    derived counts (e.g. portion adjustments) remain intact.
+  acceptance:
+    - Initial context comes from PHP via wp_interactivity_data_wp_context (server-rendered)
+    - A data-wp-watch callback calls getServerContext() and copies the title into context
+    - getServerContext() returns a deep clone (mutations to it don't reach the server snapshot)
+    - Client-only fields in context (e.g. portion multiplier) are NOT overwritten by the sync
+    - Callback fires on each navigation
+
+# =============================================================================
+# Group M — Cross-namespace store access and module composition
+# =============================================================================
+
+- name: cross-namespace-reference
+  description: Reference another plugin's state from a directive via namespace::path syntax.
+  difficulty: advanced
+  concepts: [cross-namespace reference, data-wp-bind]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/directives-and-store.md
+    - docs/reference-guides/interactivity-api/iapi-quick-start-guide.md
+  prompt: |
+    Build a "media-status-light" block that lights up green only
+    when a separate "media/player" namespace's state.isPlaying is
+    true. The block must read that value declaratively in a
+    directive — no JS imports of the other plugin's store.
+  acceptance:
+    - Wrapper has data-wp-interactive with its own namespace string (e.g. "myPlugin")
+    - data-wp-class--is-playing (or data-wp-bind) references `media/player::state.isPlaying`
+    - view.js does NOT call store() with the foreign namespace
+    - Toggling isPlaying in the foreign store updates the binding
+
+- name: import-typed-store-from-other-plugin
+  description: Import {state, actions} exported by another plugin's store() with full TypeScript types.
+  difficulty: advanced
+  concepts: [store export, type import, script module dependency]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/using-typescript.md]
+  prompt: |
+    You're building "post-todo-injector" plugin which adds new todos
+    into the existing "todo-list" plugin's store. Use a static ES
+    import to bring in the typed `{ state, actions }` from the
+    todo-list module so calls like `actions.addTodo(...)` are
+    type-checked.
+  acceptance:
+    - todo-list's view.ts exports `const { state, actions } = store<TodoList>(...)`
+    - post-todo-injector view.ts uses `import type { TodoList } from '...'` and imports `state`/`actions` aliased
+    - Using `actions.addTodo` in the consumer flags a TS error if the argument type is wrong
+    - block.json of post-todo-injector declares the script module dependency on todo-list
+
+# =============================================================================
+# Group N — TypeScript-typed stores
+# =============================================================================
+
+- name: ts-store-type-inference
+  description: Infer store types from a plain object passed to store() — no annotations.
+  difficulty: simple
+  concepts: [store() inference, TypeScript, state/actions/callbacks]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/using-typescript.md]
+  prompt: |
+    Re-implement the basic counter block in TypeScript, relying on
+    type inference from the object literal passed to `store()`. No
+    explicit type annotations on the store result, no generic
+    parameter — but `state.counter`, `actions.increment` and a
+    `callbacks.log` should all be typed when used elsewhere.
+  acceptance:
+    - view.ts calls `const myStore = store('namespace', { state: ..., actions: ..., callbacks: ... })`
+    - No generic parameter on the store() call
+    - No `as` cast on the inner object
+    - Using `myStore.state.counter` resolves to type `number` without explicit annotation
+    - tsconfig is configured for strict-mode checking (noImplicitAny works fine)
+
+- name: ts-server-state-merge-typeof
+  description: Merge a manually-declared ServerState type with `typeof storeDef`.
+  difficulty: intermediate
+  concepts: [ServerState type, typeof storeDef, intersection &, store<T>()]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/using-typescript.md]
+  prompt: |
+    Build a TypeScript counter where the counter is initialised by
+    PHP via wp_interactivity_state. Define a `ServerState` type for
+    the server-injected fields, then merge it with `typeof storeDef`
+    (the client-side definitions) and pass that to `store<T>(...)`.
+  acceptance:
+    - A ServerState interface declares `counter: number`
+    - A separate `storeDef` constant holds the client actions/callbacks
+    - The store call is `store<ServerState & typeof storeDef>('ns', storeDef)`
+    - Inside actions, `state.counter` is typed as number with no `any`
+    - No `as State` cast used (the merge form is what's expected here)
+
+- name: ts-async-action-helper
+  description: Type a generator action with AsyncAction<T> to avoid circular reference errors.
+  difficulty: intermediate
+  concepts: [AsyncAction<T>, generator action, circular reference]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/using-typescript.md]
+  prompt: |
+    In a TypeScript counter store, add an async action
+    `delayedIncrement` that yields a Promise (e.g. setTimeout
+    wrapped) and then mutates the counter. Annotate the action's
+    return type with the iAPI's AsyncAction helper to avoid the
+    circular-reference compiler error.
+  acceptance:
+    - `AsyncAction` is imported from `@wordpress/interactivity`
+    - The action signature is `*delayedIncrement(): AsyncAction<void>` (or `<number>` etc.)
+    - The yield expression compiles without circular-reference TS errors
+    - The action is callable as a normal action via data-wp-on--click
+    - state.counter is mutated only after the yield
+
+- name: ts-typed-context
+  description: Type local context access via getContext<MyContext>().
+  difficulty: simple
+  concepts: [getContext<T>, local context typing]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/using-typescript.md]
+  prompt: |
+    In a TypeScript "list-item" block, the wrapper carries a
+    data-wp-context with `{ id: string, selected: boolean }`. In
+    the toggle action, type the context properly so accessing
+    `context.selected` is a boolean (not `any`).
+  acceptance:
+    - A `MyContext` interface defines `id: string; selected: boolean`
+    - Action calls `const context = getContext<MyContext>()`
+    - context.selected is treated as boolean by the TS compiler (verifiable by misuse causing a TS error)
+    - No `as MyContext` cast inside the action
+    - Optional: a `const getMyContext = getContext<MyContext>` alias may be exported for reuse
+
+- name: ts-derived-state-explicit-return
+  description: Annotate a derived getter's return type to break the self-referential type cycle.
+  difficulty: intermediate
+  concepts: [derived state getter, explicit return type, TS circular reference]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/using-typescript.md]
+  prompt: |
+    Add a `double` getter to a TypeScript counter store. Because
+    the getter depends on `state.counter` and lives inside the
+    state object, give it an explicit return type to avoid the
+    "implicitly has return type" / circular-reference TS error.
+  acceptance:
+    - The getter is declared `get double(): number { return this.counter * 2; }` (or equivalent return-type annotation)
+    - No TS compile errors related to circular references on `state.double`
+    - `myStore.state.double` is typed as `number` (and is read-only)
+    - Increment action mutates only `state.counter`
+
+# =============================================================================
+# Group O — Quick-start scaffolding (block.json + render.php essentials)
+# =============================================================================
+
+- name: minimal-block-scaffolding
+  description: Smallest correctly-wired iAPI block — block.json + render.php + view.js.
+  difficulty: simple
+  concepts: [block.json supports.interactivity, viewScriptModule, render.php data-wp-interactive]
+  source: docs
+  source_files:
+    - docs/reference-guides/interactivity-api/iapi-quick-start-guide.md
+    - docs/reference-guides/interactivity-api/README.md
+  prompt: |
+    Scaffold a brand-new interactive block called "first-poke"
+    whose view.js logs "Hello from iAPI" once. Make sure all the
+    required wiring is present so the runtime actually picks it up
+    on the front-end.
+  acceptance:
+    - block.json includes `"supports": { "interactivity": true }` (or the object form)
+    - block.json declares `"viewScriptModule": "file:./view.js"` (NOT `"viewScript"`)
+    - render.php emits a wrapper element carrying `data-wp-interactive="first-poke"` (or your chosen namespace)
+    - view.js imports `store` from `@wordpress/interactivity`
+    - The store callback / action that logs the message is wired (e.g. via data-wp-init)
+
+# =============================================================================
+# Group P — Real-block UX patterns: menus, modals, expandables
+# =============================================================================
+
+- name: hamburger-menu-with-focus-trap
+  description: Accessible mobile menu with Tab focus trap and Escape-to-close.
+  difficulty: intermediate
+  concepts: [data-wp-on--click, data-wp-on--keydown, data-wp-bind--aria-expanded, focus management, getElement]
+  source: derived
+  source_files: [packages/block-library/src/navigation/view.js]
+  prompt: |
+    Build a "side-drawer-nav" block: a hamburger button that opens a
+    full-screen drawer containing nav links. While open, Tab and
+    Shift+Tab must cycle within the drawer (focus trap), Escape must
+    close it, and focus must return to the hamburger button on
+    close. The drawer should expose `role="dialog"` and
+    `aria-modal="true"` while open.
+  acceptance:
+    - Hamburger button uses data-wp-on--click bound to an open action
+    - Drawer uses data-wp-on--keydown to handle Tab/Shift+Tab/Escape
+    - Tab on the last focusable element calls preventDefault and focuses the first; Shift+Tab on the first focuses the last
+    - data-wp-bind--aria-expanded reflects open/closed state on the trigger button
+    - On close, focus is returned to the original trigger element via stored ref
+    - The previously-focused element is captured in context/state when the drawer opens
+
+- name: image-lightbox-overlay
+  description: Click image to zoom into a fullscreen lightbox with animated entry/exit.
+  difficulty: advanced
+  concepts: [data-wp-on--click, data-wp-bind, derived state, getElement, getBoundingClientRect, data-wp-bind--style]
+  source: derived
+  source_files: [packages/block-library/src/image/view.js]
+  prompt: |
+    Build a "zoomable-image" block: clicking the image opens a
+    fullscreen lightbox that animates from the image's position to
+    fill the viewport. The overlay must expose dialog semantics,
+    Escape closes it (returning focus to the original image
+    button), and the open/close animations are driven by CSS
+    custom properties bound from the runtime.
+  acceptance:
+    - Trigger button uses data-wp-on--click to set state-driven `overlayEnabled`
+    - Overlay element uses data-wp-bind--role and data-wp-bind--aria-modal driven by getters
+    - data-wp-bind--style on the overlay binds CSS custom properties (e.g. --wp--lightbox-scale, --wp--lightbox-initial-left-position)
+    - getElement().ref + getBoundingClientRect() compute starting position in a callback
+    - data-wp-on--keydown handles Escape to close; close action waits for animation duration before .focus({ preventScroll: true }) restores focus
+
+- name: expandable-search-input
+  description: Toggle a search input's expanded state; auto-focus, Escape closes, outside-click closes.
+  difficulty: intermediate
+  concepts: [derived state, withSyncEvent, getElement, data-wp-on--focusout, focus restoration]
+  source: derived
+  source_files: [packages/block-library/src/search/view.js]
+  prompt: |
+    Build an "expandable-search" block: a magnifier-icon button
+    next to a hidden search input. Clicking the button expands the
+    input AND focuses it. Pressing Escape collapses the input and
+    returns focus to the button. Clicking outside the form (or
+    tabbing away to another element) also collapses it.
+  acceptance:
+    - Button's `type`, `aria-controls`, `aria-label`, and `tabindex` are all bound via data-wp-bind to derived getters that read `isSearchInputVisible`
+    - Open action uses withSyncEvent + event.preventDefault and uses getElement().ref + querySelector to focus the input
+    - Escape handler calls a close action and refocuses the button
+    - data-wp-on--focusout on the form checks `!ref.contains(event.relatedTarget)` before closing
+    - A single boolean (`isSearchInputVisible`) drives all of the above
+
+- name: outside-click-detection
+  description: Use data-wp-on--focusout to close a popover when focus leaves the wrapper.
+  difficulty: intermediate
+  concepts: [data-wp-on--focusout, ref.contains, withSyncEvent]
+  source: derived
+  source_files:
+    - packages/block-library/src/search/view.js
+    - packages/block-library/src/navigation/view.js
+  prompt: |
+    Build a "user-menu" block: an avatar button that opens a small
+    popover. The popover should close as soon as focus leaves the
+    wrapper (clicking elsewhere, tabbing out, or focus going to
+    DevTools). It must NOT close while focus is moving between
+    elements within the popover.
+  acceptance:
+    - Wrapper element has data-wp-on--focusout bound to a close action
+    - Action uses getElement().ref.contains(event.relatedTarget) to decide whether to close
+    - Edge case: when event.relatedTarget is null (Safari focusout-to-outside-document), action also closes
+    - Action is wrapped with withSyncEvent for reliable event access
+
+- name: navigation-touch-vs-hover
+  description: Submenu opens on hover with mouse but only on tap with touch.
+  difficulty: intermediate
+  concepts: [data-wp-on--pointerenter, data-wp-on--pointerleave, event.pointerType]
+  source: derived
+  source_files: [packages/block-library/src/navigation/view.js]
+  prompt: |
+    Build a "menu-with-submenus" block where moving the mouse over
+    a top-level item reveals its submenu, but on touch devices the
+    same submenu opens only when the user taps (not when they
+    inadvertently touch-hover). Use a single hover-style handler
+    and branch on the pointer type inside the action.
+  acceptance:
+    - Top-level items have data-wp-on--pointerenter and data-wp-on--pointerleave bound to actions
+    - Inside the action, `event.pointerType === 'touch'` causes an early return
+    - Tap on touch is handled separately via data-wp-on--click
+    - Submenu visibility is driven by state/context, not direct DOM mutation
+
+- name: arrow-key-gallery-navigation
+  description: Left/right arrow keys cycle through images in a gallery overlay.
+  difficulty: intermediate
+  concepts: [data-wp-on--keydown, derived state, wrap-around index]
+  source: derived
+  source_files: [packages/block-library/src/image/view.js]
+  prompt: |
+    Build an "image-carousel" block (gallery of images). Once the
+    user opens any image in the lightbox, ArrowLeft and
+    ArrowRight should cycle to the previous/next image. Reaching
+    the end wraps to the beginning. Computed booleans expose
+    whether previous/next exist (always true here, given wrap).
+  acceptance:
+    - Container uses data-wp-on--keydown bound to an action
+    - Action branches on event.key === 'ArrowLeft' / 'ArrowRight'
+    - State exposes `selectedImageIndex` plus computed `hasNext`/`hasPrevious` getters
+    - Index wraps via modulo or explicit reset on overflow/underflow
+    - After index changes, an associated callback recomputes any positional styles
+
+# =============================================================================
+# Group Q — Reactivity philosophy / mutation semantics
+# =============================================================================
+
+- name: array-push-mutation-reactivity
+  description: Mutate an array in place via .push() and have the UI react.
+  difficulty: intermediate
+  concepts: [reactivity without immutability, direct mutation, data-wp-each]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/the-reactive-and-declarative-mindset.md]
+  prompt: |
+    Build a "shopping-cart" block: a list of items in state, plus
+    an "Add sample" button. The action must mutate the list with
+    a direct `.push()` call (no spread, no array reassignment),
+    and the UI must update reactively because of the iAPI's deep
+    proxying.
+  acceptance:
+    - Action body calls `state.items.push(newItem)` (or context.items.push())
+    - The action does NOT spread (`[...state.items, x]`) or reassign the array
+    - List renders via data-wp-each with the array as iteration source
+    - New item appears in the rendered list without explicit re-render
+
+- name: simple-text-toggle-imperative-comparison
+  description: Replace an imperative show/hide flow with declarative bindings — multiple bound attributes update from one mutation.
+  difficulty: simple
+  concepts: [data-wp-bind, data-wp-class, data-wp-text, derived getters]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/core-concepts/the-reactive-and-declarative-mindset.md]
+  prompt: |
+    Build an "activator-panel" block: one button toggles a panel
+    between active and inactive. While in active mode, the panel
+    has class `is-active`, displays "Active" text, and the button
+    label changes to "Deactivate". One action mutating ONE boolean
+    must drive all four UI changes simultaneously.
+  acceptance:
+    - State has a single boolean (e.g. `isActive`)
+    - Two derived getters return the panel text and the button text
+    - Panel uses data-wp-class--is-active and data-wp-class--is-inactive bound to the boolean and its negation
+    - Single action toggles `state.isActive`; no other mutation in the action body
+    - data-wp-text on panel and button render the derived text getters
+
+# =============================================================================
+# Group R — Misc / corner cases
+# =============================================================================
+
+- name: getconfig-feature-detection
+  description: Expose a derived state value that depends on a runtime browser-capability check.
+  difficulty: simple
+  concepts: [derived state via getter, browser feature detection, lock:true]
+  source: derived
+  source_files: [packages/block-library/src/file/view.js]
+  prompt: |
+    Build a "pdf-preview" block whose UI offers an inline PDF
+    preview only when the browser supports it (e.g. an
+    `application/pdf` MIME-type test). Expose a single boolean on
+    the store as a derived getter that returns the result of the
+    runtime check; bind a button's `hidden` attribute to its
+    negation.
+  acceptance:
+    - State exposes `hasPdfPreview` as a getter (NOT a stored boolean)
+    - The getter calls a feature-detection helper (e.g. checking navigator/MIME-type list)
+    - data-wp-bind--hidden on the fallback link is bound to `!state.hasPdfPreview`
+    - store() call uses `lock: true` to prevent third parties from overriding the getter
+
+- name: directives-on-non-block-html
+  description: Process directives on arbitrary HTML output (widget/sidebar) via wp_interactivity_process_directives.
+  difficulty: intermediate
+  concepts: [wp_interactivity_process_directives, non-block usage]
+  source: docs
+  source_files: [docs/reference-guides/interactivity-api/iapi-faq.md]
+  prompt: |
+    Make a legacy "search-widget" sidebar widget interactive
+    without converting it to a block. Add iAPI directives to the
+    widget's output and process them on the server so the
+    front-end behaves like a normal interactive block.
+  acceptance:
+    - Widget's output() captures HTML containing data-wp-interactive / data-wp-on / data-wp-bind directives
+    - The captured HTML is passed through wp_interactivity_process_directives() before being echoed
+    - wp_interactivity_state is called for the widget's namespace before processing
+    - There is no block.json / block registration involved

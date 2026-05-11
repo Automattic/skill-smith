@@ -1,0 +1,26 @@
+name: shared-state
+description: Build a counter block whose state is shared across all instances on the page via global state.
+skills:
+  - wp-interactivity-api
+
+prompt: |
+  Create an interactive shared-tally block for WordPress. The block should:
+  1. Render a counter (starting at 0) and an "Increment" button.
+  2. Hold the counter value in GLOBAL state (initialized in PHP via
+     wp_interactivity_state), NOT in local context.
+  3. When the same block is placed multiple times on a single page, all
+     instances must reflect the same counter value, and clicking Increment
+     on ANY instance must update the displayed value on EVERY instance.
+
+acceptance:
+  - PHP calls wp_interactivity_state with the initial counter value (0)
+  - Counter renders via data-wp-text="state.counter" (NOT context.counter)
+  - Increment button uses data-wp-on--click bound to a store action
+  - Action mutates state.counter directly (e.g. state.counter += 1)
+  - data-wp-context is NOT used to hold the counter
+  - The same data-wp-interactive namespace is used on every instance
+  - block.json declares supports.interactivity and a viewScriptModule entry
+  - Initial server-rendered HTML shows "0" in every instance's counter
+
+rubrics:
+  - wp-interactivity-api-best-practices
