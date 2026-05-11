@@ -14,7 +14,7 @@ prompt: |
   counter value.
 
 acceptance:
-  - Each instance initializes its own counter via data-wp-context (e.g. '{ "counter": 0 }')
+  - 'Each instance initializes its own counter via data-wp-context (e.g. ''{ "counter": 0 }'')'
   - Counter renders via data-wp-text="context.counter" (NOT state.counter)
   - Increment button uses data-wp-on--click bound to a store action
   - Action accesses and mutates the value via getContext() (NOT global state)

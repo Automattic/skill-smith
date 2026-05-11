@@ -15,7 +15,7 @@ prompt: |
   fields, namespace consistency, module imports) is what matters.
 
 acceptance:
-  - block.json declares supports.interactivity (e.g. "supports": { "interactivity": true })
+  - 'block.json declares supports.interactivity (e.g. "supports": { "interactivity": true })'
   - block.json declares "viewScriptModule" pointing at the view JS file (NOT "viewScript")
   - render.php emits a wrapper element carrying data-wp-interactive set to a namespace string
   - view.js imports `store` from @wordpress/interactivity
