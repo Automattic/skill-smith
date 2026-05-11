@@ -13,6 +13,7 @@ import { defineConfig } from "skillsmith";
 const PROJECT_ROOT = dirname(fileURLToPath(import.meta.url));
 const BLOCK_NAME = "skillsmith/testing-block";
 const SLUG_PATTERN = /^[a-z0-9-]+$/;
+const WP_ENV_PORT = Number(process.env.WP_ENV_PORT ?? 8987);
 
 function pluginSlug(scenarioName: string, agentId: string): string {
 	if (!SLUG_PATTERN.test(scenarioName)) {
@@ -150,6 +151,7 @@ export default defineConfig({
 				`${JSON.stringify(
 					{
 						plugins: pluginPaths,
+						port: WP_ENV_PORT,
 						testsEnvironment: false,
 						// wp-env always runs `wp plugin activate <basename>` for
 						// every entry in `plugins` during start; `afterStart`
@@ -165,16 +167,29 @@ export default defineConfig({
 				)}\n`,
 			);
 
+			const wpEnv = {
+				...process.env,
+				WP_ENV_PORT: String(WP_ENV_PORT),
+				WP_BASE_URL: `http://localhost:${WP_ENV_PORT}`,
+			};
 			try {
-				execSync("npm run env:start", { stdio: "inherit", cwd: PROJECT_ROOT });
+				execSync("npm run env:start", {
+					stdio: "inherit",
+					cwd: PROJECT_ROOT,
+					env: wpEnv,
+				});
 				execSync("npm run test:e2e", {
 					stdio: "inherit",
 					cwd: PROJECT_ROOT,
-					env: { ...process.env, PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath },
+					env: { ...wpEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath },
 				});
 			} finally {
 				try {
-					execSync("npm run env:stop", { stdio: "inherit", cwd: PROJECT_ROOT });
+					execSync("npm run env:stop", {
+						stdio: "inherit",
+						cwd: PROJECT_ROOT,
+						env: wpEnv,
+					});
 				} catch (err) {
 					console.error("wp-env stop failed:", err);
 				}
