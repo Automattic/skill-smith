@@ -1,8 +1,11 @@
+import { Codex } from "@openai/codex-sdk";
 import { claudeCodeProvider } from "./claude-code";
-import { codexProvider } from "./codex";
+import { createCodexProvider } from "./codex";
 import { mockProvider } from "./mock";
 import { openaiApiProvider } from "./openai-api";
 import type { Provider, ProviderId } from "./types";
+
+const codexProvider = createCodexProvider(Codex);
 
 export const PROVIDERS: Record<ProviderId, Provider> = {
 	"claude-code": claudeCodeProvider,
