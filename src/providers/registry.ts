@@ -1,4 +1,5 @@
 import { Codex } from "@openai/codex-sdk";
+import { anthropicApiProvider } from "./anthropic-api";
 import { claudeCodeProvider } from "./claude-code";
 import { createCodexProvider } from "./codex";
 import { mockProvider } from "./mock";
@@ -10,6 +11,7 @@ const codexProvider = createCodexProvider(Codex);
 export const PROVIDERS: Record<ProviderId, Provider> = {
 	"claude-code": claudeCodeProvider,
 	"openai-api": openaiApiProvider,
+	"anthropic-api": anthropicApiProvider,
 	codex: codexProvider,
 	mock: mockProvider,
 };

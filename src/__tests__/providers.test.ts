@@ -29,6 +29,7 @@ test("isProviderId is a type guard for known ids", () => {
 	assert.equal(isProviderId("mock"), true);
 	assert.equal(isProviderId("claude-code"), true);
 	assert.equal(isProviderId("openai-api"), true);
+	assert.equal(isProviderId("anthropic-api"), true);
 	assert.equal(isProviderId("codex"), true);
 	assert.equal(isProviderId("bogus"), false);
 });
