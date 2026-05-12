@@ -35,9 +35,14 @@
 		"typescript": "6.0.3"
 	},
 	"dependencies": {
+		"@ai-sdk/anthropic": "^2.0.79",
+		"@ai-sdk/google": "^2.0.72",
+		"@ai-sdk/openai": "^2.0.106",
 		"@anthropic-ai/claude-agent-sdk": "^0.2.123",
 		"@openai/codex-sdk": "^0.128.0",
+		"ai": "^5.0.186",
 		"tsx": "^4.21.0",
-		"yaml": "^2.8.3"
+		"yaml": "^2.8.3",
+		"zod": "^3.25.76"
 	}
 }
