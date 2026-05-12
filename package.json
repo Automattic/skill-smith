@@ -13,7 +13,7 @@
 	},
 	"homepage": "https://github.com/Automattic/skillsmith#readme",
 	"engines": {
-		"node": ">=20"
+		"node": ">=20.17"
 	},
 	"bin": {
 		"skillsmith": "./bin/skillsmith.mjs"
