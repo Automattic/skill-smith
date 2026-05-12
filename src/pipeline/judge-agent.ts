@@ -92,7 +92,10 @@ export async function runJudgeAgent(
 
 	const parsed = parseJudgeYaml(result.finalText);
 	if (parsed === undefined) {
-		writeReview(agentDirectory, { error: "unparseable", raw: result.finalText });
+		writeReview(agentDirectory, {
+			error: "unparseable",
+			raw: result.finalText,
+		});
 		log.info(`${scope}: judge YAML unparseable, raw stored`);
 		return;
 	}

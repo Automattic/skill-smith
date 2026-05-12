@@ -22,7 +22,26 @@ Prose review cannot catch this. We need a test loop.
 
 ## How the Skill Tester works
 
-The harness runs every scenario against every configured testing agent. A **scenario** is a prompt plus the skill(s) the agent should use to fulfil it. A **testing agent** is a configured (model, tools, system) tuple. Scenarios run in parallel; within each scenario, testing agents run in parallel.
+The harness runs every scenario against every configured testing agent by default. A **scenario** is a prompt plus the skill(s) the agent should use to fulfil it. A **testing agent** is a configured (model, tools, system) tuple. Scenarios run in parallel; within each scenario, testing agents run in parallel.
+
+### Usage
+
+Run all scenarios:
+
+```sh
+skillsmith
+```
+
+Run one or more targeted scenarios by directory ID under `config.paths.scenarios`:
+
+```sh
+skillsmith counter
+skillsmith counter config-fetch
+```
+
+Scenario selection trims each positional/API scenario value, then matches it exactly against scenario directory names under `config.paths.scenarios`, not `scenario.name` inside `scenario.yaml`. Empty selections run all scenarios. Unknown IDs fail before any hooks or agent work runs, and the error lists the available directory IDs.
+
+No CLI flags are supported yet; option-like arguments such as `--scenario` fail before a run starts.
 
 Project-specific behaviour is exposed through **hooks**. Each fork implements only the hooks it needs against the harness's runtime contract.
 
@@ -30,7 +49,7 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
 
 ### Lifecycle
 
-1. **Init run.** Generate `runId`, create the run directory, load scenarios from `config.paths.scenarios`.
+1. **Init run.** Generate `runId`, load scenarios from `config.paths.scenarios`, and apply any positional scenario directory filters.
 2. **`beforeAll({ config, runId })`**.
 3. **Scenario loop — parallel.** For each scenario:
    1. **Init scenario.** Create the scenario directory, load testing agents from `config.agents.testing` and the judge from `config.agents.judge`.
