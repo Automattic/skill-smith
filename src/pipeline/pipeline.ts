@@ -66,7 +66,10 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	const runCtx: RunContext = {
 		runId,
 		config,
-		scenarios: scenarios.map(({ dirName, scenario }) => ({ dirName, scenario })),
+		scenarios: scenarios.map(({ dirName, scenario }) => ({
+			dirName,
+			scenario,
+		})),
 	};
 	await tryHook("beforeAll", "run", config.hooks?.beforeAll, runCtx, log);
 

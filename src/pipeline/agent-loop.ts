@@ -36,8 +36,15 @@ export interface TestingAgentResult {
  * parallel across testing entries.
  */
 export async function runAgents(params: RunAgentsParams): Promise<void> {
-	const { scenario, scenarioDirectory, config, runId, projectRoot, log, scenarios } =
-		params;
+	const {
+		scenario,
+		scenarioDirectory,
+		config,
+		runId,
+		projectRoot,
+		log,
+		scenarios,
+	} = params;
 
 	await Promise.all(
 		config.agents.testing.map((agent) =>
