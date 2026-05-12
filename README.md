@@ -66,6 +66,8 @@ A **rubric** is prose reference material the judge LLM consults — describing s
 
 The harness dispatches each (scenario, agent) pair to a **provider** — the binding between Skillsmith and a specific model vendor or runtime. Pick one per agent in `skillsmith.config.ts`.
 
+For local runs, copy `.env.example` to `.env` and fill in only the API keys for the providers you plan to use.
+
 | Provider id | Summary | Docs |
 |---|---|---|
 | `claude-code` | Anthropic's Claude Agent SDK with full Read/Write/Edit/Glob/Grep/Bash tool surface and built-in sandboxing. | [docs/providers/claude-code.md](docs/providers/claude-code.md) (forthcoming) |
