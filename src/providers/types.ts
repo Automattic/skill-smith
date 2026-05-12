@@ -2,6 +2,7 @@ import type { AgentDefinition } from "../config/types";
 
 export type ProviderId =
 	| "claude-code"
+	| "anthropic-api"
 	| "openai-api"
 	| "codex"
 	| "gemini"

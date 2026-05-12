@@ -69,6 +69,7 @@ The harness dispatches each (scenario, agent) pair to a **provider** — the bin
 | Provider id | Summary | Docs |
 |---|---|---|
 | `claude-code` | Anthropic's Claude Agent SDK with full Read/Write/Edit/Glob/Grep/Bash tool surface and built-in sandboxing. | [docs/providers/claude-code.md](docs/providers/claude-code.md) (forthcoming) |
+| `anthropic-api` | Direct Anthropic Messages API via `@anthropic-ai/sdk` with a local tool loop for testing agents. Reads `ANTHROPIC_API_KEY`. | [docs/providers/anthropic-api.md](docs/providers/anthropic-api.md) |
 | `codex` | OpenAI Codex CLI via `@openai/codex-sdk`. Workspace-write sandbox; reads `OPENAI_API_KEY`. | [docs/providers/codex.md](docs/providers/codex.md) (forthcoming) |
 | `openai-api` | Direct OpenAI Responses API with a local function-calling tool loop. Reads `OPENAI_API_KEY`. | [docs/providers/openai-api.md](docs/providers/openai-api.md) (forthcoming) |
 | `gemini` | Google Gemini via `@google/genai`. Owns the function-calling loop, enforces path containment in-process. Reads `GEMINI_API_KEY` (or `GOOGLE_API_KEY`). | [docs/providers/gemini.md](docs/providers/gemini.md) |

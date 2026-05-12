@@ -10,6 +10,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type {
+	ContentBlock,
+	Message,
+	MessageCreateParamsNonStreaming,
+	StopReason,
+} from "@anthropic-ai/sdk/resources/messages";
+import type {
 	CodexOptions,
 	ThreadEvent,
 	ThreadOptions,
@@ -20,6 +26,10 @@ import type {
 	ResponseFunctionToolCall,
 	ResponseOutputItem,
 } from "openai/resources/responses/responses";
+import {
+	createAnthropicApiProvider,
+	type AnthropicClientFactory,
+} from "../providers/anthropic-api";
 import { type CodexCtor, createCodexProvider } from "../providers/codex";
 import {
 	createGeminiProvider,
@@ -35,6 +45,7 @@ import type { InvokeParams } from "../providers/types";
 test("getProvider returns the matching provider", () => {
 	assert.equal(getProvider("mock").id, "mock");
 	assert.equal(getProvider("claude-code").id, "claude-code");
+	assert.equal(getProvider("anthropic-api").id, "anthropic-api");
 });
 
 test("getProvider throws on unknown id", () => {
@@ -48,6 +59,7 @@ test("getProvider throws on unknown id", () => {
 test("isProviderId is a type guard for known ids", () => {
 	assert.equal(isProviderId("mock"), true);
 	assert.equal(isProviderId("claude-code"), true);
+	assert.equal(isProviderId("anthropic-api"), true);
 	assert.equal(isProviderId("openai-api"), true);
 	assert.equal(isProviderId("codex"), true);
 	assert.equal(isProviderId("gemini"), true);
@@ -57,6 +69,473 @@ test("isProviderId is a type guard for known ids", () => {
 test("openai-api provider is registered without constructing a client at import time", () => {
 	assert.equal(getProvider("openai-api").id, "openai-api");
 });
+
+test("anthropic-api provider is registered without constructing a client at import time", () => {
+	assert.equal(getProvider("anthropic-api").id, "anthropic-api");
+});
+
+interface FakeAnthropicOptions {
+	responses?: Message[];
+	captured?: MessageCreateParamsNonStreaming[];
+	constructed?: Array<{ apiKey: string; timeoutMs?: number }>;
+	throwOnCreate?: Error;
+}
+
+function makeFakeAnthropic(
+	opts: FakeAnthropicOptions = {},
+): AnthropicClientFactory {
+	let index = 0;
+	return (factoryOpts) => {
+		opts.constructed?.push(factoryOpts);
+		return {
+			messages: {
+				async create(call: MessageCreateParamsNonStreaming): Promise<Message> {
+					opts.captured?.push(call);
+					if (opts.throwOnCreate) throw opts.throwOnCreate;
+					const response = opts.responses?.[index++];
+					return response ?? anthropicMessage([anthropicText("done")]);
+				},
+			},
+		};
+	};
+}
+
+function anthropicMessage(
+	content: ContentBlock[],
+	stop_reason: StopReason = "end_turn",
+): Message {
+	return {
+		id: "msg",
+		container: null,
+		content,
+		model: "claude-test",
+		role: "assistant",
+		stop_reason,
+		stop_sequence: null,
+		type: "message",
+		usage: {
+			cache_creation: null,
+			cache_creation_input_tokens: null,
+			cache_read_input_tokens: null,
+			inference_geo: null,
+			input_tokens: 1,
+			output_tokens: 1,
+			server_tool_use: null,
+			service_tier: null,
+		},
+	};
+}
+
+function anthropicText(text: string): ContentBlock {
+	return { type: "text", text, citations: null };
+}
+
+function anthropicToolUse(
+	id: string,
+	name: string,
+	input: Record<string, unknown>,
+): ContentBlock {
+	return {
+		type: "tool_use",
+		id,
+		name,
+		input,
+		caller: { type: "direct" },
+	};
+}
+
+function anthropicParams(overrides: Partial<InvokeParams> = {}): InvokeParams {
+	const cwd = overrides.cwd ?? mkdtempSync(join(tmpdir(), "anthropic-api-test-"));
+	return {
+		agent: { id: "a", provider: "anthropic-api", model: "claude-test" },
+		systemPrompt: "system prompt body",
+		prompt: "user prompt",
+		cwd,
+		role: "testing",
+		...overrides,
+	};
+}
+
+async function withAnthropicApiKey<T>(fn: () => Promise<T>): Promise<T> {
+	const previous = process.env.ANTHROPIC_API_KEY;
+	process.env.ANTHROPIC_API_KEY = "test-key";
+	try {
+		return await fn();
+	} finally {
+		if (previous === undefined) {
+			delete process.env.ANTHROPIC_API_KEY;
+		} else {
+			process.env.ANTHROPIC_API_KEY = previous;
+		}
+	}
+}
+
+test("anthropic-api missing API key returns an error and does not construct client", async () => {
+	const previous = process.env.ANTHROPIC_API_KEY;
+	delete process.env.ANTHROPIC_API_KEY;
+	const constructed: Array<{ apiKey: string; timeoutMs?: number }> = [];
+	const provider = createAnthropicApiProvider(makeFakeAnthropic({ constructed }));
+	try {
+		const result = await provider.invoke(anthropicParams());
+
+		assert.equal(result.finalText, "");
+		assert.equal(result.toolUseCount, 0);
+		assert.equal(result.error, "ANTHROPIC_API_KEY not set");
+		assert.equal(constructed.length, 0);
+	} finally {
+		if (previous !== undefined) process.env.ANTHROPIC_API_KEY = previous;
+	}
+});
+
+test("anthropic-api judge sends one Messages request with no tools", async () => {
+	const captured: MessageCreateParamsNonStreaming[] = [];
+	const provider = createAnthropicApiProvider(
+		makeFakeAnthropic({
+			captured,
+			responses: [anthropicMessage([anthropicText("judge "), anthropicText("yaml")])],
+		}),
+	);
+
+	const result = await withAnthropicApiKey(() =>
+		provider.invoke(
+			anthropicParams({
+				role: "judge",
+				agent: {
+					id: "a",
+					provider: "anthropic-api",
+					model: "claude-test",
+					maxOutputTokens: 1234,
+					temperature: 0.2,
+					topP: 0.9,
+					topK: 10,
+					stopSequences: ["STOP"],
+				},
+			}),
+		),
+	);
+
+	assert.equal(result.finalText, "judge yaml");
+	assert.equal(result.toolUseCount, 0);
+	assert.equal(result.error, undefined);
+	assert.equal(captured.length, 1);
+	assert.equal(captured[0]?.model, "claude-test");
+	assert.equal(captured[0]?.max_tokens, 1234);
+	assert.equal(captured[0]?.system, "system prompt body");
+	assert.deepEqual(captured[0]?.messages, [
+		{ role: "user", content: "user prompt" },
+	]);
+	assert.equal(captured[0]?.tools, undefined);
+	assert.equal(captured[0]?.temperature, 0.2);
+	assert.equal(captured[0]?.top_p, 0.9);
+	assert.equal(captured[0]?.top_k, 10);
+	assert.deepEqual(captured[0]?.stop_sequences, ["STOP"]);
+});
+
+test("anthropic-api treats stop_sequence as terminal success", async () => {
+	const provider = createAnthropicApiProvider(
+		makeFakeAnthropic({
+			responses: [anthropicMessage([anthropicText("stopped")], "stop_sequence")],
+		}),
+	);
+
+	const result = await withAnthropicApiKey(() =>
+		provider.invoke(anthropicParams({ role: "judge" })),
+	);
+
+	assert.equal(result.finalText, "stopped");
+	assert.equal(result.error, undefined);
+});
+
+test("anthropic-api testing executes Write and returns final text", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "anthropic-api-test-"));
+	const captured: MessageCreateParamsNonStreaming[] = [];
+	const provider = createAnthropicApiProvider(
+		makeFakeAnthropic({
+			captured,
+			responses: [
+				anthropicMessage(
+					[
+						anthropicToolUse("toolu-1", "Write", {
+							path: "answer.txt",
+							content: "hello",
+						}),
+					],
+					"tool_use",
+				),
+				anthropicMessage([anthropicText("done")]),
+			],
+		}),
+	);
+
+	const result = await withAnthropicApiKey(() =>
+		provider.invoke(anthropicParams({ cwd })),
+	);
+
+	assert.equal(readFileSync(join(cwd, "answer.txt"), "utf8"), "hello");
+	assert.equal(result.finalText, "done");
+	assert.equal(result.toolUseCount, 1);
+	assert.equal(result.error, undefined);
+	assert.equal(captured.length, 2);
+	assert.equal(captured[0]?.system, "system prompt body");
+	assert.ok(Array.isArray(captured[0]?.tools));
+	const secondMessages = captured[1]?.messages;
+	assert.ok(Array.isArray(secondMessages));
+	assert.equal(secondMessages.at(-2)?.role, "assistant");
+	assert.equal(secondMessages.at(-1)?.role, "user");
+	const toolResults = secondMessages.at(-1)?.content;
+	assert.ok(Array.isArray(toolResults));
+	assert.equal(toolResults[0]?.type, "tool_result");
+	assert.equal(toolResults[0]?.tool_use_id, "toolu-1");
+});
+
+test("anthropic-api testing errors on empty terminal response", async () => {
+	const provider = createAnthropicApiProvider(
+		makeFakeAnthropic({ responses: [anthropicMessage([])] }),
+	);
+
+	const result = await withAnthropicApiKey(() => provider.invoke(anthropicParams()));
+
+	assert.match(result.error ?? "", /no final text or tool calls/);
+});
+
+test("anthropic-api testing errors on empty terminal response after partial text", async () => {
+	const provider = createAnthropicApiProvider(
+		makeFakeAnthropic({
+			responses: [
+				anthropicMessage(
+					[
+						anthropicText("partial"),
+						anthropicToolUse("toolu-1", "Write", {
+							path: "answer.txt",
+							content: "hello",
+						}),
+					],
+					"tool_use",
+				),
+				anthropicMessage([]),
+			],
+		}),
+	);
+
+	const result = await withAnthropicApiKey(() => provider.invoke(anthropicParams()));
+
+	assert.equal(result.finalText, "partial");
+	assert.match(result.error ?? "", /no final text or tool calls/);
+});
+
+test("anthropic-api testing executes and counts multiple same-turn tool uses", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "anthropic-api-test-"));
+	const provider = createAnthropicApiProvider(
+		makeFakeAnthropic({
+			responses: [
+				anthropicMessage(
+					[
+						anthropicToolUse("toolu-1", "Write", {
+							path: "one.txt",
+							content: "one",
+						}),
+						anthropicToolUse("toolu-2", "Write", {
+							path: "two.txt",
+							content: "two",
+						}),
+					],
+					"tool_use",
+				),
+				anthropicMessage([anthropicText("done")]),
+			],
+		}),
+	);
+
+	const result = await withAnthropicApiKey(() =>
+		provider.invoke(anthropicParams({ cwd })),
+	);
+
+	assert.equal(readFileSync(join(cwd, "one.txt"), "utf8"), "one");
+	assert.equal(readFileSync(join(cwd, "two.txt"), "utf8"), "two");
+	assert.equal(result.toolUseCount, 2);
+	assert.equal(result.error, undefined);
+});
+
+test("anthropic-api testing returns malformed tool input as error tool_result", async () => {
+	const captured: MessageCreateParamsNonStreaming[] = [];
+	const provider = createAnthropicApiProvider(
+		makeFakeAnthropic({
+			captured,
+			responses: [
+				anthropicMessage(
+					[anthropicToolUse("toolu-1", "Read", { path: 123 })],
+					"tool_use",
+				),
+				anthropicMessage([anthropicText("recovered")]),
+			],
+		}),
+	);
+
+	const result = await withAnthropicApiKey(() => provider.invoke(anthropicParams()));
+
+	assert.equal(result.finalText, "recovered");
+	assert.equal(result.error, undefined);
+	const toolResults = toolResultBlocks(captured, 1);
+	assert.equal(toolResults[0]?.tool_use_id, "toolu-1");
+	assert.equal(toolResults[0]?.is_error, true);
+	assert.match(String(toolResults[0]?.content), /invalid args/);
+});
+
+test("anthropic-api testing blocks path escape, absolute path, and symlink-parent writes", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "anthropic-api-test-"));
+	const outside = mkdtempSync(join(tmpdir(), "anthropic-outside-"));
+	symlinkSync(outside, join(cwd, "link"), "dir");
+	const captured: MessageCreateParamsNonStreaming[] = [];
+	const provider = createAnthropicApiProvider(
+		makeFakeAnthropic({
+			captured,
+			responses: [
+				anthropicMessage(
+					[
+						anthropicToolUse("toolu-1", "Write", {
+							path: "../escape.txt",
+							content: "bad",
+						}),
+						anthropicToolUse("toolu-2", "Write", {
+							path: join(outside, "absolute.txt"),
+							content: "bad",
+						}),
+						anthropicToolUse("toolu-3", "Write", {
+							path: "link/escape.txt",
+							content: "bad",
+						}),
+					],
+					"tool_use",
+				),
+				anthropicMessage([anthropicText("done")]),
+			],
+		}),
+	);
+
+	const result = await withAnthropicApiKey(() =>
+		provider.invoke(anthropicParams({ cwd })),
+	);
+
+	assert.equal(result.error, undefined);
+	assert.equal(existsSync(join(cwd, "..", "escape.txt")), false);
+	assert.equal(existsSync(join(outside, "absolute.txt")), false);
+	assert.equal(existsSync(join(outside, "escape.txt")), false);
+	const toolResults = toolResultBlocks(captured, 1);
+	assert.equal(toolResults.length, 3);
+	assert.ok(toolResults.every((block) => block.is_error === true));
+});
+
+test("anthropic-api Grep and Glob do not traverse symlinked directories outside cwd", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "anthropic-api-test-"));
+	const outside = mkdtempSync(join(tmpdir(), "anthropic-outside-"));
+	writeFileSync(join(outside, "secret.txt"), "needle");
+	symlinkSync(outside, join(cwd, "outside-link"), "dir");
+	const captured: MessageCreateParamsNonStreaming[] = [];
+	const provider = createAnthropicApiProvider(
+		makeFakeAnthropic({
+			captured,
+			responses: [
+				anthropicMessage(
+					[
+						anthropicToolUse("toolu-1", "Grep", { pattern: "needle" }),
+						anthropicToolUse("toolu-2", "Glob", { pattern: "**/*.txt" }),
+					],
+					"tool_use",
+				),
+				anthropicMessage([anthropicText("done")]),
+			],
+		}),
+	);
+
+	const result = await withAnthropicApiKey(() =>
+		provider.invoke(anthropicParams({ cwd })),
+	);
+
+	assert.equal(result.error, undefined);
+	const toolResults = toolResultBlocks(captured, 1);
+	assert.doesNotMatch(String(toolResults[0]?.content), /secret\.txt|needle/);
+	assert.doesNotMatch(String(toolResults[1]?.content), /secret\.txt/);
+});
+
+test("anthropic-api Bash does not forward ANTHROPIC_API_KEY", async () => {
+	const captured: MessageCreateParamsNonStreaming[] = [];
+	const provider = createAnthropicApiProvider(
+		makeFakeAnthropic({
+			captured,
+			responses: [
+				anthropicMessage(
+					[
+						anthropicToolUse("toolu-1", "Bash", {
+							command: "printf '%s' \"$" + "{ANTHROPIC_API_KEY:-missing}\"",
+						}),
+					],
+					"tool_use",
+				),
+				anthropicMessage([anthropicText("done")]),
+			],
+		}),
+	);
+
+	const result = await withAnthropicApiKey(() => provider.invoke(anthropicParams()));
+
+	assert.equal(result.error, undefined);
+	const toolResults = toolResultBlocks(captured, 1);
+	assert.match(String(toolResults[0]?.content), /missing/);
+	assert.doesNotMatch(String(toolResults[0]?.content), /test-key/);
+});
+
+test("anthropic-api maxToolIterations errors after executing attempted calls", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "anthropic-api-test-"));
+	const provider = createAnthropicApiProvider(
+		makeFakeAnthropic({
+			responses: [
+				anthropicMessage(
+					[
+						anthropicToolUse("toolu-1", "Write", {
+							path: "one.txt",
+							content: "one",
+						}),
+					],
+					"tool_use",
+				),
+			],
+		}),
+	);
+
+	const result = await withAnthropicApiKey(() =>
+		provider.invoke(
+			anthropicParams({
+				cwd,
+				agent: {
+					id: "a",
+					provider: "anthropic-api",
+					model: "claude-test",
+					maxToolIterations: 1,
+				},
+			}),
+		),
+	);
+
+	assert.equal(readFileSync(join(cwd, "one.txt"), "utf8"), "one");
+	assert.equal(result.toolUseCount, 1);
+	assert.match(result.error ?? "", /maxToolIterations \(1\)/);
+});
+
+function toolResultBlocks(
+	captured: MessageCreateParamsNonStreaming[],
+	callIndex: number,
+): Array<{ tool_use_id?: string; content?: unknown; is_error?: boolean }> {
+	const messages = captured[callIndex]?.messages;
+	assert.ok(Array.isArray(messages));
+	const last = messages.at(-1);
+	assert.equal(last?.role, "user");
+	assert.ok(Array.isArray(last.content));
+	return last.content as Array<{
+		tool_use_id?: string;
+		content?: unknown;
+		is_error?: boolean;
+	}>;
+}
 
 interface FakeOpenAiOptions {
 	responses?: Response[];
