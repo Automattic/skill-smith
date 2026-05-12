@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -8,7 +14,17 @@ import type {
 	ThreadEvent,
 	ThreadOptions,
 } from "@openai/codex-sdk";
+import type {
+	Response,
+	ResponseCreateParamsNonStreaming,
+	ResponseFunctionToolCall,
+	ResponseOutputItem,
+} from "openai/resources/responses/responses";
 import { type CodexCtor, createCodexProvider } from "../providers/codex";
+import {
+	createOpenAiApiProvider,
+	type OpenAiClientFactory,
+} from "../providers/openai-api";
 import { getProvider, isProviderId } from "../providers/registry";
 import type { InvokeParams } from "../providers/types";
 
@@ -33,18 +49,650 @@ test("isProviderId is a type guard for known ids", () => {
 	assert.equal(isProviderId("bogus"), false);
 });
 
-test("openai-api provider throws on invoke (not implemented)", async () => {
-	await assert.rejects(
-		() =>
-			getProvider("openai-api").invoke({
-				agent: { id: "x", provider: "openai-api", model: "m" },
-				systemPrompt: "",
-				prompt: "",
-				cwd: "/tmp",
-				role: "testing",
-			}),
-		/not implemented/,
+test("openai-api provider is registered without constructing a client at import time", () => {
+	assert.equal(getProvider("openai-api").id, "openai-api");
+});
+
+interface FakeOpenAiOptions {
+	responses?: Response[];
+	captured?: ResponseCreateParamsNonStreaming[];
+	throwOnCreate?: Error;
+}
+
+function makeFakeOpenAi(opts: FakeOpenAiOptions = {}): OpenAiClientFactory {
+	let index = 0;
+	return () => ({
+		responses: {
+			async create(call: ResponseCreateParamsNonStreaming): Promise<Response> {
+				opts.captured?.push(call);
+				if (opts.throwOnCreate) throw opts.throwOnCreate;
+				const response = opts.responses?.[index++];
+				return response ?? openAiResponse({ output_text: "done" });
+			},
+		},
+	});
+}
+
+function openAiResponse(overrides: Partial<Response> = {}): Response {
+	return {
+		id: "resp",
+		created_at: 0,
+		error: null,
+		incomplete_details: null,
+		instructions: null,
+		metadata: null,
+		model: "gpt-test",
+		object: "response",
+		output: [],
+		output_text: "",
+		parallel_tool_calls: true,
+		status: "completed",
+		store: false,
+		temperature: null,
+		text: { format: { type: "text" } },
+		tool_choice: "auto",
+		tools: [],
+		top_p: null,
+		truncation: "disabled",
+		usage: null,
+		...overrides,
+	} as Response;
+}
+
+function functionCall(
+	name: string,
+	call_id: string,
+	args: Record<string, unknown> | string,
+): ResponseFunctionToolCall {
+	return {
+		type: "function_call",
+		name,
+		call_id,
+		arguments: typeof args === "string" ? args : JSON.stringify(args),
+	};
+}
+
+function openAiParams(overrides: Partial<InvokeParams> = {}): InvokeParams {
+	const cwd = overrides.cwd ?? mkdtempSync(join(tmpdir(), "openai-api-test-"));
+	return {
+		agent: { id: "o", provider: "openai-api", model: "gpt-5.5" },
+		systemPrompt: "system prompt body",
+		prompt: "user prompt",
+		cwd,
+		role: "testing",
+		...overrides,
+	};
+}
+
+function findOpenAiFunctionTool(
+	call: ResponseCreateParamsNonStreaming | undefined,
+	name: string,
+): Record<string, unknown> {
+	assert.ok(call);
+	const tools = call.tools;
+	assert.ok(Array.isArray(tools));
+	const found = tools.find((tool) => {
+		if (tool === null || typeof tool !== "object") return false;
+		return (tool as unknown as Record<string, unknown>).name === name;
+	});
+	assert.ok(found);
+	return found as unknown as Record<string, unknown>;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+	assert.ok(value !== null && typeof value === "object" && !Array.isArray(value));
+	return value as Record<string, unknown>;
+}
+
+test("openai-api judge sends a single stored-off Responses request", async () => {
+	const captured: ResponseCreateParamsNonStreaming[] = [];
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			captured,
+			responses: [openAiResponse({ output_text: "judge yaml" })],
+		}),
 	);
+
+	const result = await provider.invoke(openAiParams({ role: "judge" }));
+
+	assert.equal(result.finalText, "judge yaml");
+	assert.equal(result.toolUseCount, 0);
+	assert.equal(result.error, undefined);
+	assert.equal(captured.length, 1);
+	assert.equal(captured[0]?.model, "gpt-5.5");
+	assert.equal(captured[0]?.instructions, "system prompt body");
+	assert.equal(captured[0]?.input, "user prompt");
+	assert.equal(captured[0]?.store, false);
+});
+
+test("openai-api judge surfaces failed Responses status as error", async () => {
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			responses: [
+				openAiResponse({
+					status: "failed",
+					error: { code: "server_error", message: "judge failed" },
+					output_text: "partial judge",
+				}),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(openAiParams({ role: "judge" }));
+
+	assert.equal(result.finalText, "partial judge");
+	assert.equal(result.error, "judge failed");
+});
+
+test("openai-api judge surfaces incomplete Responses status as error", async () => {
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			responses: [
+				openAiResponse({
+					status: "incomplete",
+					incomplete_details: { reason: "max_output_tokens" },
+					output_text: "partial judge",
+				}),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(openAiParams({ role: "judge" }));
+
+	assert.equal(result.finalText, "partial judge");
+	assert.match(result.error ?? "", /incomplete: max_output_tokens/);
+});
+
+test("openai-api testing executes write_file and returns final text", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "openai-api-test-"));
+	const captured: ResponseCreateParamsNonStreaming[] = [];
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			captured,
+			responses: [
+				openAiResponse({
+					output: [
+						functionCall("write_file", "call-1", {
+							path: "answer.txt",
+							content: "hello",
+						}) as ResponseOutputItem,
+					],
+				}),
+				openAiResponse({ output_text: "done" }),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(openAiParams({ cwd }));
+
+	assert.equal(readFileSync(join(cwd, "answer.txt"), "utf8"), "hello");
+	assert.equal(result.finalText, "done");
+	assert.equal(result.toolUseCount, 1);
+	assert.equal(result.error, undefined);
+	assert.equal(captured.length, 2);
+	assert.equal(captured[0]?.instructions, "system prompt body");
+	assert.equal(captured[1]?.instructions, "system prompt body");
+	assert.deepEqual(captured[0]?.include, ["reasoning.encrypted_content"]);
+	const secondInput = captured[1]?.input;
+	assert.ok(Array.isArray(secondInput));
+	assert.equal(secondInput.some((item) => item.type === "function_call"), true);
+	assert.equal(
+		secondInput.some(
+			(item) =>
+				item.type === "function_call_output" && item.call_id === "call-1",
+		),
+		true,
+	);
+});
+
+test("openai-api testing surfaces failed Responses status as error", async () => {
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			responses: [
+				openAiResponse({
+					status: "failed",
+					error: { code: "server_error", message: "testing failed" },
+					output_text: "partial testing",
+				}),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(openAiParams());
+
+	assert.equal(result.finalText, "partial testing");
+	assert.equal(result.error, "testing failed");
+});
+
+test("openai-api testing surfaces incomplete Responses status as error", async () => {
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			responses: [
+				openAiResponse({
+					status: "incomplete",
+					incomplete_details: { reason: "content_filter" },
+					output_text: "partial testing",
+				}),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(openAiParams());
+
+	assert.equal(result.finalText, "partial testing");
+	assert.match(result.error ?? "", /incomplete: content_filter/);
+});
+
+test("openai-api testing local tools use strict-compatible required nullable schemas", async () => {
+	const captured: ResponseCreateParamsNonStreaming[] = [];
+	const provider = createOpenAiApiProvider(makeFakeOpenAi({ captured }));
+
+	await provider.invoke(openAiParams());
+
+	const toolNames = ["list_files", "read_file", "write_file", "replace_file", "mkdir"];
+	for (const name of toolNames) {
+		const localTool = findOpenAiFunctionTool(captured[0], name);
+		assert.equal(localTool.strict, true);
+		const parameters = asRecord(localTool.parameters);
+		const properties = asRecord(parameters.properties);
+		assert.deepEqual(parameters.required, Object.keys(properties));
+		assert.equal(parameters.additionalProperties, false);
+	}
+
+	const listFilesProperties = asRecord(
+		asRecord(findOpenAiFunctionTool(captured[0], "list_files").parameters).properties,
+	);
+	assert.deepEqual(asRecord(listFilesProperties.path).type, ["string", "null"]);
+
+	const replaceFileProperties = asRecord(
+		asRecord(findOpenAiFunctionTool(captured[0], "replace_file").parameters)
+			.properties,
+	);
+	assert.deepEqual(asRecord(replaceFileProperties.replaceAll).type, [
+		"boolean",
+		"null",
+	]);
+});
+
+test("openai-api executes multiple same-round calls before next request", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "openai-api-test-"));
+	const captured: ResponseCreateParamsNonStreaming[] = [];
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			captured,
+			responses: [
+				openAiResponse({
+					output: [
+						functionCall("mkdir", "call-1", { path: "nested" }) as ResponseOutputItem,
+						functionCall("write_file", "call-2", {
+							path: "nested/a.txt",
+							content: "a",
+						}) as ResponseOutputItem,
+					],
+				}),
+				openAiResponse({ output_text: "done" }),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(openAiParams({ cwd }));
+
+	assert.equal(result.toolUseCount, 2);
+	assert.equal(readFileSync(join(cwd, "nested/a.txt"), "utf8"), "a");
+	const secondInput = captured[1]?.input;
+	assert.ok(Array.isArray(secondInput));
+	assert.equal(
+		secondInput.filter((item) => item.type === "function_call_output").length,
+		2,
+	);
+});
+
+test("openai-api supports multiple tool-call rounds and preserves reasoning items", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "openai-api-test-"));
+	const reasoning = {
+		type: "reasoning",
+		id: "rsn",
+		summary: [],
+		encrypted_content: "encrypted",
+	} as ResponseOutputItem;
+	const captured: ResponseCreateParamsNonStreaming[] = [];
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			captured,
+			responses: [
+				openAiResponse({
+					output: [
+						reasoning,
+						functionCall("write_file", "call-1", {
+							path: "a.txt",
+							content: "a",
+						}) as ResponseOutputItem,
+					],
+				}),
+				openAiResponse({
+					output: [
+						functionCall("replace_file", "call-2", {
+							path: "a.txt",
+							old: "a",
+							replacement: "b",
+						}) as ResponseOutputItem,
+					],
+				}),
+				openAiResponse({ output_text: "done" }),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(openAiParams({ cwd }));
+
+	assert.equal(result.finalText, "done");
+	assert.equal(result.toolUseCount, 2);
+	assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "b");
+	const secondInput = captured[1]?.input;
+	assert.ok(Array.isArray(secondInput));
+	assert.equal((secondInput as unknown[]).includes(reasoning), true);
+});
+
+test("openai-api returns malformed JSON and unknown tool errors to the model", async () => {
+	const captured: ResponseCreateParamsNonStreaming[] = [];
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			captured,
+			responses: [
+				openAiResponse({
+					output: [
+						functionCall("read_file", "call-1", "{") as ResponseOutputItem,
+						functionCall("nope", "call-2", {}) as ResponseOutputItem,
+					],
+				}),
+				openAiResponse({ output_text: "done" }),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(openAiParams());
+
+	assert.equal(result.error, undefined);
+	assert.equal(result.toolUseCount, 2);
+	const secondInput = captured[1]?.input;
+	assert.ok(Array.isArray(secondInput));
+	const outputs = secondInput.filter((item) => item.type === "function_call_output");
+	assert.match(String(outputs[0]?.output), /valid JSON/);
+	assert.match(String(outputs[1]?.output), /unknown tool/);
+});
+
+test("openai-api fails provider run when call_id is missing", async () => {
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			responses: [
+				openAiResponse({
+					output: [
+						functionCall("write_file", "", {
+							path: "x.txt",
+							content: "x",
+						}) as ResponseOutputItem,
+					],
+				}),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(openAiParams());
+
+	assert.match(result.error ?? "", /call_id/);
+	assert.equal(result.toolUseCount, 1);
+});
+
+test("openai-api returns path safety failures as function outputs", async () => {
+	const outside = mkdtempSync(join(tmpdir(), "openai-api-outside-"));
+	const cwd = mkdtempSync(join(tmpdir(), "openai-api-test-"));
+	symlinkSync(outside, join(cwd, "link"));
+	const captured: ResponseCreateParamsNonStreaming[] = [];
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			captured,
+			responses: [
+				openAiResponse({
+					output: [
+						functionCall("write_file", "call-1", {
+							path: "../escape.txt",
+							content: "x",
+						}) as ResponseOutputItem,
+						functionCall("write_file", "call-2", {
+							path: "/tmp/escape.txt",
+							content: "x",
+						}) as ResponseOutputItem,
+						functionCall("write_file", "call-3", {
+							path: "link/escape.txt",
+							content: "x",
+						}) as ResponseOutputItem,
+					],
+				}),
+				openAiResponse({ output_text: "done" }),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(openAiParams({ cwd }));
+
+	assert.equal(result.error, undefined);
+	assert.equal(result.toolUseCount, 3);
+	assert.equal(existsSync(join(outside, "escape.txt")), false);
+	const secondInput = captured[1]?.input;
+	assert.ok(Array.isArray(secondInput));
+	const joinedOutputs = secondInput
+		.filter((item) => item.type === "function_call_output")
+		.map((item) => String(item.output))
+		.join("\n");
+	assert.match(joinedOutputs, /escapes workspace/);
+	assert.match(joinedOutputs, /absolute paths/);
+	assert.match(joinedOutputs, /parent resolves outside workspace/);
+});
+
+test("openai-api maps valid options and skips invalid values", async () => {
+	const captured: ResponseCreateParamsNonStreaming[] = [];
+	const provider = createOpenAiApiProvider(makeFakeOpenAi({ captured }));
+
+	await provider.invoke(
+		openAiParams({
+			role: "judge",
+			agent: {
+				id: "o",
+				provider: "openai-api",
+				model: "gpt-5.5",
+				effort: "high",
+				temperature: 0.2,
+				maxOutputTokens: 1234,
+				webSearch: "live",
+			},
+		}),
+	);
+	await provider.invoke(
+		openAiParams({
+			role: "judge",
+			agent: {
+				id: "o",
+				provider: "openai-api",
+				model: "gpt-5.5",
+				effort: "ultra",
+				temperature: Number.NaN,
+				maxOutputTokens: -1,
+				webSearch: "cached",
+			},
+		}),
+	);
+
+	assert.deepEqual(captured[0]?.reasoning, { effort: "high" });
+	assert.equal(captured[0]?.temperature, 0.2);
+	assert.equal(captured[0]?.max_output_tokens, 1234);
+	assert.deepEqual(captured[0]?.tools, [{ type: "web_search_preview" }]);
+	assert.equal(captured[1]?.reasoning, undefined);
+	assert.equal(captured[1]?.temperature, undefined);
+	assert.equal(captured[1]?.max_output_tokens, undefined);
+	assert.equal(captured[1]?.tools, undefined);
+});
+
+test("openai-api enforces maxToolIterations after executing attempted calls", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "openai-api-test-"));
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			responses: [
+				openAiResponse({
+					output: [
+						functionCall("write_file", "call-1", {
+							path: "x.txt",
+							content: "x",
+						}) as ResponseOutputItem,
+					],
+				}),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(
+		openAiParams({
+			cwd,
+			agent: {
+				id: "o",
+				provider: "openai-api",
+				model: "gpt-5.5",
+				maxToolIterations: 1,
+			},
+		}),
+	);
+
+	assert.equal(readFileSync(join(cwd, "x.txt"), "utf8"), "x");
+	assert.equal(result.toolUseCount, 1);
+	assert.match(result.error ?? "", /maxToolIterations/);
+});
+
+test("openai-api surfaces API and setup failures as InvokeResult.error", async () => {
+	const apiProvider = createOpenAiApiProvider(
+		makeFakeOpenAi({ throwOnCreate: new Error("api boom") }),
+	);
+	const setupProvider = createOpenAiApiProvider(() => {
+		throw new Error("setup boom");
+	});
+
+	assert.equal((await apiProvider.invoke(openAiParams())).error, "api boom");
+	assert.equal((await setupProvider.invoke(openAiParams())).error, "setup boom");
+});
+
+test("openai-api returns an error for empty Responses output", async () => {
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({ responses: [openAiResponse()] }),
+	);
+
+	const result = await provider.invoke(openAiParams());
+
+	assert.match(result.error ?? "", /no final text or function calls/);
+});
+
+test("openai-api replace_file rejects ambiguous replacements unless replaceAll is true", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "openai-api-test-"));
+	writeFileSync(join(cwd, "a.txt"), "one one", "utf8");
+	const captured: ResponseCreateParamsNonStreaming[] = [];
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			captured,
+			responses: [
+				openAiResponse({
+					output: [
+						functionCall("replace_file", "call-1", {
+							path: "a.txt",
+							old: "one",
+							replacement: "two",
+						}) as ResponseOutputItem,
+						functionCall("replace_file", "call-2", {
+							path: "a.txt",
+							old: "one",
+							replacement: "two",
+							replaceAll: true,
+						}) as ResponseOutputItem,
+					],
+				}),
+				openAiResponse({ output_text: "done" }),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(openAiParams({ cwd }));
+
+	assert.equal(result.error, undefined);
+	assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "two two");
+	const secondInput = captured[1]?.input;
+	assert.ok(Array.isArray(secondInput));
+	const ambiguousOutput = secondInput.at(-2);
+	assert.equal(ambiguousOutput?.type, "function_call_output");
+	assert.match(String(ambiguousOutput.output), /more than once/);
+});
+
+test("openai-api treats nullable optional tool arguments as absent", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "openai-api-test-"));
+	writeFileSync(join(cwd, "a.txt"), "one", "utf8");
+	const captured: ResponseCreateParamsNonStreaming[] = [];
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			captured,
+			responses: [
+				openAiResponse({
+					output: [
+						functionCall("list_files", "call-1", {
+							path: null,
+						}) as ResponseOutputItem,
+						functionCall("replace_file", "call-2", {
+							path: "a.txt",
+							old: "one",
+							replacement: "two",
+							replaceAll: null,
+						}) as ResponseOutputItem,
+					],
+				}),
+				openAiResponse({ output_text: "done" }),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(openAiParams({ cwd }));
+
+	assert.equal(result.error, undefined);
+	assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "two");
+	const secondInput = captured[1]?.input;
+	assert.ok(Array.isArray(secondInput));
+	const outputs = secondInput.filter((item) => item.type === "function_call_output");
+	assert.match(String(outputs[0]?.output), /"entries"/);
+	assert.match(String(outputs[1]?.output), /"replacements":1/);
+});
+
+test("openai-api caps read_file output returned to the model", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "openai-api-test-"));
+	writeFileSync(join(cwd, "large.txt"), "x".repeat(70 * 1024), "utf8");
+	const captured: ResponseCreateParamsNonStreaming[] = [];
+	const provider = createOpenAiApiProvider(
+		makeFakeOpenAi({
+			captured,
+			responses: [
+				openAiResponse({
+					output: [
+						functionCall("read_file", "call-1", {
+							path: "large.txt",
+						}) as ResponseOutputItem,
+					],
+				}),
+				openAiResponse({ output_text: "done" }),
+			],
+		}),
+	);
+
+	const result = await provider.invoke(openAiParams({ cwd }));
+
+	assert.equal(result.error, undefined);
+	const secondInput = captured[1]?.input;
+	assert.ok(Array.isArray(secondInput));
+	const output = secondInput.find((item) => item.type === "function_call_output");
+	assert.ok(output?.type === "function_call_output");
+	assert.ok(Buffer.byteLength(String(output.output)) <= 64 * 1024 + 256);
+	assert.match(String(output.output), /truncated/);
 });
 
 interface CapturedCall {
