@@ -4,6 +4,7 @@ export type ProviderId =
 	| "claude-code"
 	| "openai-api"
 	| "anthropic-api"
+	| "gemini-api"
 	| "codex"
 	| "mock";
 

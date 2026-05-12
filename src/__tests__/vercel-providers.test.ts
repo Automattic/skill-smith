@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { anthropicApiProvider } from "../providers/anthropic-api";
+import { geminiApiProvider } from "../providers/gemini-api";
 import { openaiApiProvider } from "../providers/openai-api";
 import type { InvokeParams } from "../providers/types";
 
@@ -55,5 +56,14 @@ test("openai-api returns OPENAI_API_KEY error when the env var is unset", async 
 		assert.equal(result.finalText, "");
 		assert.equal(result.toolUseCount, 0);
 		assert.equal(result.error, "OPENAI_API_KEY is not set");
+	});
+});
+
+test("gemini-api returns GOOGLE_GENERATIVE_AI_API_KEY error when the env var is unset", async () => {
+	await withEnv("GOOGLE_GENERATIVE_AI_API_KEY", undefined, async () => {
+		const result = await geminiApiProvider.invoke(baseParams("gemini-api"));
+		assert.equal(result.finalText, "");
+		assert.equal(result.toolUseCount, 0);
+		assert.equal(result.error, "GOOGLE_GENERATIVE_AI_API_KEY is not set");
 	});
 });
