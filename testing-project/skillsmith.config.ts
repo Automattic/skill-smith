@@ -98,7 +98,11 @@ export default defineConfig({
 				id: "codex-gpt55",
 				provider: "codex",
 				model: "gpt-5.5",
-				effort: "xhigh",
+			},
+			{
+				id: "gemini-flash",
+				provider: "gemini",
+				model: "gemini-2.5-flash",
 			},
 		],
 		judge: [
