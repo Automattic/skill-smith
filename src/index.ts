@@ -8,6 +8,7 @@ export type {
 	Hooks,
 	Paths,
 	RunContext,
+	RunScenario,
 	Scenario,
 	ScenarioContext,
 	SkillsmithConfig,

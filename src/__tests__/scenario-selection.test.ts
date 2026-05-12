@@ -142,6 +142,7 @@ test("API run targets one scenario directory ID", async () => {
 		hookEvents().filter((event) => event.startsWith("beforeScenario:")),
 		["beforeScenario:counter-scenario"],
 	);
+	assert.ok(hookEvents().includes("afterAllScenarios:counter"));
 });
 
 test("API run trims scenario IDs before exact matching", async () => {
@@ -167,6 +168,7 @@ test("API run targets multiple scenario directory IDs", async () => {
 		hookEvents().filter((event) => event.startsWith("beforeScenario:")),
 		["beforeScenario:counter-scenario", "beforeScenario:config-fetch-scenario"],
 	);
+	assert.ok(hookEvents().includes("afterAllScenarios:counter,config-fetch"));
 });
 
 test("API run de-dupes duplicate scenario IDs", async () => {

@@ -4,6 +4,7 @@ import { loadConfig } from "../config/load";
 import { PreconditionError } from "../config/resolve-cwd";
 import type {
 	RunContext,
+	RunScenario,
 	ScenarioContext,
 	SkillsmithConfig,
 } from "../config/types";
@@ -62,7 +63,11 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		}`,
 	);
 
-	const runCtx: RunContext = { runId, config };
+	const runCtx: RunContext = {
+		runId,
+		config,
+		scenarios: scenarios.map(({ dirName, scenario }) => ({ dirName, scenario })),
+	};
 	await tryHook("beforeAll", "run", config.hooks?.beforeAll, runCtx, log);
 
 	log.section("scenarios");
@@ -74,7 +79,14 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	try {
 		scenarioRecords = await Promise.all(
 			scenarios.map((s) =>
-				runScenario(s, { runId, config, projectRoot, runDirectory, log }),
+				runScenario(s, {
+					runId,
+					config,
+					projectRoot,
+					runDirectory,
+					log,
+					scenarios: runCtx.scenarios,
+				}),
 			),
 		);
 	} finally {
@@ -133,6 +145,7 @@ interface ScenarioRunArgs {
 	projectRoot: string;
 	runDirectory: string;
 	log: RunLog;
+	scenarios: RunScenario[];
 }
 
 async function runScenario(
@@ -144,6 +157,7 @@ async function runScenario(
 	const scenarioCtx: ScenarioContext = {
 		runId: args.runId,
 		config: args.config,
+		scenarios: args.scenarios,
 		scenario,
 	};
 
@@ -170,6 +184,7 @@ async function runScenario(
 				runId: args.runId,
 				projectRoot: args.projectRoot,
 				log: args.log,
+				scenarios: args.scenarios,
 			});
 		}
 

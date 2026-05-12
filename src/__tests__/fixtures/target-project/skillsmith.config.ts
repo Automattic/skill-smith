@@ -32,7 +32,10 @@ export default defineConfig({
 		beforeTestAgent({ scenario }) {
 			record(`beforeTestAgent:${scenario.name}`);
 		},
-		afterAll() {
+		afterAll({ scenarios }) {
+			record(
+				`afterAllScenarios:${scenarios.map(({ dirName }) => dirName).join(",")}`,
+			);
 			record("afterAll");
 		},
 	},

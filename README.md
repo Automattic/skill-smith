@@ -50,7 +50,7 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
 ### Lifecycle
 
 1. **Init run.** Generate `runId`, load scenarios from `config.paths.scenarios`, and apply any positional scenario directory filters.
-2. **`beforeAll({ config, runId })`**.
+2. **`beforeAll({ config, runId, scenarios })`**. `scenarios` is the filtered list of selected scenario directory IDs and parsed scenario bodies.
 3. **Scenario loop — parallel.** For each scenario:
    1. **Init scenario.** Create the scenario directory, load testing agents from `config.agents.testing` and the judge from `config.agents.judge`.
    2. **`beforeScenario({ config, runId, scenario })`**.
@@ -65,7 +65,7 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
    4. **Scenario report.** The harness aggregates every agent's `judge-review.yaml` into the scenario's `report.yaml`.
    5. **`afterScenario({ config, runId, scenario })`**.
 4. **Run report.** The harness aggregates every scenario's `report.yaml` into a top-level `report.yaml`.
-5. **`afterAll({ config, runId })`**.
+5. **`afterAll({ config, runId, scenarios })`**.
 
 ### Hook examples
 
@@ -73,7 +73,7 @@ Projects opt into the hooks they need. Two examples from the WordPress reference
 
 **`beforeTestAgent` — scaffold the artifact the agent will edit.** Generates a plugin skeleton inside `agentWorkspace` with a deterministic slug (`plugin-${scenario.name}-${agentId}`) so it can be activated later by `afterAll`.
 
-**`afterAll` — run e2e tests against every artifact produced in the run.** Writes a `.wp-env.json` listing every plugin produced in this run, then boots `wp-env`. wp-env auto-activates every listed plugin on start, so the hook sets `lifecycleScripts.afterStart` to `wp plugin deactivate --all` — leaving each spec a clean slate. It then invokes `npx playwright test` once across the (scenario × agent) project matrix; each spec is responsible for activating its own plugin, setting up its fixtures (e.g. a post containing the block under test), and tearing them down. Finally it stops `wp-env`, removes the generated `.wp-env.json`, and writes the aggregated results to `<runDirectory>/tests-report.json`.
+**`afterAll` — run e2e tests against every artifact produced in the run.** Writes a `.wp-env.json` listing every plugin produced in this run, then boots `wp-env`. wp-env auto-activates every listed plugin on start, so the hook sets `lifecycleScripts.afterStart` to `wp plugin deactivate --all` — leaving each spec a clean slate. It then invokes Playwright only for the selected scenario specs from `scenarios`; each spec runs across the configured testing-agent projects, activates its own plugin, sets up its fixtures (e.g. a post containing the block under test), and tears them down. Finally it stops `wp-env`, removes the generated `.wp-env.json`, and writes the aggregated results to `<runDirectory>/tests-report.json`.
 
 ### Rubrics and the judge
 
