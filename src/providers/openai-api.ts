@@ -32,7 +32,9 @@ interface ToolContext {
 	cwdReal: string;
 }
 
-type ToolResult = { ok: true; [key: string]: unknown } | { ok: false; error: string };
+type ToolResult =
+	| { ok: true; [key: string]: unknown }
+	| { ok: false; error: string };
 
 export function createOpenAiApiProvider(
 	clientFactory: OpenAiClientFactory = () => new OpenAI(),
@@ -202,7 +204,8 @@ async function listFiles(
 		allowMissing: false,
 	});
 	const stat = await fs.stat(dir);
-	if (!stat.isDirectory()) return { ok: false, error: `${requestPath} is not a directory` };
+	if (!stat.isDirectory())
+		return { ok: false, error: `${requestPath} is not a directory` };
 
 	const entries: string[] = [];
 	async function walk(current: string, depth: number): Promise<void> {
@@ -229,7 +232,8 @@ async function readFile(
 		allowMissing: false,
 	});
 	const stat = await fs.stat(file);
-	if (!stat.isFile()) return { ok: false, error: `${requestPath} is not a file` };
+	if (!stat.isFile())
+		return { ok: false, error: `${requestPath} is not a file` };
 	const data = await fs.readFile(file);
 	const truncated = data.byteLength > MAX_READ_BYTES;
 	const body = data.subarray(0, MAX_READ_BYTES).toString("utf8");
@@ -253,7 +257,11 @@ async function writeFile(
 	});
 	await fs.mkdir(path.dirname(file), { recursive: true });
 	await fs.writeFile(file, content, "utf8");
-	return { ok: true, path: requestPath, bytesWritten: Buffer.byteLength(content) };
+	return {
+		ok: true,
+		path: requestPath,
+		bytesWritten: Buffer.byteLength(content),
+	};
 }
 
 async function replaceFile(
@@ -263,7 +271,8 @@ async function replaceFile(
 	replacement: string,
 	replaceAll: boolean,
 ): Promise<ToolResult> {
-	if (oldText.length === 0) return { ok: false, error: "old must not be empty" };
+	if (oldText.length === 0)
+		return { ok: false, error: "old must not be empty" };
 	const file = await resolveWorkspacePath(context, requestPath, {
 		allowMissing: false,
 	});
@@ -273,14 +282,19 @@ async function replaceFile(
 	if (matches > 1 && !replaceAll) {
 		return {
 			ok: false,
-			error: "old text appears more than once; pass replaceAll: true to replace all matches",
+			error:
+				"old text appears more than once; pass replaceAll: true to replace all matches",
 		};
 	}
 	const next = replaceAll
 		? content.split(oldText).join(replacement)
 		: content.replace(oldText, replacement);
 	await fs.writeFile(file, next, "utf8");
-	return { ok: true, path: requestPath, replacements: replaceAll ? matches : 1 };
+	return {
+		ok: true,
+		path: requestPath,
+		replacements: replaceAll ? matches : 1,
+	};
 }
 
 async function mkdir(
@@ -300,7 +314,8 @@ async function resolveWorkspacePath(
 	opts: { allowMissing: boolean },
 ): Promise<string> {
 	if (requestPath.length === 0) throw new Error("path must not be empty");
-	if (path.isAbsolute(requestPath)) throw new Error("absolute paths are not allowed");
+	if (path.isAbsolute(requestPath))
+		throw new Error("absolute paths are not allowed");
 	const resolved = path.resolve(context.cwd, requestPath);
 	if (!isInside(context.cwd, resolved)) {
 		throw new Error(`path escapes workspace: ${requestPath}`);
@@ -322,7 +337,10 @@ async function resolveWorkspacePath(
 	return resolved;
 }
 
-async function nearestExistingParent(target: string, cwd: string): Promise<string> {
+async function nearestExistingParent(
+	target: string,
+	cwd: string,
+): Promise<string> {
 	let current = target;
 	while (isInside(cwd, current)) {
 		try {
@@ -339,7 +357,10 @@ async function nearestExistingParent(target: string, cwd: string): Promise<strin
 
 function isInside(root: string, candidate: string): boolean {
 	const relative = path.relative(root, candidate);
-	return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+	return (
+		relative === "" ||
+		(!relative.startsWith("..") && !path.isAbsolute(relative))
+	);
 }
 
 function functionToolCalls(
@@ -350,8 +371,11 @@ function functionToolCalls(
 	);
 }
 
-function countHostedToolCalls(output: ResponseOutputItem[] | undefined): number {
-	return (output ?? []).filter((item) => item.type === "web_search_call").length;
+function countHostedToolCalls(
+	output: ResponseOutputItem[] | undefined,
+): number {
+	return (output ?? []).filter((item) => item.type === "web_search_call")
+		.length;
 }
 
 function validateResponse(response: Response): string | undefined {
@@ -376,7 +400,10 @@ function extraResponseOptions(
 	if (isEffort(agent.effort)) {
 		out.reasoning = { effort: agent.effort };
 	}
-	if (typeof agent.temperature === "number" && Number.isFinite(agent.temperature)) {
+	if (
+		typeof agent.temperature === "number" &&
+		Number.isFinite(agent.temperature)
+	) {
 		out.temperature = agent.temperature;
 	}
 	if (
@@ -398,16 +425,23 @@ function maxToolIterations(agent: AgentDefinition): number {
 		Number.isFinite(agent.maxToolIterations) &&
 		agent.maxToolIterations > 0
 	) {
-		return Math.min(Math.floor(agent.maxToolIterations), MAX_TOOL_ITERATIONS_CEILING);
+		return Math.min(
+			Math.floor(agent.maxToolIterations),
+			MAX_TOOL_ITERATIONS_CEILING,
+		);
 	}
 	return DEFAULT_MAX_TOOL_ITERATIONS;
 }
 
 function localTools(): Tool[] {
 	return [
-		tool("list_files", "List files below a relative directory in the workspace.", {
-			path: { type: ["string", "null"] },
-		}),
+		tool(
+			"list_files",
+			"List files below a relative directory in the workspace.",
+			{
+				path: { type: ["string", "null"] },
+			},
+		),
 		tool("read_file", "Read a UTF-8 text file from the workspace.", {
 			path: { type: "string" },
 		}),
@@ -415,12 +449,16 @@ function localTools(): Tool[] {
 			path: { type: "string" },
 			content: { type: "string" },
 		}),
-		tool("replace_file", "Replace text in a UTF-8 text file in the workspace.", {
-			path: { type: "string" },
-			old: { type: "string" },
-			replacement: { type: "string" },
-			replaceAll: { type: ["boolean", "null"] },
-		}),
+		tool(
+			"replace_file",
+			"Replace text in a UTF-8 text file in the workspace.",
+			{
+				path: { type: "string" },
+				old: { type: "string" },
+				replacement: { type: "string" },
+				replaceAll: { type: ["boolean", "null"] },
+			},
+		),
 		tool("mkdir", "Create a directory in the workspace.", {
 			path: { type: "string" },
 		}),
@@ -453,11 +491,7 @@ function parseJsonObject(raw: string): Record<string, unknown> {
 	} catch {
 		throw new Error("function arguments were not valid JSON");
 	}
-	if (
-		parsed === null ||
-		typeof parsed !== "object" ||
-		Array.isArray(parsed)
-	) {
+	if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
 		throw new Error("function arguments must be a JSON object");
 	}
 	return parsed as Record<string, unknown>;
@@ -511,7 +545,9 @@ function capToolOutput(value: string): string {
 
 function isEffort(
 	value: unknown,
-): value is NonNullable<ResponseCreateParamsNonStreaming["reasoning"]>["effort"] {
+): value is NonNullable<
+	ResponseCreateParamsNonStreaming["reasoning"]
+>["effort"] {
 	return (
 		typeof value === "string" &&
 		EFFORT_VALUES.includes(value as (typeof EFFORT_VALUES)[number])

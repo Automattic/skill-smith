@@ -140,7 +140,9 @@ function findOpenAiFunctionTool(
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-	assert.ok(value !== null && typeof value === "object" && !Array.isArray(value));
+	assert.ok(
+		value !== null && typeof value === "object" && !Array.isArray(value),
+	);
 	return value as Record<string, unknown>;
 }
 
@@ -235,7 +237,10 @@ test("openai-api testing executes write_file and returns final text", async () =
 	assert.deepEqual(captured[0]?.include, ["reasoning.encrypted_content"]);
 	const secondInput = captured[1]?.input;
 	assert.ok(Array.isArray(secondInput));
-	assert.equal(secondInput.some((item) => item.type === "function_call"), true);
+	assert.equal(
+		secondInput.some((item) => item.type === "function_call"),
+		true,
+	);
 	assert.equal(
 		secondInput.some(
 			(item) =>
@@ -289,7 +294,13 @@ test("openai-api testing local tools use strict-compatible required nullable sch
 
 	await provider.invoke(openAiParams());
 
-	const toolNames = ["list_files", "read_file", "write_file", "replace_file", "mkdir"];
+	const toolNames = [
+		"list_files",
+		"read_file",
+		"write_file",
+		"replace_file",
+		"mkdir",
+	];
 	for (const name of toolNames) {
 		const localTool = findOpenAiFunctionTool(captured[0], name);
 		assert.equal(localTool.strict, true);
@@ -300,7 +311,8 @@ test("openai-api testing local tools use strict-compatible required nullable sch
 	}
 
 	const listFilesProperties = asRecord(
-		asRecord(findOpenAiFunctionTool(captured[0], "list_files").parameters).properties,
+		asRecord(findOpenAiFunctionTool(captured[0], "list_files").parameters)
+			.properties,
 	);
 	assert.deepEqual(asRecord(listFilesProperties.path).type, ["string", "null"]);
 
@@ -323,7 +335,9 @@ test("openai-api executes multiple same-round calls before next request", async 
 			responses: [
 				openAiResponse({
 					output: [
-						functionCall("mkdir", "call-1", { path: "nested" }) as ResponseOutputItem,
+						functionCall("mkdir", "call-1", {
+							path: "nested",
+						}) as ResponseOutputItem,
 						functionCall("write_file", "call-2", {
 							path: "nested/a.txt",
 							content: "a",
@@ -416,7 +430,9 @@ test("openai-api returns malformed JSON and unknown tool errors to the model", a
 	assert.equal(result.toolUseCount, 2);
 	const secondInput = captured[1]?.input;
 	assert.ok(Array.isArray(secondInput));
-	const outputs = secondInput.filter((item) => item.type === "function_call_output");
+	const outputs = secondInput.filter(
+		(item) => item.type === "function_call_output",
+	);
 	assert.match(String(outputs[0]?.output), /valid JSON/);
 	assert.match(String(outputs[1]?.output), /unknown tool/);
 });
@@ -575,7 +591,10 @@ test("openai-api surfaces API and setup failures as InvokeResult.error", async (
 	});
 
 	assert.equal((await apiProvider.invoke(openAiParams())).error, "api boom");
-	assert.equal((await setupProvider.invoke(openAiParams())).error, "setup boom");
+	assert.equal(
+		(await setupProvider.invoke(openAiParams())).error,
+		"setup boom",
+	);
 });
 
 test("openai-api returns an error for empty Responses output", async () => {
@@ -659,7 +678,9 @@ test("openai-api treats nullable optional tool arguments as absent", async () =>
 	assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "two");
 	const secondInput = captured[1]?.input;
 	assert.ok(Array.isArray(secondInput));
-	const outputs = secondInput.filter((item) => item.type === "function_call_output");
+	const outputs = secondInput.filter(
+		(item) => item.type === "function_call_output",
+	);
 	assert.match(String(outputs[0]?.output), /"entries"/);
 	assert.match(String(outputs[1]?.output), /"replacements":1/);
 });
@@ -689,7 +710,9 @@ test("openai-api caps read_file output returned to the model", async () => {
 	assert.equal(result.error, undefined);
 	const secondInput = captured[1]?.input;
 	assert.ok(Array.isArray(secondInput));
-	const output = secondInput.find((item) => item.type === "function_call_output");
+	const output = secondInput.find(
+		(item) => item.type === "function_call_output",
+	);
 	assert.ok(output?.type === "function_call_output");
 	assert.ok(Buffer.byteLength(String(output.output)) <= 64 * 1024 + 256);
 	assert.match(String(output.output), /truncated/);
