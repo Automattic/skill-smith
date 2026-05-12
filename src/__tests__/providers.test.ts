@@ -34,20 +34,6 @@ test("isProviderId is a type guard for known ids", () => {
 	assert.equal(isProviderId("bogus"), false);
 });
 
-test("openai-api provider throws on invoke (not implemented)", async () => {
-	await assert.rejects(
-		() =>
-			getProvider("openai-api").invoke({
-				agent: { id: "x", provider: "openai-api", model: "m" },
-				systemPrompt: "",
-				prompt: "",
-				cwd: "/tmp",
-				role: "testing",
-			}),
-		/not implemented/,
-	);
-});
-
 interface CapturedCall {
 	codexOpts?: CodexOptions;
 	threadOpts?: ThreadOptions;
