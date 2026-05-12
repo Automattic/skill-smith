@@ -89,6 +89,11 @@ export default defineConfig({
 				model: "claude-haiku-4-5-20251001",
 			},
 			{
+				id: "anthropic-sonnet",
+				provider: "anthropic-api",
+				model: "claude-sonnet-4-6",
+			},
+			{
 				id: "openai-api-nano",
 				provider: "openai-api",
 				model: "gpt-5.4-nano",
