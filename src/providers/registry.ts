@@ -1,17 +1,23 @@
+import { GoogleGenAI } from "@google/genai";
 import { Codex } from "@openai/codex-sdk";
 import { claudeCodeProvider } from "./claude-code";
 import { createCodexProvider } from "./codex";
+import { createGeminiProvider, type GoogleGenAICtor } from "./gemini";
 import { mockProvider } from "./mock";
 import { createOpenAiApiProvider } from "./openai-api";
 import type { Provider, ProviderId } from "./types";
 
 const codexProvider = createCodexProvider(Codex);
 const openaiApiProvider = createOpenAiApiProvider();
+const geminiProvider = createGeminiProvider(
+	GoogleGenAI as unknown as GoogleGenAICtor,
+);
 
 export const PROVIDERS: Record<ProviderId, Provider> = {
 	"claude-code": claudeCodeProvider,
 	"openai-api": openaiApiProvider,
 	codex: codexProvider,
+	gemini: geminiProvider,
 	mock: mockProvider,
 };
 

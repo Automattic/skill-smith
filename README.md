@@ -62,6 +62,18 @@ A **rubric** is prose reference material the judge LLM consults — describing s
 
 **The judge does not read the skill.** The agent learns from the skill; the judge grades from the rubrics. Keeping them epistemically separate is what lets the harness catch a regression in the skill itself — if the judge consulted the same skill the agent did, a bad skill edit would simultaneously redefine "correct" and the regression would slip through.
 
+## Providers
+
+The harness dispatches each (scenario, agent) pair to a **provider** — the binding between Skillsmith and a specific model vendor or runtime. Pick one per agent in `skillsmith.config.ts`.
+
+| Provider id | Summary | Docs |
+|---|---|---|
+| `claude-code` | Anthropic's Claude Agent SDK with full Read/Write/Edit/Glob/Grep/Bash tool surface and built-in sandboxing. | [docs/providers/claude-code.md](docs/providers/claude-code.md) (forthcoming) |
+| `codex` | OpenAI Codex CLI via `@openai/codex-sdk`. Workspace-write sandbox; reads `OPENAI_API_KEY`. | [docs/providers/codex.md](docs/providers/codex.md) (forthcoming) |
+| `openai-api` | Direct OpenAI Responses API with a local function-calling tool loop. Reads `OPENAI_API_KEY`. | [docs/providers/openai-api.md](docs/providers/openai-api.md) (forthcoming) |
+| `gemini` | Google Gemini via `@google/genai`. Owns the function-calling loop, enforces path containment in-process. Reads `GEMINI_API_KEY` (or `GOOGLE_API_KEY`). | [docs/providers/gemini.md](docs/providers/gemini.md) |
+| `mock` | Deterministic provider for hermetic tests and dry runs. Drops a sentinel file and returns a passing YAML verdict. | — |
+
 ## How the Self-Improvement works
 
 TBD

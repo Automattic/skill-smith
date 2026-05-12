@@ -22,6 +22,10 @@ import type {
 } from "openai/resources/responses/responses";
 import { type CodexCtor, createCodexProvider } from "../providers/codex";
 import {
+	createGeminiProvider,
+	type GoogleGenAICtor,
+} from "../providers/gemini";
+import {
 	createOpenAiApiProvider,
 	type OpenAiClientFactory,
 } from "../providers/openai-api";
@@ -46,6 +50,7 @@ test("isProviderId is a type guard for known ids", () => {
 	assert.equal(isProviderId("claude-code"), true);
 	assert.equal(isProviderId("openai-api"), true);
 	assert.equal(isProviderId("codex"), true);
+	assert.equal(isProviderId("gemini"), true);
 	assert.equal(isProviderId("bogus"), false);
 });
 
@@ -1037,4 +1042,1046 @@ test("codex provider keeps large system prompts out of constructor config", asyn
 	assert.ok(developerInstructions.length < 256);
 	assert.ok(captured.prompt?.includes(largeSystemPrompt));
 	assert.ok(captured.prompt?.includes("small user prompt"));
+});
+
+// =====================================================================
+// Gemini provider tests
+// =====================================================================
+
+interface FakeGenAIScripted {
+	output?:
+		| { text?: string; calls?: Array<{ name: string; args: Record<string, unknown> }> }
+		| { error: { status: number; message: string; headers?: Record<string, string> } }
+		| { throw: Error }
+		| { finishReason: string; text?: string };
+}
+
+interface FakeGenAICaptured {
+	apiKey?: string;
+	calls: unknown[];
+	attempts: number;
+	ctorCalls: number;
+}
+
+interface MakeFakeGenAIOpts {
+	responses?: FakeGenAIScripted[];
+	captured: FakeGenAICaptured;
+	throwOnCtor?: Error;
+	infiniteFunctionCall?: { name: string; args: Record<string, unknown> }[];
+}
+
+function makeFakeGenAI(opts: MakeFakeGenAIOpts): GoogleGenAICtor {
+	const responses = opts.responses ?? [];
+	let index = 0;
+	class FakeGoogleGenAI {
+		readonly models = {
+			// biome-ignore lint/suspicious/noExplicitAny: fake stand-in
+			generateContent: async (params: unknown): Promise<any> => {
+				opts.captured.calls.push(params);
+				opts.captured.attempts++;
+				let scripted: FakeGenAIScripted | undefined;
+				if (opts.infiniteFunctionCall !== undefined) {
+					scripted = {
+						output: { calls: opts.infiniteFunctionCall },
+					};
+				} else {
+					scripted = responses[index++];
+				}
+				if (scripted === undefined) {
+					return synthesizeResponse({ text: "" });
+				}
+				const out = scripted.output;
+				if (out === undefined) return synthesizeResponse({ text: "" });
+				if ("throw" in out) throw out.throw;
+				if ("error" in out) {
+					const e = new Error(out.error.message) as Error & {
+						status?: number;
+						headers?: Record<string, string>;
+					};
+					e.status = out.error.status;
+					if (out.error.headers !== undefined) e.headers = out.error.headers;
+					throw e;
+				}
+				if ("finishReason" in out) {
+					return synthesizeResponse({
+						text: out.text ?? "",
+						finishReason: out.finishReason,
+					});
+				}
+				return synthesizeResponse({
+					text: out.text,
+					calls: out.calls,
+				});
+			},
+		};
+		constructor(options: { apiKey?: string }) {
+			opts.captured.ctorCalls++;
+			opts.captured.apiKey = options.apiKey;
+			if (opts.throwOnCtor !== undefined) throw opts.throwOnCtor;
+		}
+	}
+	return FakeGoogleGenAI as unknown as GoogleGenAICtor;
+}
+
+function synthesizeResponse(payload: {
+	text?: string;
+	calls?: Array<{ name: string; args: Record<string, unknown> }>;
+	finishReason?: string;
+}): unknown {
+	const parts: Array<{ text?: string; functionCall?: unknown }> = [];
+	if (payload.calls !== undefined) {
+		for (const c of payload.calls) {
+			parts.push({ functionCall: { name: c.name, args: c.args } });
+		}
+	}
+	if (payload.text !== undefined && payload.text.length > 0) {
+		parts.push({ text: payload.text });
+	}
+	return {
+		candidates: [
+			{
+				content: { role: "model", parts },
+				finishReason: payload.finishReason ?? "STOP",
+			},
+		],
+	};
+}
+
+function makeCapturedGenAI(): FakeGenAICaptured {
+	return { calls: [], attempts: 0, ctorCalls: 0 };
+}
+
+function geminiParams(overrides: Partial<InvokeParams> = {}): InvokeParams {
+	const cwd = overrides.cwd ?? mkdtempSync(join(tmpdir(), "gemini-test-"));
+	return {
+		agent: { id: "g", provider: "gemini", model: "gemini-2.5-flash" },
+		systemPrompt: "system prompt body",
+		prompt: "user prompt",
+		cwd,
+		role: "testing",
+		...overrides,
+	};
+}
+
+function withGeminiEnv<T>(
+	envOverrides: Record<string, string | undefined>,
+	fn: () => Promise<T>,
+): Promise<T> {
+	const KEYS = ["GEMINI_API_KEY", "GOOGLE_API_KEY"];
+	const prior: Record<string, string | undefined> = {};
+	for (const key of KEYS) prior[key] = process.env[key];
+	for (const key of KEYS) {
+		if (key in envOverrides) {
+			const v = envOverrides[key];
+			if (v === undefined) delete process.env[key];
+			else process.env[key] = v;
+		}
+	}
+	return (async () => {
+		try {
+			return await fn();
+		} finally {
+			for (const key of KEYS) {
+				if (prior[key] === undefined) delete process.env[key];
+				else process.env[key] = prior[key];
+			}
+		}
+	})();
+}
+
+test("getProvider('gemini').id === 'gemini'", () => {
+	assert.equal(getProvider("gemini").id, "gemini");
+});
+
+test("gemini judge round-trip returns text and zero tool uses", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [{ output: { text: "judge yaml" } }],
+	});
+	const provider = createGeminiProvider(fake);
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k1" }, () =>
+		provider.invoke(geminiParams({ role: "judge" })),
+	);
+
+	assert.equal(result.finalText, "judge yaml");
+	assert.equal(result.toolUseCount, 0);
+	assert.equal(result.error, undefined);
+	assert.equal(captured.ctorCalls, 1);
+	assert.equal(captured.apiKey, "k1");
+	assert.equal(captured.calls.length, 1);
+	const call = captured.calls[0] as {
+		model: string;
+		contents: Array<{ role: string; parts: Array<{ text?: string }> }>;
+		config?: { systemInstruction?: string; tools?: unknown[] };
+	};
+	assert.equal(call.model, "gemini-2.5-flash");
+	// Judge has no tools.
+	assert.equal(call.config?.tools, undefined);
+	// systemInstruction placement.
+	assert.equal(call.config?.systemInstruction, "system prompt body");
+	// User prompt body matches verbatim.
+	assert.equal(call.contents[0]?.parts[0]?.text, "user prompt");
+});
+
+test("gemini testing round-trip with one Write call writes file under cwd", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [
+			{
+				output: {
+					calls: [
+						{
+							name: "Write",
+							args: { path: "answer.txt", content: "hello" },
+						},
+					],
+				},
+			},
+			{ output: { text: "done" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+	const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ cwd })),
+	);
+
+	assert.equal(result.error, undefined);
+	assert.equal(readFileSync(join(cwd, "answer.txt"), "utf8"), "hello");
+	assert.equal(result.toolUseCount, 1);
+	assert.equal(result.finalText, "done");
+});
+
+test("gemini testing counts each functionCall part separately", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [
+			{
+				output: {
+					calls: [
+						{ name: "Write", args: { path: "a.txt", content: "a" } },
+						{ name: "Write", args: { path: "b.txt", content: "b" } },
+					],
+				},
+			},
+			{
+				output: {
+					calls: [{ name: "Write", args: { path: "c.txt", content: "c" } }],
+				},
+			},
+			{ output: { text: "done" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+	const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ cwd })),
+	);
+
+	assert.equal(result.error, undefined);
+	assert.equal(result.toolUseCount, 3);
+	assert.equal(readFileSync(join(cwd, "c.txt"), "utf8"), "c");
+});
+
+test("gemini testing rejects path containment escape via `../`", async () => {
+	const outside = mkdtempSync(join(tmpdir(), "gemini-outside-"));
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [
+			{
+				output: {
+					calls: [
+						{
+							name: "Write",
+							args: { path: "../escape.txt", content: "x" },
+						},
+					],
+				},
+			},
+			{ output: { text: "done" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+	const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ cwd })),
+	);
+
+	assert.equal(result.error, undefined);
+	assert.equal(result.finalText, "done");
+	assert.equal(existsSync(join(outside, "escape.txt")), false);
+	// Verify the model received an error functionResponse.
+	const second = captured.calls[1] as {
+		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+	};
+	const lastTurn = second.contents.at(-1);
+	const fr = lastTurn?.parts[0]?.functionResponse?.response;
+	assert.equal(fr?.ok, false);
+	assert.match(String(fr?.error), /outside workspace/);
+});
+
+test("gemini testing defeats sibling-prefix bypass", async () => {
+	const baseDir = mkdtempSync(join(tmpdir(), "gemini-sibling-"));
+	const cwd = join(baseDir, "work");
+	const evil = join(baseDir, "work-evil");
+	const fs = await import("node:fs");
+	fs.mkdirSync(cwd, { recursive: true });
+	fs.mkdirSync(evil, { recursive: true });
+
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [
+			{
+				output: {
+					calls: [
+						{
+							name: "Write",
+							args: {
+								path: "../work-evil/foo.txt",
+								content: "x",
+							},
+						},
+					],
+				},
+			},
+			{ output: { text: "done" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ cwd })),
+	);
+
+	assert.equal(result.error, undefined);
+	assert.equal(existsSync(join(evil, "foo.txt")), false);
+});
+
+test("gemini testing rejects symlink-escape via realpath check", async () => {
+	const outside = mkdtempSync(join(tmpdir(), "gemini-outside-"));
+	writeFileSync(join(outside, "secret.txt"), "secret");
+	const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+	symlinkSync(outside, join(cwd, "link"));
+
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [
+			{
+				output: {
+					calls: [
+						{ name: "Read", args: { path: "link/secret.txt" } },
+					],
+				},
+			},
+			{ output: { text: "done" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ cwd })),
+	);
+
+	assert.equal(result.error, undefined);
+	const second = captured.calls[1] as {
+		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+	};
+	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
+	assert.equal(fr?.ok, false);
+	assert.match(String(fr?.error), /outside workspace/);
+});
+
+test("gemini judge sends no tools in config", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [{ output: { text: "ok" } }],
+	});
+	const provider = createGeminiProvider(fake);
+
+	await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ role: "judge" })),
+	);
+
+	const call = captured.calls[0] as { config?: { tools?: unknown } };
+	assert.ok(call.config?.tools === undefined || (Array.isArray(call.config.tools) && call.config.tools.length === 0));
+});
+
+test("gemini forwards pass-through knobs onto config", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [{ output: { text: "ok" } }],
+	});
+	const provider = createGeminiProvider(fake);
+
+	await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(
+			geminiParams({
+				role: "judge",
+				agent: {
+					id: "g",
+					provider: "gemini",
+					model: "gemini-2.5-pro",
+					temperature: 0.4,
+					topP: 0.8,
+					topK: 40,
+					maxOutputTokens: 2048,
+					thinkingBudget: 8192,
+					safetySettings: [
+						{ category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+					],
+				},
+			}),
+		),
+	);
+
+	const call = captured.calls[0] as {
+		config?: {
+			temperature?: number;
+			topP?: number;
+			topK?: number;
+			maxOutputTokens?: number;
+			thinkingConfig?: { thinkingBudget?: number };
+			safetySettings?: Array<{ category?: string; threshold?: string }>;
+		};
+	};
+	assert.equal(call.config?.temperature, 0.4);
+	assert.equal(call.config?.topP, 0.8);
+	assert.equal(call.config?.topK, 40);
+	assert.equal(call.config?.maxOutputTokens, 2048);
+	assert.equal(call.config?.thinkingConfig?.thinkingBudget, 8192);
+	assert.equal(call.config?.safetySettings?.[0]?.category, "HARM_CATEGORY_HARASSMENT");
+});
+
+test("gemini effort string maps to thinkingBudget bucket", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [{ output: { text: "ok" } }, { output: { text: "ok" } }],
+	});
+	const provider = createGeminiProvider(fake);
+
+	await withGeminiEnv({ GEMINI_API_KEY: "k" }, async () => {
+		// effort: "high" with gemini-2.5-pro (ceiling 32768) → 16384.
+		await provider.invoke(
+			geminiParams({
+				role: "judge",
+				agent: {
+					id: "g",
+					provider: "gemini",
+					model: "gemini-2.5-pro",
+					effort: "high",
+				},
+			}),
+		);
+		// Explicit thinkingBudget wins over effort.
+		await provider.invoke(
+			geminiParams({
+				role: "judge",
+				agent: {
+					id: "g",
+					provider: "gemini",
+					model: "gemini-2.5-pro",
+					effort: "high",
+					thinkingBudget: 1024,
+				},
+			}),
+		);
+	});
+
+	const c0 = captured.calls[0] as {
+		config?: { thinkingConfig?: { thinkingBudget?: number } };
+	};
+	const c1 = captured.calls[1] as {
+		config?: { thinkingConfig?: { thinkingBudget?: number } };
+	};
+	assert.equal(c0.config?.thinkingConfig?.thinkingBudget, 16384);
+	assert.equal(c1.config?.thinkingConfig?.thinkingBudget, 1024);
+});
+
+test("gemini per-model thinkingBudget clamp emits gap log", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [{ output: { text: "ok" } }],
+	});
+	const provider = createGeminiProvider(fake);
+
+	const stderrChunks: string[] = [];
+	const origWrite = process.stderr.write.bind(process.stderr);
+	process.stderr.write = ((chunk: unknown) => {
+		stderrChunks.push(String(chunk));
+		return true;
+	}) as typeof process.stderr.write;
+
+	try {
+		await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+			provider.invoke(
+				geminiParams({
+					role: "judge",
+					agent: {
+						id: "g",
+						provider: "gemini",
+						model: "gemini-2.5-flash",
+						thinkingBudget: 30000,
+					},
+				}),
+			),
+		);
+	} finally {
+		process.stderr.write = origWrite;
+	}
+
+	const call = captured.calls[0] as {
+		config?: { thinkingConfig?: { thinkingBudget?: number } };
+	};
+	assert.equal(call.config?.thinkingConfig?.thinkingBudget, 24576);
+	const gapLine = stderrChunks.join("");
+	assert.match(gapLine, /gap\[geminiThinkingBudgetClamped\]/);
+	assert.match(gapLine, /"requested":30000/);
+	assert.match(gapLine, /"applied":24576/);
+});
+
+test("gemini Edit zero-match returns error functionResponse and leaves file unchanged", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+	writeFileSync(join(cwd, "a.txt"), "hello\n");
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [
+			{
+				output: {
+					calls: [
+						{
+							name: "Edit",
+							args: { path: "a.txt", old: "absent", new: "x" },
+						},
+					],
+				},
+			},
+			{ output: { text: "done" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ cwd })),
+	);
+
+	assert.equal(result.error, undefined);
+	assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "hello\n");
+	const second = captured.calls[1] as {
+		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+	};
+	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
+	assert.equal(fr?.ok, false);
+	assert.match(String(fr?.error), /not found/);
+});
+
+test("gemini Edit multi-match returns error functionResponse and leaves file unchanged", async () => {
+	const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+	writeFileSync(join(cwd, "a.txt"), "x x");
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [
+			{
+				output: {
+					calls: [
+						{
+							name: "Edit",
+							args: { path: "a.txt", old: "x", new: "y" },
+						},
+					],
+				},
+			},
+			{ output: { text: "done" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ cwd })),
+	);
+
+	assert.equal(result.error, undefined);
+	assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "x x");
+	const second = captured.calls[1] as {
+		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+	};
+	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
+	assert.equal(fr?.ok, false);
+	assert.match(String(fr?.error), /unique|appears/);
+});
+
+test("gemini drops invalid pass-through knob types silently", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [{ output: { text: "ok" } }],
+	});
+	const provider = createGeminiProvider(fake);
+
+	await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(
+			geminiParams({
+				role: "judge",
+				agent: {
+					id: "g",
+					provider: "gemini",
+					model: "gemini-2.5-flash",
+					temperature: "warm",
+					topP: Number.NaN,
+					maxOutputTokens: -1,
+				},
+			}),
+		),
+	);
+
+	const call = captured.calls[0] as {
+		config?: { temperature?: number; topP?: number; maxOutputTokens?: number };
+	};
+	assert.equal(call.config?.temperature, undefined);
+	assert.equal(call.config?.topP, undefined);
+	assert.equal(call.config?.maxOutputTokens, undefined);
+});
+
+test("gemini missing API key returns error without instantiating SDK", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [{ output: { text: "ok" } }],
+	});
+	const provider = createGeminiProvider(fake);
+
+	const result = await withGeminiEnv(
+		{ GEMINI_API_KEY: undefined, GOOGLE_API_KEY: undefined },
+		() => provider.invoke(geminiParams({ role: "judge" })),
+	);
+
+	assert.equal(result.finalText, "");
+	assert.equal(result.toolUseCount, 0);
+	assert.match(result.error ?? "", /GEMINI_API_KEY \(or GOOGLE_API_KEY\) not set/);
+	assert.equal(captured.ctorCalls, 0);
+	assert.equal(captured.attempts, 0);
+});
+
+test("gemini API key precedence: GEMINI_API_KEY wins over GOOGLE_API_KEY", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [{ output: { text: "ok" } }],
+	});
+	const provider = createGeminiProvider(fake);
+
+	await withGeminiEnv(
+		{ GEMINI_API_KEY: "primary", GOOGLE_API_KEY: "fallback" },
+		() => provider.invoke(geminiParams({ role: "judge" })),
+	);
+
+	assert.equal(captured.apiKey, "primary");
+});
+
+test("gemini falls back to GOOGLE_API_KEY when GEMINI_API_KEY is unset", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [{ output: { text: "ok" } }],
+	});
+	const provider = createGeminiProvider(fake);
+
+	await withGeminiEnv(
+		{ GEMINI_API_KEY: undefined, GOOGLE_API_KEY: "fallback" },
+		() => provider.invoke(geminiParams({ role: "judge" })),
+	);
+
+	assert.equal(captured.apiKey, "fallback");
+});
+
+test("gemini systemPrompt lands on systemInstruction (never concatenated)", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [{ output: { text: "ok" } }],
+	});
+	const provider = createGeminiProvider(fake);
+
+	await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(
+			geminiParams({
+				role: "judge",
+				systemPrompt: "SYS_BLOB_HERE",
+				prompt: "USER_PROMPT_HERE",
+			}),
+		),
+	);
+
+	const call = captured.calls[0] as {
+		config?: { systemInstruction?: string };
+		contents: Array<{ parts: Array<{ text?: string }> }>;
+	};
+	assert.equal(call.config?.systemInstruction, "SYS_BLOB_HERE");
+	const userText = call.contents[0]?.parts[0]?.text ?? "";
+	assert.equal(userText, "USER_PROMPT_HERE");
+	assert.equal(userText.includes("SYS_BLOB_HERE"), false);
+});
+
+test("gemini SDK throw (non-retryable plain Error) returns error after one attempt", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		// Plain Error has no `status` → currently retried as "network-ish".
+		// To test no-retry behavior, use a 4xx error.
+		responses: [
+			{
+				output: {
+					error: { status: 400, message: "bad request" },
+				},
+			},
+		],
+	});
+	const provider = createGeminiProvider(fake);
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ role: "judge" })),
+	);
+
+	assert.equal(result.finalText, "");
+	assert.match(result.error ?? "", /400|bad request/);
+	assert.equal(captured.attempts, 1);
+});
+
+test("gemini constructor throw is caught and surfaced as error", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		throwOnCtor: new Error("ctor boom"),
+	});
+	const provider = createGeminiProvider(fake);
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ role: "judge" })),
+	);
+
+	assert.equal(result.finalText, "");
+	assert.equal(result.error, "ctor boom");
+});
+
+test("gemini retries on 429 then succeeds", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [
+			{ output: { error: { status: 429, message: "slow down" } } },
+			{ output: { text: "after retry" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ role: "judge" })),
+	);
+
+	assert.equal(result.error, undefined);
+	assert.equal(result.finalText, "after retry");
+	assert.equal(captured.attempts, 2);
+});
+
+test("gemini does not retry on 401", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [{ output: { error: { status: 401, message: "unauth" } } }],
+	});
+	const provider = createGeminiProvider(fake);
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ role: "judge" })),
+	);
+
+	assert.match(result.error ?? "", /401|unauth/);
+	assert.equal(captured.attempts, 1);
+});
+
+test("gemini exhausts 5 retries on persistent 429", { timeout: 60000 }, async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [
+			{ output: { error: { status: 429, message: "rl1" } } },
+			{ output: { error: { status: 429, message: "rl2" } } },
+			{ output: { error: { status: 429, message: "rl3" } } },
+			{ output: { error: { status: 429, message: "rl4" } } },
+			{ output: { error: { status: 429, message: "rl5" } } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(
+			geminiParams({
+				role: "judge",
+				agent: {
+					id: "g",
+					provider: "gemini",
+					model: "gemini-2.5-flash",
+				},
+			}),
+		),
+	);
+
+	assert.match(result.error ?? "", /rate-limited/);
+	assert.equal(captured.attempts, 5);
+});
+
+test("gemini SAFETY finishReason becomes error, no retry", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [{ output: { finishReason: "SAFETY", text: "partial" } }],
+	});
+	const provider = createGeminiProvider(fake);
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ role: "judge" })),
+	);
+
+	assert.match(result.error ?? "", /safety/i);
+	assert.equal(result.finalText, "partial");
+	assert.equal(captured.attempts, 1);
+});
+
+test(
+	"gemini tool-loop ceiling: 60-turn cap is hit and execution still counts",
+	{ timeout: 60000 },
+	async () => {
+		const captured = makeCapturedGenAI();
+		const fake = makeFakeGenAI({
+			captured,
+			// infiniteFunctionCall causes every turn to return one functionCall.
+			infiniteFunctionCall: [
+				{ name: "Write", args: { path: "spam.txt", content: "x" } },
+			],
+		});
+		const provider = createGeminiProvider(fake);
+		const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+
+		const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+			provider.invoke(geminiParams({ cwd })),
+		);
+
+		assert.equal(result.error, "tool-loop ceiling reached");
+		assert.equal(result.toolUseCount, 60);
+		// 60 generateContent calls — the boundary rule says NO 61st call.
+		assert.equal(captured.attempts, 60);
+	},
+);
+
+test(
+	"gemini tool-loop ceiling: parallel calls per turn → toolUseCount may exceed 60",
+	{ timeout: 60000 },
+	async () => {
+		const captured = makeCapturedGenAI();
+		const fake = makeFakeGenAI({
+			captured,
+			infiniteFunctionCall: [
+				{ name: "Write", args: { path: "spam-a.txt", content: "x" } },
+				{ name: "Write", args: { path: "spam-b.txt", content: "y" } },
+			],
+		});
+		const provider = createGeminiProvider(fake);
+		const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+
+		const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+			provider.invoke(geminiParams({ cwd })),
+		);
+
+		assert.equal(result.error, "tool-loop ceiling reached");
+		assert.ok(
+			result.toolUseCount >= 60,
+			`expected >=60, got ${result.toolUseCount}`,
+		);
+	},
+);
+
+test("gemini Bash respects timeoutMs", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [
+			{
+				output: {
+					calls: [
+						{ name: "Bash", args: { command: "sleep 5", timeoutMs: 100 } },
+					],
+				},
+			},
+			{ output: { text: "done" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+	const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ cwd })),
+	);
+
+	assert.equal(result.error, undefined);
+	const second = captured.calls[1] as {
+		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+	};
+	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
+	assert.equal(fr?.ok, true);
+	assert.equal(fr?.timedOut, true);
+});
+
+test("gemini Bash does not leak API keys into child env", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [
+			{
+				output: {
+					calls: [
+						{
+							name: "Bash",
+							args: {
+								command:
+									// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion
+									"echo G:${GEMINI_API_KEY:-missing} O:${OPENAI_API_KEY:-missing} A:${ANTHROPIC_API_KEY:-missing} GG:${GOOGLE_API_KEY:-missing}",
+							},
+						},
+					],
+				},
+			},
+			{ output: { text: "done" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+	const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+
+	const priorEnv = {
+		GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+		GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
+		OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+		ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+	};
+	process.env.GEMINI_API_KEY = "leak1";
+	process.env.GOOGLE_API_KEY = "leak2";
+	process.env.OPENAI_API_KEY = "leak3";
+	process.env.ANTHROPIC_API_KEY = "leak4";
+
+	let result: Awaited<ReturnType<typeof provider.invoke>>;
+	try {
+		result = await provider.invoke(geminiParams({ cwd }));
+	} finally {
+		for (const [key, value] of Object.entries(priorEnv)) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	}
+
+	assert.equal(result.error, undefined);
+	const second = captured.calls[1] as {
+		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+	};
+	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
+	const stdout = String(fr?.stdout ?? "");
+	assert.match(stdout, /G:missing/);
+	assert.match(stdout, /O:missing/);
+	assert.match(stdout, /A:missing/);
+	assert.match(stdout, /GG:missing/);
+	// Most importantly: real key values do not appear anywhere.
+	assert.equal(stdout.includes("leak1"), false);
+	assert.equal(stdout.includes("leak2"), false);
+	assert.equal(stdout.includes("leak3"), false);
+	assert.equal(stdout.includes("leak4"), false);
+});
+
+test("gemini Bash recursion guard rejects self-invocation", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [
+			{
+				output: {
+					calls: [
+						{
+							name: "Bash",
+							args: { command: "skillsmith --help" },
+						},
+					],
+				},
+			},
+			{ output: { text: "done" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+	const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ cwd })),
+	);
+
+	assert.equal(result.error, undefined);
+	const second = captured.calls[1] as {
+		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+	};
+	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
+	assert.equal(fr?.ok, false);
+	assert.match(String(fr?.error), /recursion guard/);
+	// And spawn was not attempted (no stdout/stderr fields).
+	assert.equal(fr?.stdout, undefined);
+});
+
+test("gemini Bash truncates stdout > 64 KiB with [truncated] sentinel", async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		responses: [
+			{
+				output: {
+					calls: [
+						{
+							name: "Bash",
+							// Print 80 KiB of `x` to stdout.
+							args: {
+								command:
+									"node -e \"process.stdout.write('x'.repeat(80*1024))\"",
+							},
+						},
+					],
+				},
+			},
+			{ output: { text: "done" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+	const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ cwd })),
+	);
+
+	assert.equal(result.error, undefined);
+	const second = captured.calls[1] as {
+		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+	};
+	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
+	const stdout = String(fr?.stdout ?? "");
+	assert.match(stdout, /\[truncated\]/);
+	// Stdout body before sentinel ≤ 64 KiB.
+	const before = stdout.replace(/\n\[truncated\]$/, "");
+	assert.ok(Buffer.byteLength(before) <= 64 * 1024);
 });
