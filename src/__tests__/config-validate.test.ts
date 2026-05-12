@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { collectConfigErrors } from "../config/validate";
 import type { SkillsmithConfig } from "../config/types";
+import { collectConfigErrors } from "../config/validate";
 
 const PATHS = {
 	base: "./.skillsmith",
