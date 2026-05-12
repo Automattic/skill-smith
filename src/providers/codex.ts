@@ -149,7 +149,9 @@ function codexEnv(env: NodeJS.ProcessEnv): Record<string, string> {
 	return out;
 }
 
-function isEffort(value: unknown): value is ThreadOptions["modelReasoningEffort"] {
+function isEffort(
+	value: unknown,
+): value is ThreadOptions["modelReasoningEffort"] {
 	return (
 		typeof value === "string" &&
 		EFFORT_VALUES.includes(value as (typeof EFFORT_VALUES)[number])

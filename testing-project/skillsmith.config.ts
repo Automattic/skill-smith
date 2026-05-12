@@ -87,15 +87,15 @@ export default defineConfig({
 				id: "haiku",
 				provider: "claude-code",
 				model: "claude-haiku-4-5-20251001",
-				},
-				{ id: "codex-mini", provider: "codex", model: "gpt-5.4-mini" },
-				{
-					id: "codex-gpt55",
-					provider: "codex",
-					model: "gpt-5.5",
-					effort: "xhigh",
-				},
-			],
+			},
+			{ id: "codex-mini", provider: "codex", model: "gpt-5.4-mini" },
+			{
+				id: "codex-gpt55",
+				provider: "codex",
+				model: "gpt-5.5",
+				effort: "xhigh",
+			},
+		],
 		judge: [
 			{
 				id: "codex",

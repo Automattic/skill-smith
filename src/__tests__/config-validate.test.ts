@@ -16,8 +16,14 @@ function build(agents: SkillsmithConfig["agents"]): SkillsmithConfig {
 
 test("rejects empty agent slots", () => {
 	const errors = collectConfigErrors(build({ testing: [], judge: [] }));
-	assert.match(errors.join("\n"), /agents\.testing must contain at least one entry/);
-	assert.match(errors.join("\n"), /agents\.judge must contain at least one entry/);
+	assert.match(
+		errors.join("\n"),
+		/agents\.testing must contain at least one entry/,
+	);
+	assert.match(
+		errors.join("\n"),
+		/agents\.judge must contain at least one entry/,
+	);
 });
 
 test("rejects missing provider", () => {
