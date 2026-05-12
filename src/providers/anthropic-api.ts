@@ -51,8 +51,7 @@ const FORBIDDEN_BASH_ENV_KEYS = new Set([
 	"ANTHROPIC_API_KEY",
 ]);
 
-const SKILLSMITH_RECURSION_RE =
-	/(^|[;&|`]|\$\()\s*skillsmith\b/;
+const SKILLSMITH_RECURSION_RE = /(^|[;&|`]|\$\()\s*skillsmith\b/;
 
 export type AnthropicClientLike = {
 	messages: {
@@ -206,7 +205,10 @@ function extraAnthropicOptions(
 	agent: AgentDefinition,
 ): Partial<MessageCreateParamsNonStreaming> {
 	const out: Partial<MessageCreateParamsNonStreaming> = {};
-	if (typeof agent.temperature === "number" && Number.isFinite(agent.temperature)) {
+	if (
+		typeof agent.temperature === "number" &&
+		Number.isFinite(agent.temperature)
+	) {
 		out.temperature = agent.temperature;
 	}
 	if (typeof agent.topP === "number" && Number.isFinite(agent.topP)) {
@@ -245,7 +247,10 @@ function maxToolIterations(agent: AgentDefinition): number {
 		Number.isFinite(agent.maxToolIterations) &&
 		agent.maxToolIterations > 0
 	) {
-		return Math.min(Math.floor(agent.maxToolIterations), MAX_TOOL_ITERATIONS_CEILING);
+		return Math.min(
+			Math.floor(agent.maxToolIterations),
+			MAX_TOOL_ITERATIONS_CEILING,
+		);
 	}
 	return DEFAULT_MAX_TOOL_ITERATIONS;
 }
@@ -258,9 +263,14 @@ function positiveNumber(value: unknown): number | undefined {
 }
 
 const TESTING_TOOLS: Tool[] = [
-	tool("Read", "Read a UTF-8 text file from the workspace.", {
-		path: { type: "string" },
-	}, ["path"]),
+	tool(
+		"Read",
+		"Read a UTF-8 text file from the workspace.",
+		{
+			path: { type: "string" },
+		},
+		["path"],
+	),
 	tool(
 		"Write",
 		"Write a UTF-8 text file in the workspace. Creates parent directories as needed. Refuses to write through symlinks.",
@@ -411,7 +421,8 @@ async function execRead(
 	args: Record<string, unknown>,
 	cwd: string,
 ): Promise<ToolExecResult> {
-	if (!isReadArgs(args)) return errResp("invalid args: Read requires `path: string`");
+	if (!isReadArgs(args))
+		return errResp("invalid args: Read requires `path: string`");
 	const resolved = resolveInsideWorkspace(cwd, args.path, { mustExist: true });
 	if (resolved.error !== undefined) return errResp(resolved.error);
 	const data = readFileSync(resolved.absPath);
@@ -428,7 +439,9 @@ async function execWrite(
 	cwd: string,
 ): Promise<ToolExecResult> {
 	if (!isWriteArgs(args))
-		return errResp("invalid args: Write requires `path: string`, `content: string`");
+		return errResp(
+			"invalid args: Write requires `path: string`, `content: string`",
+		);
 	const resolved = resolveInsideWorkspace(cwd, args.path, { mustExist: false });
 	if (resolved.error !== undefined) return errResp(resolved.error);
 	if (existsSync(resolved.absPath)) {
@@ -812,11 +825,19 @@ function textFromContent(content: ContentBlock[] | undefined): string {
 
 function collectToolUses(content: ContentBlock[] | undefined): ToolUseBlock[] {
 	if (!Array.isArray(content)) return [];
-	return content.filter((block): block is ToolUseBlock => block.type === "tool_use");
+	return content.filter(
+		(block): block is ToolUseBlock => block.type === "tool_use",
+	);
 }
 
-function terminalStopError(response: Message, role: string): string | undefined {
-	if (response.stop_reason === "end_turn" || response.stop_reason === "stop_sequence") {
+function terminalStopError(
+	response: Message,
+	role: string,
+): string | undefined {
+	if (
+		response.stop_reason === "end_turn" ||
+		response.stop_reason === "stop_sequence"
+	) {
 		return undefined;
 	}
 	return stopReasonError(response, role);
@@ -825,9 +846,10 @@ function terminalStopError(response: Message, role: string): string | undefined 
 function stopReasonError(response: Message, role: string): string {
 	const reason = response.stop_reason ?? "unknown";
 	if (reason === "max_tokens") {
-		const suffix = collectToolUses(response.content).length > 0
-			? "; raise maxOutputTokens if the response ended during tool use"
-			: "";
+		const suffix =
+			collectToolUses(response.content).length > 0
+				? "; raise maxOutputTokens if the response ended during tool use"
+				: "";
 		return `Anthropic API ${role} response stopped because max_tokens was reached${suffix}`;
 	}
 	return `Anthropic API ${role} response stopped with stop_reason: ${reason}`;

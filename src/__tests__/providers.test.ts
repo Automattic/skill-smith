@@ -145,7 +145,8 @@ function anthropicToolUse(
 }
 
 function anthropicParams(overrides: Partial<InvokeParams> = {}): InvokeParams {
-	const cwd = overrides.cwd ?? mkdtempSync(join(tmpdir(), "anthropic-api-test-"));
+	const cwd =
+		overrides.cwd ?? mkdtempSync(join(tmpdir(), "anthropic-api-test-"));
 	return {
 		agent: { id: "a", provider: "anthropic-api", model: "claude-test" },
 		systemPrompt: "system prompt body",
@@ -174,7 +175,9 @@ test("anthropic-api missing API key returns an error and does not construct clie
 	const previous = process.env.ANTHROPIC_API_KEY;
 	delete process.env.ANTHROPIC_API_KEY;
 	const constructed: Array<{ apiKey: string; timeoutMs?: number }> = [];
-	const provider = createAnthropicApiProvider(makeFakeAnthropic({ constructed }));
+	const provider = createAnthropicApiProvider(
+		makeFakeAnthropic({ constructed }),
+	);
 	try {
 		const result = await provider.invoke(anthropicParams());
 
@@ -192,7 +195,9 @@ test("anthropic-api judge sends one Messages request with no tools", async () =>
 	const provider = createAnthropicApiProvider(
 		makeFakeAnthropic({
 			captured,
-			responses: [anthropicMessage([anthropicText("judge "), anthropicText("yaml")])],
+			responses: [
+				anthropicMessage([anthropicText("judge "), anthropicText("yaml")]),
+			],
 		}),
 	);
 
@@ -234,7 +239,9 @@ test("anthropic-api judge sends one Messages request with no tools", async () =>
 test("anthropic-api treats stop_sequence as terminal success", async () => {
 	const provider = createAnthropicApiProvider(
 		makeFakeAnthropic({
-			responses: [anthropicMessage([anthropicText("stopped")], "stop_sequence")],
+			responses: [
+				anthropicMessage([anthropicText("stopped")], "stop_sequence"),
+			],
 		}),
 	);
 
@@ -293,7 +300,9 @@ test("anthropic-api testing errors on empty terminal response", async () => {
 		makeFakeAnthropic({ responses: [anthropicMessage([])] }),
 	);
 
-	const result = await withAnthropicApiKey(() => provider.invoke(anthropicParams()));
+	const result = await withAnthropicApiKey(() =>
+		provider.invoke(anthropicParams()),
+	);
 
 	assert.match(result.error ?? "", /no final text or tool calls/);
 });
@@ -317,7 +326,9 @@ test("anthropic-api testing errors on empty terminal response after partial text
 		}),
 	);
 
-	const result = await withAnthropicApiKey(() => provider.invoke(anthropicParams()));
+	const result = await withAnthropicApiKey(() =>
+		provider.invoke(anthropicParams()),
+	);
 
 	assert.equal(result.finalText, "partial");
 	assert.match(result.error ?? "", /no final text or tool calls/);
@@ -371,7 +382,9 @@ test("anthropic-api testing returns malformed tool input as error tool_result", 
 		}),
 	);
 
-	const result = await withAnthropicApiKey(() => provider.invoke(anthropicParams()));
+	const result = await withAnthropicApiKey(() =>
+		provider.invoke(anthropicParams()),
+	);
 
 	assert.equal(result.finalText, "recovered");
 	assert.equal(result.error, undefined);
@@ -466,7 +479,7 @@ test("anthropic-api Bash does not forward ANTHROPIC_API_KEY", async () => {
 				anthropicMessage(
 					[
 						anthropicToolUse("toolu-1", "Bash", {
-							command: "printf '%s' \"$" + "{ANTHROPIC_API_KEY:-missing}\"",
+							command: "printf '%s' \"$" + '{ANTHROPIC_API_KEY:-missing}"',
 						}),
 					],
 					"tool_use",
@@ -476,7 +489,9 @@ test("anthropic-api Bash does not forward ANTHROPIC_API_KEY", async () => {
 		}),
 	);
 
-	const result = await withAnthropicApiKey(() => provider.invoke(anthropicParams()));
+	const result = await withAnthropicApiKey(() =>
+		provider.invoke(anthropicParams()),
+	);
 
 	assert.equal(result.error, undefined);
 	const toolResults = toolResultBlocks(captured, 1);
