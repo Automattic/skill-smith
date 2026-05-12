@@ -53,8 +53,7 @@ const FORBIDDEN_BASH_ENV_KEYS = new Set([
 // whole word at the start of the command, or after a shell separator (`;`,
 // `&&`, `||`, `|`, backtick, or `$(`). Intentionally over-eager — false
 // positives are acceptable; the user can rephrase.
-const SKILLSMITH_RECURSION_RE =
-	/(^|[;&|`]|\$\()\s*skillsmith\b/;
+const SKILLSMITH_RECURSION_RE = /(^|[;&|`]|\$\()\s*skillsmith\b/;
 
 // Per-model thinkingBudget ceilings.
 const THINKING_BUDGET_CEILINGS: Record<string, number> = {
@@ -86,7 +85,9 @@ export type GenAIModelsLike = {
 export type GoogleGenAILike = {
 	readonly models: GenAIModelsLike;
 };
-export type GoogleGenAICtor = new (options: GoogleGenAIOptions) => GoogleGenAILike;
+export type GoogleGenAICtor = new (
+	options: GoogleGenAIOptions,
+) => GoogleGenAILike;
 
 interface ToolExecResult {
 	response: Record<string, unknown>;
@@ -105,8 +106,7 @@ export function createGeminiProvider(GenAICtor: GoogleGenAICtor): Provider {
 			let error: string | undefined;
 
 			try {
-				const apiKey =
-					process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+				const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
 				if (apiKey === undefined || apiKey.length === 0) {
 					return {
 						finalText: "",
@@ -121,9 +121,7 @@ export function createGeminiProvider(GenAICtor: GoogleGenAICtor): Provider {
 					const config = buildBaseConfig(params);
 					const response = await callWithRetries(client, {
 						model: params.agent.model,
-						contents: [
-							{ role: "user", parts: [{ text: params.prompt }] },
-						],
+						contents: [{ role: "user", parts: [{ text: params.prompt }] }],
 						config,
 					});
 					const safetyError = checkSafetyFinish(response);
@@ -525,7 +523,8 @@ async function execRead(
 	args: Record<string, unknown>,
 	cwd: string,
 ): Promise<ToolExecResult> {
-	if (!isReadArgs(args)) return errResp("invalid args: Read requires `path: string`");
+	if (!isReadArgs(args))
+		return errResp("invalid args: Read requires `path: string`");
 	const resolved = resolveInsideWorkspace(cwd, args.path, { mustExist: true });
 	if (resolved.error !== undefined) return errResp(resolved.error);
 	const data = readFileSync(resolved.absPath, "utf8");
@@ -537,7 +536,9 @@ async function execWrite(
 	cwd: string,
 ): Promise<ToolExecResult> {
 	if (!isWriteArgs(args))
-		return errResp("invalid args: Write requires `path: string`, `content: string`");
+		return errResp(
+			"invalid args: Write requires `path: string`, `content: string`",
+		);
 	const resolved = resolveInsideWorkspace(cwd, args.path, { mustExist: false });
 	if (resolved.error !== undefined) return errResp(resolved.error);
 	// Refuse to write through an existing symlink.
@@ -1130,4 +1131,3 @@ function firstError(
 ): string | undefined {
 	return current ?? next;
 }
-

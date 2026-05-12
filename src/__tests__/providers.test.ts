@@ -1050,8 +1050,17 @@ test("codex provider keeps large system prompts out of constructor config", asyn
 
 interface FakeGenAIScripted {
 	output?:
-		| { text?: string; calls?: Array<{ name: string; args: Record<string, unknown> }> }
-		| { error: { status: number; message: string; headers?: Record<string, string> } }
+		| {
+				text?: string;
+				calls?: Array<{ name: string; args: Record<string, unknown> }>;
+		  }
+		| {
+				error: {
+					status: number;
+					message: string;
+					headers?: Record<string, string>;
+				};
+		  }
 		| { throw: Error }
 		| { finishReason: string; text?: string };
 }
@@ -1320,7 +1329,12 @@ test("gemini testing rejects path containment escape via `../`", async () => {
 	assert.equal(existsSync(join(outside, "escape.txt")), false);
 	// Verify the model received an error functionResponse.
 	const second = captured.calls[1] as {
-		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+		contents: Array<{
+			role: string;
+			parts: Array<{
+				functionResponse?: { response?: Record<string, unknown> };
+			}>;
+		}>;
 	};
 	const lastTurn = second.contents.at(-1);
 	const fr = lastTurn?.parts[0]?.functionResponse?.response;
@@ -1378,9 +1392,7 @@ test("gemini testing rejects symlink-escape via realpath check", async () => {
 		responses: [
 			{
 				output: {
-					calls: [
-						{ name: "Read", args: { path: "link/secret.txt" } },
-					],
+					calls: [{ name: "Read", args: { path: "link/secret.txt" } }],
 				},
 			},
 			{ output: { text: "done" } },
@@ -1394,7 +1406,12 @@ test("gemini testing rejects symlink-escape via realpath check", async () => {
 
 	assert.equal(result.error, undefined);
 	const second = captured.calls[1] as {
-		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+		contents: Array<{
+			role: string;
+			parts: Array<{
+				functionResponse?: { response?: Record<string, unknown> };
+			}>;
+		}>;
 	};
 	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
 	assert.equal(fr?.ok, false);
@@ -1414,7 +1431,10 @@ test("gemini judge sends no tools in config", async () => {
 	);
 
 	const call = captured.calls[0] as { config?: { tools?: unknown } };
-	assert.ok(call.config?.tools === undefined || (Array.isArray(call.config.tools) && call.config.tools.length === 0));
+	assert.ok(
+		call.config?.tools === undefined ||
+			(Array.isArray(call.config.tools) && call.config.tools.length === 0),
+	);
 });
 
 test("gemini forwards pass-through knobs onto config", async () => {
@@ -1461,7 +1481,10 @@ test("gemini forwards pass-through knobs onto config", async () => {
 	assert.equal(call.config?.topK, 40);
 	assert.equal(call.config?.maxOutputTokens, 2048);
 	assert.equal(call.config?.thinkingConfig?.thinkingBudget, 8192);
-	assert.equal(call.config?.safetySettings?.[0]?.category, "HARM_CATEGORY_HARASSMENT");
+	assert.equal(
+		call.config?.safetySettings?.[0]?.category,
+		"HARM_CATEGORY_HARASSMENT",
+	);
 });
 
 test("gemini effort string maps to thinkingBudget bucket", async () => {
@@ -1582,7 +1605,12 @@ test("gemini Edit zero-match returns error functionResponse and leaves file unch
 	assert.equal(result.error, undefined);
 	assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "hello\n");
 	const second = captured.calls[1] as {
-		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+		contents: Array<{
+			role: string;
+			parts: Array<{
+				functionResponse?: { response?: Record<string, unknown> };
+			}>;
+		}>;
 	};
 	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
 	assert.equal(fr?.ok, false);
@@ -1618,7 +1646,12 @@ test("gemini Edit multi-match returns error functionResponse and leaves file unc
 	assert.equal(result.error, undefined);
 	assert.equal(readFileSync(join(cwd, "a.txt"), "utf8"), "x x");
 	const second = captured.calls[1] as {
-		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+		contents: Array<{
+			role: string;
+			parts: Array<{
+				functionResponse?: { response?: Record<string, unknown> };
+			}>;
+		}>;
 	};
 	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
 	assert.equal(fr?.ok, false);
@@ -1672,7 +1705,10 @@ test("gemini missing API key returns error without instantiating SDK", async () 
 
 	assert.equal(result.finalText, "");
 	assert.equal(result.toolUseCount, 0);
-	assert.match(result.error ?? "", /GEMINI_API_KEY \(or GOOGLE_API_KEY\) not set/);
+	assert.match(
+		result.error ?? "",
+		/GEMINI_API_KEY \(or GOOGLE_API_KEY\) not set/,
+	);
 	assert.equal(captured.ctorCalls, 0);
 	assert.equal(captured.attempts, 0);
 });
@@ -1814,7 +1850,9 @@ test("gemini does not retry on 401", async () => {
 	assert.equal(captured.attempts, 1);
 });
 
-test("gemini exhausts 5 retries on persistent 429", { timeout: 60000 }, async () => {
+test("gemini exhausts 5 retries on persistent 429", {
+	timeout: 60000,
+}, async () => {
 	const captured = makeCapturedGenAI();
 	const fake = makeFakeGenAI({
 		captured,
@@ -1862,58 +1900,54 @@ test("gemini SAFETY finishReason becomes error, no retry", async () => {
 	assert.equal(captured.attempts, 1);
 });
 
-test(
-	"gemini tool-loop ceiling: 60-turn cap is hit and execution still counts",
-	{ timeout: 60000 },
-	async () => {
-		const captured = makeCapturedGenAI();
-		const fake = makeFakeGenAI({
-			captured,
-			// infiniteFunctionCall causes every turn to return one functionCall.
-			infiniteFunctionCall: [
-				{ name: "Write", args: { path: "spam.txt", content: "x" } },
-			],
-		});
-		const provider = createGeminiProvider(fake);
-		const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+test("gemini tool-loop ceiling: 60-turn cap is hit and execution still counts", {
+	timeout: 60000,
+}, async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		// infiniteFunctionCall causes every turn to return one functionCall.
+		infiniteFunctionCall: [
+			{ name: "Write", args: { path: "spam.txt", content: "x" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+	const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
 
-		const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
-			provider.invoke(geminiParams({ cwd })),
-		);
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ cwd })),
+	);
 
-		assert.equal(result.error, "tool-loop ceiling reached");
-		assert.equal(result.toolUseCount, 60);
-		// 60 generateContent calls — the boundary rule says NO 61st call.
-		assert.equal(captured.attempts, 60);
-	},
-);
+	assert.equal(result.error, "tool-loop ceiling reached");
+	assert.equal(result.toolUseCount, 60);
+	// 60 generateContent calls — the boundary rule says NO 61st call.
+	assert.equal(captured.attempts, 60);
+});
 
-test(
-	"gemini tool-loop ceiling: parallel calls per turn → toolUseCount may exceed 60",
-	{ timeout: 60000 },
-	async () => {
-		const captured = makeCapturedGenAI();
-		const fake = makeFakeGenAI({
-			captured,
-			infiniteFunctionCall: [
-				{ name: "Write", args: { path: "spam-a.txt", content: "x" } },
-				{ name: "Write", args: { path: "spam-b.txt", content: "y" } },
-			],
-		});
-		const provider = createGeminiProvider(fake);
-		const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
+test("gemini tool-loop ceiling: parallel calls per turn → toolUseCount may exceed 60", {
+	timeout: 60000,
+}, async () => {
+	const captured = makeCapturedGenAI();
+	const fake = makeFakeGenAI({
+		captured,
+		infiniteFunctionCall: [
+			{ name: "Write", args: { path: "spam-a.txt", content: "x" } },
+			{ name: "Write", args: { path: "spam-b.txt", content: "y" } },
+		],
+	});
+	const provider = createGeminiProvider(fake);
+	const cwd = mkdtempSync(join(tmpdir(), "gemini-test-"));
 
-		const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
-			provider.invoke(geminiParams({ cwd })),
-		);
+	const result = await withGeminiEnv({ GEMINI_API_KEY: "k" }, () =>
+		provider.invoke(geminiParams({ cwd })),
+	);
 
-		assert.equal(result.error, "tool-loop ceiling reached");
-		assert.ok(
-			result.toolUseCount >= 60,
-			`expected >=60, got ${result.toolUseCount}`,
-		);
-	},
-);
+	assert.equal(result.error, "tool-loop ceiling reached");
+	assert.ok(
+		result.toolUseCount >= 60,
+		`expected >=60, got ${result.toolUseCount}`,
+	);
+});
 
 test("gemini Bash respects timeoutMs", async () => {
 	const captured = makeCapturedGenAI();
@@ -1939,7 +1973,12 @@ test("gemini Bash respects timeoutMs", async () => {
 
 	assert.equal(result.error, undefined);
 	const second = captured.calls[1] as {
-		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+		contents: Array<{
+			role: string;
+			parts: Array<{
+				functionResponse?: { response?: Record<string, unknown> };
+			}>;
+		}>;
 	};
 	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
 	assert.equal(fr?.ok, true);
@@ -1994,7 +2033,12 @@ test("gemini Bash does not leak API keys into child env", async () => {
 
 	assert.equal(result.error, undefined);
 	const second = captured.calls[1] as {
-		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+		contents: Array<{
+			role: string;
+			parts: Array<{
+				functionResponse?: { response?: Record<string, unknown> };
+			}>;
+		}>;
 	};
 	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
 	const stdout = String(fr?.stdout ?? "");
@@ -2036,7 +2080,12 @@ test("gemini Bash recursion guard rejects self-invocation", async () => {
 
 	assert.equal(result.error, undefined);
 	const second = captured.calls[1] as {
-		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+		contents: Array<{
+			role: string;
+			parts: Array<{
+				functionResponse?: { response?: Record<string, unknown> };
+			}>;
+		}>;
 	};
 	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
 	assert.equal(fr?.ok, false);
@@ -2076,7 +2125,12 @@ test("gemini Bash truncates stdout > 64 KiB with [truncated] sentinel", async ()
 
 	assert.equal(result.error, undefined);
 	const second = captured.calls[1] as {
-		contents: Array<{ role: string; parts: Array<{ functionResponse?: { response?: Record<string, unknown> } }> }>;
+		contents: Array<{
+			role: string;
+			parts: Array<{
+				functionResponse?: { response?: Record<string, unknown> };
+			}>;
+		}>;
 	};
 	const fr = second.contents.at(-1)?.parts[0]?.functionResponse?.response;
 	const stdout = String(fr?.stdout ?? "");
