@@ -4,33 +4,35 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  Create an interactive post-fetcher block for WordPress. The block should:
+  I want a WordPress Interactivity API block that loads a post from the
+  REST API on demand. Here is what it should do:
+
   1. Render a "Load post" button and a paragraph that initially shows
      "(no post loaded yet)".
   2. When the button is clicked, fetch the post with ID 1 from the
-     WordPress REST API and display its title in the paragraph.
+     WordPress REST API and show its title in the paragraph instead of
+     the placeholder.
 
-  Constraints:
+  A few constraints from our setup:
 
-  - The REST endpoint URL and a CSRF nonce MUST be supplied to the
-    front-end via wp_interactivity_config — NOT via wp_interactivity_state.
-    Use rest_url('wp/v2/posts/1') and wp_create_nonce('wp_rest').
-  - On the client, retrieve them via getConfig() and never re-derive the
-    URL by hand.
-  - The fetch action MUST be a generator function (function* / *name) using
-    `yield` rather than async/await.
-  - The fetch request MUST send the nonce in the X-WP-Nonce header.
-  - The displayed title must update reactively when the fetch resolves.
+  - The REST URL and a CSRF nonce should be computed on the server with
+    `rest_url('wp/v2/posts/1')` and `wp_create_nonce('wp_rest')`, and
+    handed to the front-end as plugin configuration values (the same
+    values would be reused by other blocks on the page, so they are not
+    per-instance state). The client must read them from that
+    configuration rather than hard-coding the URL or recomputing it.
+  - The fetch request must send the nonce in the `X-WP-Nonce` header so
+    the REST API accepts it.
 
 acceptance:
-  - render.php calls wp_interactivity_config with restUrl and nonce keys
-  - render.php does NOT pass restUrl or nonce via wp_interactivity_state
-  - view.js imports getConfig from @wordpress/interactivity and reads both values from it
-  - The fetch action is a generator function (declared with function* or *name)
-  - The fetch action uses `yield` (not `await`) on fetch() and .json()
-  - The fetch request sends the nonce as the X-WP-Nonce header
-  - The post title is rendered via data-wp-text bound to a state/context property
-  - Title appears in the DOM after the fetch resolves
+  - `render.php` publishes `restUrl` and `nonce` as plugin configuration (via `wp_interactivity_config()`) consumed by the view — not as per-instance state/context and not hard-coded in JS
+  - `restUrl` is produced by `rest_url('wp/v2/posts/1')` and `nonce` by `wp_create_nonce('wp_rest')` on the server
+  - The view reads both `restUrl` and `nonce` from that configuration (e.g. via `getConfig()`) rather than reconstructing the URL or embedding the nonce literal
+  - The `fetch` call in `view.js` is wired to set the `X-WP-Nonce` request header from the config-supplied nonce
+  - The "Load post" button is wired with `data-wp-on--click` (or `data-wp-on-async--click`) to a named store action that performs the fetch
+  - The store action that performs the fetch is a generator function using `yield` for the `fetch` and `.json()` calls (not `async`/`await`)
+  - The paragraph's text is bound reactively with `data-wp-text` (or equivalent directive) to a single store/context property that holds the title — not assigned via direct DOM writes from `view.js`
+  - The server-rendered HTML for the paragraph contains the initial placeholder text "(no post loaded yet)" so the block reads correctly before JS runs
 
 rubrics:
   - wp-interactivity-api-best-practices

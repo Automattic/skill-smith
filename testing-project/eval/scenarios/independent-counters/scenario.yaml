@@ -4,22 +4,22 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  Create an interactive tally-counter block for WordPress. The block should:
-  1. Render a counter (starting at 0) and an "Increment" button.
-  2. Maintain INDEPENDENT state per instance — when the same block is
-     placed multiple times on a page, clicking Increment on one instance
-     must not change the counters of the other instances.
+  I need a tally-counter block for WordPress, built as an interactive
+  block using the WordPress Interactivity API. Each counter should start
+  at 0 and have an "Increment" button next to it that bumps the displayed
+  number up by one when clicked.
 
-  Use local context, not global state, so each instance owns its own
-  counter value.
+  The important part: I want to drop this block onto a page multiple
+  times, and each one needs to keep its own count. Clicking Increment on
+  one counter should only change that counter — the others on the same
+  page should be unaffected.
 
 acceptance:
-  - 'Each instance initializes its own counter via data-wp-context (e.g. ''{ "counter": 0 }'')'
-  - Counter renders via data-wp-text="context.counter" (NOT state.counter)
-  - Increment button uses data-wp-on--click bound to a store action
-  - Action accesses and mutates the value via getContext() (NOT global state)
-  - No wp_interactivity_state call is used to hold the counter
-  - Initial server-rendered HTML shows "0" inside each instance
+  - The per-instance counter value lives in local context (set via `data-wp-context` / `wp_interactivity_data_wp_context()`), not in global state via `wp_interactivity_state()`.
+  - Has a named increment store action that mutates the counter through `getContext()` (e.g. `const ctx = getContext(); ctx.counter += 1`), not via a shared/global state reference.
+  - Uses `data-wp-on--click` on the Increment button, wired to the increment action.
+  - Uses `data-wp-text` bound to the local context property (e.g. `context.counter`) to display the value, not a global state property.
+  - Server-rendered HTML seeds the initial counter value (0) inside each instance's per-instance context attribute so it is correct before hydration.
 
 rubrics:
   - wp-interactivity-api-best-practices

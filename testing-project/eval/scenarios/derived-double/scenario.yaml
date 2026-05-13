@@ -4,23 +4,23 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  Create an interactive double-counter block for WordPress. The block should:
-  1. Display a counter starting at 1.
-  2. Display a second number — always exactly twice the counter — beside it.
-  3. Render an "Increment" button that increases the counter by 1.
+  I want a WordPress Interactivity API block that shows two numbers side by
+  side: a counter and a value that is always exactly double the counter.
+  The counter should start at 1, so when the page first loads the block
+  should display 1 next to 2.
 
-  The doubled value MUST be computed via a derived state getter (e.g.
-  `get double()`), never stored as a separate field. The increment action
-  must mutate ONLY the counter — it must not assign anything to the
-  doubled value.
+  Below the numbers there should be an "Increment" button. Each click
+  bumps the counter by 1, and the second number must stay in sync — so
+  after one click I see 2 and 4, after two clicks 3 and 6, and so on.
+  The doubled number is purely a reflection of the counter; there is no
+  separate "doubled" value that a user or action can set independently.
 
 acceptance:
-  - State holds only one mutable numeric counter (e.g. state.counter)
-  - State defines a getter that returns counter * 2 (e.g. `get double()`)
-  - Counter rendered via data-wp-text bound to the counter property
-  - Doubled value rendered via data-wp-text bound to the getter property
-  - Increment action mutates ONLY the counter; never assigns to the getter property
-  - Initial server-rendered HTML contains both "1" and "2" inside the block
+  - The counter is the only mutable numeric field in state/context; the doubled value is exposed as a derived getter (computed from the counter on read) rather than a separate stored field.
+  - Has a named increment action that mutates only the counter (e.g. `state.counter++` or the context equivalent); it never assigns to the doubled field.
+  - Uses `data-wp-on--click` on the increment button wired to the increment action.
+  - The doubled value in the directive expression references the derived getter directly (e.g. `state.double`), not an inline arithmetic expression like `state.counter * 2` or a duplicated stored field.
+  - Server-rendered HTML includes the initial values (1 for the counter and 2 for the doubled value) so both read correctly before JavaScript hydrates.
 
 rubrics:
   - wp-interactivity-api-best-practices

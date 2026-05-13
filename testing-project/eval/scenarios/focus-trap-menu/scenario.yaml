@@ -4,31 +4,38 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  Create an interactive drawer-menu block for WordPress. The block should:
-  1. Render a hamburger button with accessible name "Menu" and a drawer
-     containing exactly three navigation links with the visible names
-     "Home", "About", and "Contact" (use real <a href="#..."> elements).
-  2. Hide the drawer initially. Clicking the hamburger opens it.
-  3. Reflect open/closed state on the hamburger button via aria-expanded.
-  4. While the drawer is open, trap Tab focus inside the three links —
-     pressing Tab on Contact (the last) must move focus to Home (the
-     first); pressing Shift+Tab on Home must move focus to Contact.
-  5. Pressing Escape while the drawer is open must close it AND return
-     keyboard focus to the hamburger button.
+  I need a WordPress Interactivity API block for an accessible hamburger
+  menu. Here is what it should do:
 
-  The drawer's visibility must be driven by the Interactivity API (via
-  data-wp-bind, e.g. data-wp-bind--hidden). Do not toggle visibility by
-  directly mutating element style/classList from view.js outside of
-  directives.
+  - Render a button with the accessible name "Menu" that toggles a drawer
+    open and closed.
+  - The drawer holds exactly three navigation links with the visible text
+    "Home", "About", and "Contact", and each must be a real anchor of the
+    form <a href="#home">, <a href="#about">, <a href="#contact">.
+  - The drawer starts closed (not visible / not in the tab order) on
+    initial page load, before and after hydration.
+  - The "Menu" button must expose its open/closed state to assistive
+    technology so screen readers announce it correctly.
+  - When the drawer is open, keyboard focus should stay inside the three
+    links: tabbing past the last link should wrap back to the first, and
+    shift-tabbing past the first link should wrap to the last.
+  - Pressing the Escape key while the drawer is open should close it and
+    move keyboard focus back to the "Menu" button so the user doesn't
+    lose their place.
 
+  Accessibility (aria semantics, focus management, keyboard handling) is
+  the priority — please make sure a keyboard-only user can open the
+  menu, move through the links, and close it without ever losing focus.
 acceptance:
-  - Hamburger button uses data-wp-on--click bound to a toggle action
-  - Hamburger button uses data-wp-bind--aria-expanded reflecting an open boolean
-  - Drawer's visibility is bound via data-wp-bind (e.g. data-wp-bind--hidden) to that boolean
-  - Drawer (or its container) has data-wp-on--keydown handling Tab, Shift+Tab, and Escape
-  - On Escape, the open boolean is set to false and focus is returned to the hamburger button
-  - Tab on the last drawer link moves focus to the first; Shift+Tab on the first moves focus to the last
-  - block.json declares supports.interactivity and a viewScriptModule entry
+  - A single boolean state/context property (e.g. `isOpen`) drives both the drawer's open/closed rendering and the "Menu" button's `aria-expanded` value
+  - The "Menu" button uses `data-wp-on--click` (not a manual `addEventListener`) wired to a named store action that toggles the open state
+  - The "Menu" button's `aria-expanded` is wired with `data-wp-bind--aria-expanded` referencing the same boolean (no hand-written attribute writes)
+  - The drawer's visibility is driven reactively from the same boolean via a directive such as `data-wp-bind--hidden` (or an equivalent `data-wp-bind--*` / `data-wp-class--*`), not via `classList.*`, `style.*`, or `hidden` writes from JS
+  - The server-rendered HTML reflects the initial closed state (drawer hidden, `aria-expanded="false"`) so it is correct before hydration
+  - Tab / Shift+Tab handling on the first and last drawer links is wired with `data-wp-on--keydown` to named store actions; the focus trap is implemented by intercepting those boundary keydowns (not by mutating `tabindex` on every focusable element on the page)
+  - Escape handling is wired with `data-wp-on--keydown` (on the drawer, or via `data-wp-on-document--keydown` / `data-wp-on-window--keydown`) to a named store action that closes the drawer
+  - Focus restoration to the "Menu" button on close uses a reference to the hamburger element captured when the drawer opens (e.g. via `getElement()` stored on the store/context), not an ad-hoc `document.querySelector` lookup at close time
+  - The three drawer links are real anchors (`<a href="#home">`, `<a href="#about">`, `<a href="#contact">`) rendered server-side, not built or injected by `view.js`
 
 rubrics:
   - wp-interactivity-api-best-practices
