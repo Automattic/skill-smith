@@ -5,9 +5,8 @@ skills:
 
 prompt: |
   I need a tally-counter block for WordPress, built as an interactive
-  block using the WordPress Interactivity API. Each counter should start
-  at 0 and have an "Increment" button next to it that bumps the displayed
-  number up by one when clicked.
+  block. Each counter should start at 0 and have an "Increment" button
+  next to it that bumps the displayed number up by one when clicked.
 
   The important part: I want to drop this block onto a page multiple
   times, and each one needs to keep its own count. Clicking Increment on

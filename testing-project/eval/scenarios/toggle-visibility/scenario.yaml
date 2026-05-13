@@ -4,7 +4,7 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  I want a WordPress Interactivity API block for an expandable note.
+  I want an interactive block for WordPress for an expandable note.
   It should render a button with a short paragraph beneath it. When
   the page first loads, the paragraph is hidden and the button reports
   aria-expanded="false". Clicking the button reveals the paragraph and

@@ -4,7 +4,7 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  Create a WordPress Interactivity API block that fetches a joke from a remote
+  Create an interactive block for WordPress that fetches a joke from a remote
   endpoint when the user clicks a button.
 
   Requirements:

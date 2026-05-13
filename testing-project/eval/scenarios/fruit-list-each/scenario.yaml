@@ -4,7 +4,7 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  I'd like a WordPress Interactivity API block that shows a list of fruits.
+  I'd like an interactive block for WordPress that shows a list of fruits.
 
   When the page first loads, the list should already contain three fruits:
   Apple, Banana, and Cherry.

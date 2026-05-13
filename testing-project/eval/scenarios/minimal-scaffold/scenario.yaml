@@ -4,7 +4,7 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  I want the tiniest possible WordPress Interactivity API block — basically
+  I want the tiniest possible interactive block for WordPress — basically
   a "hello world" I can drop into a post to confirm the runtime is alive.
 
   When the block renders on the page, I want to see the text "Hello from iAPI"

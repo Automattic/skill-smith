@@ -4,7 +4,7 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  I want a WordPress Interactivity API block that shows two numbers side by
+  I want an interactive block for WordPress that shows two numbers side by
   side: a counter and a value that is always exactly double the counter.
   The counter should start at 1, so when the page first loads the block
   should display 1 next to 2.

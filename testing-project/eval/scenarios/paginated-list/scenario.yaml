@@ -4,7 +4,7 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  I want a WordPress Interactivity API block that displays a paginated list
+  I want an interactive block for WordPress that displays a paginated list
   of my most recent posts.
 
   On every page, show the 3 most recent published posts, newest first, with

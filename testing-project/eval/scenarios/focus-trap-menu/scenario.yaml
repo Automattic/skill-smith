@@ -4,7 +4,7 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  I need a WordPress Interactivity API block for an accessible hamburger
+  I need an interactive block for WordPress for an accessible hamburger
   menu. Here is what it should do:
 
   - Render a button with the accessible name "Menu" that toggles a drawer

@@ -4,7 +4,7 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  I want a WordPress Interactivity API block that loads a post from the
+  I want an interactive block for WordPress that loads a post from the
   REST API on demand. Here is what it should do:
 
   1. Render a "Load post" button and a paragraph that initially shows
