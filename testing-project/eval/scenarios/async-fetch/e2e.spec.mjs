@@ -1,4 +1,5 @@
 import { expect, test } from "@wordpress/e2e-test-utils-playwright";
+import { deactivateAllPlugins } from "../../utils/wp-cli.mjs";
 
 /**
  * E2E tests for the async-fetch scenario.
@@ -9,6 +10,7 @@ import { expect, test } from "@wordpress/e2e-test-utils-playwright";
 test.describe("async-fetch scenario", () => {
 	let post;
 	test.beforeAll(async ({ requestUtils }, workerInfo) => {
+		deactivateAllPlugins();
 		await requestUtils.activatePlugin(
 			`plugin-async-fetch-${workerInfo.project.metadata.agentId}`,
 		);
@@ -18,11 +20,9 @@ test.describe("async-fetch scenario", () => {
 		});
 	});
 
-	test.afterAll(async ({ requestUtils }, workerInfo) => {
+	test.afterAll(async ({ requestUtils }) => {
+		deactivateAllPlugins();
 		await requestUtils.deleteAllPosts();
-		await requestUtils.deactivatePlugin(
-			`plugin-async-fetch-${workerInfo.project.metadata.agentId}`,
-		);
 	});
 
 	test("clicking Fetch joke renders the mocked joke text", async ({ page }) => {

@@ -1,4 +1,5 @@
 import { expect, test } from "@wordpress/e2e-test-utils-playwright";
+import { deactivateAllPlugins } from "../../utils/wp-cli.mjs";
 
 /**
  * E2E tests for the counter-block scenario.
@@ -7,6 +8,7 @@ import { expect, test } from "@wordpress/e2e-test-utils-playwright";
 test.describe("counter block scenario", () => {
 	let post;
 	test.beforeAll(async ({ requestUtils }, workerInfo) => {
+		deactivateAllPlugins();
 		// Ensure the block plugin is active before tests run.
 		await requestUtils.activatePlugin(
 			`plugin-counter-block-${workerInfo.project.metadata.agentId}`,
@@ -21,11 +23,9 @@ test.describe("counter block scenario", () => {
 		await page.goto(`/?p=${post.id}`);
 	});
 
-	test.afterAll(async ({ requestUtils }, workerInfo) => {
+	test.afterAll(async ({ requestUtils }) => {
+		deactivateAllPlugins();
 		await requestUtils.deleteAllPosts();
-		await requestUtils.deactivatePlugin(
-			`plugin-counter-block-${workerInfo.project.metadata.agentId}`,
-		);
 	});
 
 	test("renders the initial counter value of 5", async ({ page }) => {

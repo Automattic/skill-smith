@@ -1,4 +1,5 @@
 import { expect, test } from "@wordpress/e2e-test-utils-playwright";
+import { deactivateAllPlugins } from "../../utils/wp-cli.mjs";
 
 /**
  * E2E tests for the minimal-scaffold scenario.
@@ -10,6 +11,7 @@ import { expect, test } from "@wordpress/e2e-test-utils-playwright";
 test.describe("minimal-scaffold scenario", () => {
 	let post;
 	test.beforeAll(async ({ requestUtils }, workerInfo) => {
+		deactivateAllPlugins();
 		await requestUtils.activatePlugin(
 			`plugin-minimal-scaffold-${workerInfo.project.metadata.agentId}`,
 		);
@@ -19,11 +21,9 @@ test.describe("minimal-scaffold scenario", () => {
 		});
 	});
 
-	test.afterAll(async ({ requestUtils }, workerInfo) => {
+	test.afterAll(async ({ requestUtils }) => {
+		deactivateAllPlugins();
 		await requestUtils.deleteAllPosts();
-		await requestUtils.deactivatePlugin(
-			`plugin-minimal-scaffold-${workerInfo.project.metadata.agentId}`,
-		);
 	});
 
 	test("renders the Hello text and logs 'iapi-ready' on hydration", async ({
