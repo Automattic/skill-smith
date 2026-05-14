@@ -67,8 +67,9 @@ test("all-pass run exits 0 with RUN RESULT: PASS", async () => {
 	);
 
 	assert.equal(value, 0);
-	assert.match(out, /scenario\s*\|\s*haiku\s*\|\s*opus/);
-	assert.match(out, /counter-block\s*\|\s*PASS\s*\|\s*PASS/);
+	assert.match(out, /scenario\s+agent\s+result\s+duration\s+tokens/);
+	assert.match(out, /counter-block\s+haiku\s+PASS\s+1\.2s\s+150/);
+	assert.match(out, /\bopus\s+PASS\s+0\.9s/);
 	assert.match(out, /RUN RESULT: PASS/);
 });
 
@@ -97,7 +98,8 @@ test("any failure → exit 1, FAIL, and per-scenario one-liner", async () => {
 	);
 
 	assert.equal(value, 1);
-	assert.match(out, /counter-block\s*\|\s*PASS\s*\|\s*FAIL/);
+	assert.match(out, /counter-block\s+haiku\s+PASS\s+1\.2s/);
+	assert.match(out, /\bopus\s+FAIL\s+1\.1s/);
 	assert.match(out, /RUN RESULT: FAIL/);
 	assert.match(out, /counter-block: opus: rubric r1 not pass/);
 });
@@ -120,5 +122,60 @@ test("SKIPPED cells render with reason", async () => {
 	);
 
 	assert.equal(value, 1);
-	assert.match(out, /SKIPPED \(empty agent config\)/);
+	assert.match(out, /counter-block\s+haiku\s+SKIPPED\s+0\.8s/);
+	assert.match(out, /counter-block: haiku: SKIPPED empty agent config/);
+});
+
+test("long format unifies the scenario cell across agent rows", async () => {
+	const { runDirectory } = withReport({
+		"counter-block": {
+			scenario: "counter-block",
+			agents: {
+				haiku: {
+					testing: {
+						duration: 1200,
+						tokenUsage: {
+							inputTokens: 100,
+							outputTokens: 50,
+							totalTokens: 1500,
+						},
+					},
+					review: {
+						rubrics: { r1: { pass: true } },
+						acceptance: [{ item: "x", pass: true }],
+					},
+				},
+				opus: {
+					testing: {
+						duration: 65000,
+						tokenUsage: {
+							inputTokens: 800,
+							outputTokens: 400,
+							totalTokens: 1200,
+						},
+					},
+					review: {
+						rubrics: { r1: { pass: true } },
+						acceptance: [{ item: "x", pass: true }],
+					},
+				},
+			},
+		},
+	});
+
+	const { out } = captureStdout(() =>
+		printSummary({ runDirectory, runId: "x" }),
+	);
+
+	// The scenario name leads exactly one table row; the second agent
+	// row leaves the scenario column blank.
+	const scenarioRows = out
+		.split("\n")
+		.filter((l) => l.startsWith("counter-block"));
+	assert.equal(scenarioRows.length, 1);
+	assert.match(out, /\n\s+opus\s+PASS/);
+
+	// Thousands-separated tokens and m/ss duration formatting.
+	assert.match(out, /haiku\s+PASS\s+1\.2s\s+1,500/);
+	assert.match(out, /opus\s+PASS\s+1m05s\s+1,200/);
 });

@@ -90,8 +90,9 @@ test("smoke run with mock provider produces full reports for every (scenario, ag
 	);
 
 	const out = captured.join("\n");
-	assert.match(out, /scenario\s*\|\s*haiku\s*\|\s*sonnet/);
-	assert.match(out, /hello-scenario\s*\|\s*PASS\s*\|\s*PASS/);
+	assert.match(out, /scenario\s+agent\s+result\s+duration\s+tokens/);
+	assert.match(out, /hello-scenario\s+haiku\s+PASS\s+0\.0s\s+150/);
+	assert.match(out, /\bsonnet\s+PASS\s+0\.0s\s+150/);
 	assert.match(out, /RUN RESULT: PASS/);
 
 	rmSync(baseDir, { recursive: true, force: true });
