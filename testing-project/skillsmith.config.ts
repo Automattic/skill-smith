@@ -88,12 +88,26 @@ export default defineConfig({
 				provider: "claude-code",
 				model: "claude-haiku-4-5-20251001",
 			},
+			{
+				id: "anthropic-sonnet",
+				provider: "anthropic-api",
+				model: "claude-sonnet-4-6",
+			},
+			{
+				id: "openai-api-nano",
+				provider: "openai-api",
+				model: "gpt-5.4-nano",
+			},
 			{ id: "codex-mini", provider: "codex", model: "gpt-5.4-mini" },
 			{
 				id: "codex-gpt55",
 				provider: "codex",
 				model: "gpt-5.5",
-				effort: "xhigh",
+			},
+			{
+				id: "gemini-flash",
+				provider: "gemini-api",
+				model: "gemini-2.5-flash",
 			},
 		],
 		judge: [
