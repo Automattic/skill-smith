@@ -38,12 +38,25 @@ test("all-pass run exits 0 with RUN RESULT: PASS", async () => {
 			scenario: "counter-block",
 			agents: {
 				haiku: {
-					rubrics: { r1: { pass: true } },
-					acceptance: [{ item: "x", pass: true }],
+					testing: {
+						duration: 1200,
+						tokenUsage: {
+							inputTokens: 100,
+							outputTokens: 50,
+							totalTokens: 150,
+						},
+					},
+					review: {
+						rubrics: { r1: { pass: true } },
+						acceptance: [{ item: "x", pass: true }],
+					},
 				},
 				opus: {
-					rubrics: { r1: { pass: true } },
-					acceptance: [{ item: "x", pass: true }],
+					testing: { duration: 900 },
+					review: {
+						rubrics: { r1: { pass: true } },
+						acceptance: [{ item: "x", pass: true }],
+					},
 				},
 			},
 		},
@@ -65,10 +78,16 @@ test("any failure → exit 1, FAIL, and per-scenario one-liner", async () => {
 			scenario: "counter-block",
 			agents: {
 				haiku: {
-					rubrics: { r1: { pass: true } },
-					acceptance: [{ item: "x", pass: true }],
+					testing: { duration: 1200 },
+					review: {
+						rubrics: { r1: { pass: true } },
+						acceptance: [{ item: "x", pass: true }],
+					},
 				},
-				opus: { rubrics: { r1: { pass: false, notes: "bad" } } },
+				opus: {
+					testing: { duration: 1100 },
+					review: { rubrics: { r1: { pass: false, notes: "bad" } } },
+				},
 			},
 		},
 	});
@@ -87,7 +106,12 @@ test("SKIPPED cells render with reason", async () => {
 	const { runDirectory } = withReport({
 		"counter-block": {
 			scenario: "counter-block",
-			agents: { haiku: { skipped: "empty agent config" } },
+			agents: {
+				haiku: {
+					testing: { duration: 800 },
+					review: { skipped: "empty agent config" },
+				},
+			},
 		},
 	});
 

@@ -20,9 +20,10 @@ interface AgentVerdict {
 }
 
 /**
- * Aggregate `${scenarioDirectory}/<agent>/judge-review.yaml` into
- * `${scenarioDirectory}/report.yaml`. Missing review →
- * `error: "missing judge-review"` for that agent.
+ * Aggregate `${scenarioDirectory}/<agent>/report.yaml` into
+ * `${scenarioDirectory}/report.yaml`. Missing report →
+ * `error: "missing agent report"` for that agent. Each agent report
+ * carries a `testing` block and a `review` block verbatim.
  */
 export function aggregateScenarioReport(
 	params: AggregateScenarioReportParams,
@@ -35,21 +36,21 @@ export function aggregateScenarioReport(
 		for (const entry of readdirSync(scenarioDirectory)) {
 			const full = join(scenarioDirectory, entry);
 			if (!isDirectorySafe(full)) continue;
-			const reviewPath = join(full, "judge-review.yaml");
-			if (!existsSync(reviewPath)) {
-				agents[entry] = { error: "missing judge-review" };
+			const reportPath = join(full, "report.yaml");
+			if (!existsSync(reportPath)) {
+				agents[entry] = { error: "missing agent report" };
 				continue;
 			}
 			let parsed: unknown;
 			try {
-				parsed = parseYaml(readFileSync(reviewPath, "utf8"));
+				parsed = parseYaml(readFileSync(reportPath, "utf8"));
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
-				agents[entry] = { error: `judge-review unparseable: ${msg}` };
+				agents[entry] = { error: `agent report unparseable: ${msg}` };
 				continue;
 			}
 			agents[entry] = (parsed ?? {
-				error: "judge-review empty",
+				error: "agent report empty",
 			}) as AgentVerdict;
 		}
 	}

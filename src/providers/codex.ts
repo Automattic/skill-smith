@@ -5,7 +5,13 @@ import type {
 	ThreadOptions,
 } from "@openai/codex-sdk";
 import type { AgentDefinition } from "../config/types";
-import type { InvokeParams, InvokeResult, Provider, Role } from "./types";
+import type {
+	InvokeParams,
+	InvokeResult,
+	Provider,
+	Role,
+	TokenUsage,
+} from "./types";
 
 const SANDBOX_BY_ROLE: Record<Role, ThreadOptions["sandboxMode"]> = {
 	testing: "workspace-write",
@@ -44,6 +50,11 @@ export function createCodexProvider(CodexCtor: CodexCtor): Provider {
 			let finalText = "";
 			let toolUseCount = 0;
 			let error: string | undefined;
+			// A streamed run can emit more than one `turn.completed`; sum
+			// usage across all of them.
+			let inputTokens = 0;
+			let outputTokens = 0;
+			let sawUsage = false;
 
 			try {
 				const codex = new CodexCtor({
@@ -89,6 +100,11 @@ export function createCodexProvider(CodexCtor: CodexCtor): Provider {
 									break;
 							}
 							break;
+						case "turn.completed":
+							inputTokens += event.usage.input_tokens;
+							outputTokens += event.usage.output_tokens;
+							sawUsage = true;
+							break;
 						case "turn.failed":
 							error = firstError(error, event.error?.message ?? "turn.failed");
 							break;
@@ -106,6 +122,14 @@ export function createCodexProvider(CodexCtor: CodexCtor): Provider {
 
 			const result: InvokeResult = { finalText, toolUseCount };
 			if (error !== undefined) result.error = error;
+			if (sawUsage) {
+				const usage: TokenUsage = {
+					inputTokens,
+					outputTokens,
+					totalTokens: inputTokens + outputTokens,
+				};
+				result.usage = usage;
+			}
 			return result;
 		},
 	};

@@ -18,6 +18,11 @@ export const mockProvider: Provider = {
 			return {
 				finalText: `mock testing output for ${params.agent.id}`,
 				toolUseCount: 0,
+				usage: {
+					inputTokens: 100,
+					outputTokens: 50,
+					totalTokens: 150,
+				},
 			};
 		}
 		const yaml = [

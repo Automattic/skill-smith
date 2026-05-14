@@ -1,5 +1,11 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { InvokeParams, InvokeResult, Provider, Role } from "./types";
+import type {
+	InvokeParams,
+	InvokeResult,
+	Provider,
+	Role,
+	TokenUsage,
+} from "./types";
 
 const TOOLS_BY_ROLE: Record<Role, string[]> = {
 	testing: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
@@ -12,6 +18,7 @@ export const claudeCodeProvider: Provider = {
 		let finalText = "";
 		let toolUseCount = 0;
 		let error: string | undefined;
+		let usage: TokenUsage | undefined;
 
 		try {
 			const stream = query({
@@ -35,6 +42,14 @@ export const claudeCodeProvider: Provider = {
 				} else if (message.type === "result") {
 					if (message.subtype === "success") finalText = message.result;
 					else error = `result.${message.subtype}`;
+					// Exactly one result message per query carries usage.
+					const inputTokens = message.usage.input_tokens;
+					const outputTokens = message.usage.output_tokens;
+					usage = {
+						inputTokens,
+						outputTokens,
+						totalTokens: inputTokens + outputTokens,
+					};
 				}
 			}
 		} catch (err) {
@@ -43,6 +58,7 @@ export const claudeCodeProvider: Provider = {
 
 		const result: InvokeResult = { finalText, toolUseCount };
 		if (error !== undefined) result.error = error;
+		if (usage !== undefined) result.usage = usage;
 		return result;
 	},
 };

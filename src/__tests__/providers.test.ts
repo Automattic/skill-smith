@@ -107,6 +107,61 @@ test("codex provider returns finalText from agent_message", async () => {
 	assert.equal(result.finalText, "hello");
 	assert.equal(result.toolUseCount, 0);
 	assert.equal(result.error, undefined);
+	assert.deepEqual(result.usage, {
+		inputTokens: 0,
+		outputTokens: 0,
+		totalTokens: 0,
+	});
+});
+
+test("codex provider accumulates usage across turn.completed events", async () => {
+	const fake = makeFake({
+		events: [
+			{
+				type: "turn.completed",
+				usage: {
+					input_tokens: 100,
+					cached_input_tokens: 10,
+					output_tokens: 40,
+					reasoning_output_tokens: 5,
+				},
+			},
+			{
+				type: "item.completed",
+				item: { id: "1", type: "agent_message", text: "done" },
+			},
+			{
+				type: "turn.completed",
+				usage: {
+					input_tokens: 30,
+					cached_input_tokens: 0,
+					output_tokens: 20,
+					reasoning_output_tokens: 0,
+				},
+			},
+		],
+	});
+	const provider = createCodexProvider(fake);
+	const result = await provider.invoke(baseParams());
+	assert.deepEqual(result.usage, {
+		inputTokens: 130,
+		outputTokens: 60,
+		totalTokens: 190,
+	});
+});
+
+test("codex provider omits usage when no turn.completed event arrives", async () => {
+	const fake = makeFake({
+		events: [
+			{
+				type: "item.completed",
+				item: { id: "1", type: "agent_message", text: "hello" },
+			},
+		],
+	});
+	const provider = createCodexProvider(fake);
+	const result = await provider.invoke(baseParams());
+	assert.equal(result.usage, undefined);
 });
 
 test("codex provider counts tool-use items", async () => {

@@ -38,19 +38,56 @@ test("smoke run with mock provider produces full reports for every (scenario, ag
 		"scenario report exists",
 	);
 	for (const id of ["haiku", "sonnet"]) {
-		const reviewPath = join(runDir, "hello-scenario", id, "judge-review.yaml");
-		assert.ok(existsSync(reviewPath), `judge-review.yaml exists for ${id}`);
-		const review = parseYaml(readFileSync(reviewPath, "utf8")) as Record<
+		const reportPath = join(runDir, "hello-scenario", id, "report.yaml");
+		assert.ok(existsSync(reportPath), `report.yaml exists for ${id}`);
+		const agentReport = parseYaml(readFileSync(reportPath, "utf8")) as Record<
 			string,
 			unknown
 		>;
+		const review = agentReport.review as Record<string, unknown> | undefined;
 		assert.ok(
-			"rubrics" in review,
-			`judge-review for ${id} has rubrics: ${JSON.stringify(review)}`,
+			review !== undefined && "rubrics" in review,
+			`agent report for ${id} has review.rubrics: ${JSON.stringify(agentReport)}`,
+		);
+		const testing = agentReport.testing as
+			| { duration?: unknown; tokenUsage?: Record<string, unknown> }
+			| undefined;
+		assert.ok(
+			testing !== undefined && typeof testing.duration === "number",
+			`agent report for ${id} has testing.duration: ${JSON.stringify(agentReport)}`,
+		);
+		assert.equal(
+			testing?.tokenUsage?.totalTokens,
+			150,
+			`agent report for ${id} has testing.tokenUsage.totalTokens`,
 		);
 		const ws = join(runDir, "hello-scenario", id, "workspace");
 		assert.ok(existsSync(ws), `workspace mkdir'd for ${id}`);
 	}
+
+	// Metrics propagate up through the scenario and run reports.
+	const scenarioReport = parseYaml(
+		readFileSync(join(runDir, "hello-scenario", "report.yaml"), "utf8"),
+	) as { agents?: Record<string, { testing?: { duration?: unknown } }> };
+	assert.equal(
+		typeof scenarioReport.agents?.haiku?.testing?.duration,
+		"number",
+		"scenario report embeds the agent testing block",
+	);
+	const runReport = parseYaml(
+		readFileSync(join(runDir, "report.yaml"), "utf8"),
+	) as {
+		scenarios?: Record<
+			string,
+			{ agents?: Record<string, { testing?: { duration?: unknown } }> }
+		>;
+	};
+	assert.equal(
+		typeof runReport.scenarios?.["hello-scenario"]?.agents?.haiku?.testing
+			?.duration,
+		"number",
+		"run report embeds the agent testing block",
+	);
 
 	const out = captured.join("\n");
 	assert.match(out, /scenario\s*\|\s*haiku\s*\|\s*sonnet/);

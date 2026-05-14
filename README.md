@@ -60,9 +60,10 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
       3. **Testing agent.** Receives `scenario.prompt`, `scenario.skills`, and `agentWorkspace`; writes its output into the workspace.
       4. **`afterTestAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
       5. **`beforeJudgeAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
-      6. **Judge agent.** Receives `scenario`, the rubrics it references, and `agentWorkspace`; writes `judge-review.yaml` to the agent directory.
+      6. **Judge agent.** Receives `scenario`, the rubrics it references, and `agentWorkspace`; produces a review verdict.
       7. **`afterJudgeAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
-   4. **Scenario report.** The harness aggregates every agent's `judge-review.yaml` into the scenario's `report.yaml`.
+      8. **Agent report.** The harness writes `report.yaml` to the agent directory: a `testing` block with the testing agent's wall-clock `duration` (ms) and, when the provider reports it, `tokenUsage` (`inputTokens`, `outputTokens`, `totalTokens`); plus a `review` block holding the judge verdict.
+   4. **Scenario report.** The harness aggregates every agent's `report.yaml` into the scenario's `report.yaml`.
    5. **`afterScenario({ config, runId, scenario })`**.
 4. **Run report.** The harness aggregates every scenario's `report.yaml` into a top-level `report.yaml`.
 5. **`afterAll({ config, runId, scenarios })`**.

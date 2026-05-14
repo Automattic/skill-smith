@@ -132,7 +132,14 @@ function classify(verdictRaw: unknown): Cell {
 	if (verdictRaw === null || typeof verdictRaw !== "object") {
 		return { kind: "FAIL", firstFailure: "verdict missing" };
 	}
-	const v = verdictRaw as Record<string, unknown>;
+	// The agent report nests the judge payload under `review`; the
+	// `testing` block alongside it carries duration/token metrics and is
+	// not consulted here.
+	const review = (verdictRaw as { review?: unknown }).review;
+	if (review === null || typeof review !== "object" || review === undefined) {
+		return { kind: "FAIL", firstFailure: "verdict missing" };
+	}
+	const v = review as Record<string, unknown>;
 
 	if (typeof v.skipped === "string") {
 		return { kind: "SKIPPED", reason: v.skipped };

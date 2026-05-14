@@ -10,10 +10,35 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import type { LanguageModelV2, LanguageModelV2Usage } from "@ai-sdk/provider";
 import { anthropicApiProvider } from "../providers/anthropic-api";
 import { geminiApiProvider } from "../providers/gemini-api";
+import { runVercel } from "../providers/lib/vercel-runner";
 import { openaiApiProvider } from "../providers/openai-api";
 import type { InvokeParams } from "../providers/types";
+
+/**
+ * Minimal `LanguageModelV2` stand-in for `runVercel`. Returns a single
+ * text block plus the supplied usage so the test never reaches the
+ * network or the `ai/test` mock (which pulls in `msw`).
+ */
+function fakeModel(usage: LanguageModelV2Usage): LanguageModelV2 {
+	return {
+		specificationVersion: "v2",
+		provider: "fake",
+		modelId: "fake-model",
+		supportedUrls: {},
+		doGenerate: async () => ({
+			content: [{ type: "text", text: "ok" }],
+			finishReason: "stop",
+			usage,
+			warnings: [],
+		}),
+		doStream: async () => {
+			throw new Error("doStream not implemented in fake model");
+		},
+	};
+}
 
 function baseParams(providerId: string): InvokeParams {
 	return {
@@ -65,5 +90,34 @@ test("gemini-api returns GOOGLE_GENERATIVE_AI_API_KEY error when the env var is 
 		assert.equal(result.finalText, "");
 		assert.equal(result.toolUseCount, 0);
 		assert.equal(result.error, "GOOGLE_GENERATIVE_AI_API_KEY is not set");
+	});
+});
+
+test("runVercel maps result.totalUsage onto the normalized usage shape", async () => {
+	const model = fakeModel({
+		inputTokens: 200,
+		outputTokens: 80,
+		totalTokens: 280,
+	});
+	const result = await runVercel(baseParams("anthropic-api"), model);
+	assert.equal(result.finalText, "ok");
+	assert.deepEqual(result.usage, {
+		inputTokens: 200,
+		outputTokens: 80,
+		totalTokens: 280,
+	});
+});
+
+test("runVercel coalesces undefined token counts to 0", async () => {
+	const model = fakeModel({
+		inputTokens: undefined,
+		outputTokens: undefined,
+		totalTokens: undefined,
+	});
+	const result = await runVercel(baseParams("openai-api"), model);
+	assert.deepEqual(result.usage, {
+		inputTokens: 0,
+		outputTokens: 0,
+		totalTokens: 0,
 	});
 });
