@@ -11,7 +11,10 @@ import type {
 } from "../config/types";
 import type { ProgressTracker } from "../progress";
 import type { TokenUsage } from "../providers/types";
-import { classifyVerdict } from "../reports/verdict";
+import {
+	type AgentVerdict,
+	collapseReview,
+} from "../reports/agent-verdict";
 import { tryHook } from "../util/hooks";
 import type { RunLog } from "../util/run-log";
 import { runJudgeAgent } from "./judge-agent";
@@ -194,9 +197,9 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	tracker.phaseStarted(scenario.name, agent.id, "judge");
 	const judgeStart = Date.now();
 	let judgeError: string | undefined;
-	let review: unknown;
+	let rawReview: unknown;
 	try {
-		review = await runJudgeAgent({
+		rawReview = await runJudgeAgent({
 			scenario,
 			judges: config.agents.judge,
 			agentDirectory,
@@ -209,19 +212,20 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		log.info(`judge-agent failed (${scope}): ${msg}`);
-		review = { skipped: `judge dispatch failed: ${msg}` };
+		rawReview = { skipped: `judge dispatch failed: ${msg}` };
 		judgeError = msg;
 	}
-	const verdictResult = judgeError
-		? { status: "failed" as const, detail: judgeError }
-		: classifyReview(review);
+	const verdict: AgentVerdict = judgeError
+		? { pass: false, error: judgeError }
+		: collapseReview(rawReview);
+	const verdictResult = classifyVerdictForTracker(verdict);
 	tracker.phaseFinished(scenario.name, agent.id, "judge", {
 		status: verdictResult.status,
 		durationMs: Date.now() - judgeStart,
 		detail: verdictResult.detail,
 	});
 
-	writeAgentReport(agentDirectory, testing, review);
+	writeAgentReport(agentDirectory, testing, verdict);
 
 	await tryHook(
 		"afterJudgeAgent",
@@ -232,24 +236,29 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	);
 }
 
-function classifyReview(
-	review: unknown,
+function classifyVerdictForTracker(
+	verdict: AgentVerdict,
 ): { status: "passed" | "failed" | "skipped"; detail?: string } {
-	const cell = classifyVerdict(review);
-	if (cell.kind === "PASS") return { status: "passed" };
-	if (cell.kind === "SKIPPED") return { status: "skipped", detail: cell.reason };
-	return { status: "failed", detail: cell.failures.join(", ") };
+	if ("skipped" in verdict) return { status: "skipped", detail: verdict.skipped };
+	if (verdict.pass === true) return { status: "passed" };
+	const failureDetail =
+		verdict.failures !== undefined && verdict.failures.length > 0
+			? verdict.failures.map((f) => `${f.kind} ${f.id}`).join(", ")
+			: verdict.error;
+	return { status: "failed", detail: failureDetail };
 }
 
 /**
  * Single writer of the per-agent `report.yaml`. Pairs the `testing`
- * block (always present) with whatever the judge step produced under
- * `review`.
+ * block (always present) with the simplified verdict the harness
+ * computed under `review`. Passing agents collapse to
+ * `review: { pass: true }`; failing agents keep just the rubrics /
+ * acceptance items that failed plus the judge's notes inline.
  */
 function writeAgentReport(
 	agentDirectory: string,
 	testing: TestingBlock,
-	review: unknown,
+	review: AgentVerdict,
 ): void {
 	mkdirSync(agentDirectory, { recursive: true });
 	writeFileSync(

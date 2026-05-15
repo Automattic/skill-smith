@@ -50,9 +50,10 @@ test("smoke run with mock provider produces full reports for every (scenario, ag
 			unknown
 		>;
 		const review = agentReport.review as Record<string, unknown> | undefined;
-		assert.ok(
-			review !== undefined && "rubrics" in review,
-			`agent report for ${id} has review.rubrics: ${JSON.stringify(agentReport)}`,
+		assert.deepEqual(
+			review,
+			{ pass: true },
+			`agent report for ${id} should collapse to { pass: true }: ${JSON.stringify(agentReport)}`,
 		);
 		const testing = agentReport.testing as
 			| { duration?: unknown; tokenUsage?: Record<string, unknown> }
@@ -98,9 +99,14 @@ test("smoke run with mock provider produces full reports for every (scenario, ag
 
 	const runSummary = parseYaml(
 		readFileSync(join(runDir, "run.yaml"), "utf8"),
-	) as { iterations?: Array<{ number?: number; directory?: string }> };
+	) as {
+		pass?: boolean;
+		iterations?: Array<{ number?: number; directory?: string; pass?: boolean }>;
+	};
+	assert.equal(runSummary.pass, true, "run.yaml records the run pass verdict");
 	assert.equal(runSummary.iterations?.length, 1, "run.yaml lists one iteration");
 	assert.equal(runSummary.iterations?.[0]?.number, 1, "iteration number 1");
+	assert.equal(runSummary.iterations?.[0]?.pass, true, "iteration passed");
 
 	const out = captured.join("\n");
 	assert.match(out, /scenario\s+agent\s+result\s+duration\s+tokens/);

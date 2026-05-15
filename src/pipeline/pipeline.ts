@@ -137,7 +137,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 			),
 		);
 
-		aggregateIterationReport({
+		const iterationReport = aggregateIterationReport({
 			iterationDirectory,
 			runId,
 			iteration: iterationNumber,
@@ -151,10 +151,14 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 		writeRunSummary(runDirectory, {
 			runId,
-			iterations: iterations.map((i) => ({
-				number: i.number,
-				directory: i.directory,
-			})),
+			pass: iterationReport.pass,
+			iterations: [
+				{
+					number: iterationNumber,
+					directory: iterationDirectory,
+					pass: iterationReport.pass,
+				},
+			],
 		});
 	} finally {
 		await tryHook("afterAll", "run", config.hooks?.afterAll, runCtx, log);

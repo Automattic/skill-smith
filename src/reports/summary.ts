@@ -292,11 +292,14 @@ function classifyAgentReport(agentReport: unknown): Cell {
 	if (agentReport === null || typeof agentReport !== "object") {
 		return classifyVerdict(agentReport);
 	}
-	// The agent report nests the judge payload under `review`; the
-	// `testing` block alongside it carries duration/token metrics and is
-	// extracted separately by `extractMetrics`.
-	const review = (agentReport as { review?: unknown }).review;
-	return classifyVerdict(review);
+	const body = agentReport as { error?: unknown; review?: unknown };
+	if (typeof body.error === "string") {
+		return { kind: "FAIL", failures: [body.error] };
+	}
+	// The agent report nests the (already-simplified) verdict under
+	// `review`; the `testing` block alongside it carries duration/token
+	// metrics and is extracted separately by `extractMetrics`.
+	return classifyVerdict(body.review);
 }
 
 function isRowPass(row: Row, sortedAgents: string[]): boolean {

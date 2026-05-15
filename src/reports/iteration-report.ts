@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { ScenarioRunRecord } from "../pipeline/pipeline";
+import type { ScenarioReport } from "./scenario-report";
 
 export interface AggregateIterationReportParams {
 	iterationDirectory: string;
@@ -10,25 +11,26 @@ export interface AggregateIterationReportParams {
 	scenarios: ScenarioRunRecord[];
 }
 
-/**
- * Aggregate every `${iterationDirectory}/<scenario>/report.yaml` into
- * `${iterationDirectory}/report.yaml`. A missing scenario report →
- * `error: "missing scenario report"` for that slot. Returns the
- * parsed iteration report so the pipeline can decide whether to stop
- * iterating.
- */
 export interface IterationReport {
 	runId: string;
 	iteration: number;
-	scenarios: Record<string, unknown>;
+	pass: boolean;
+	scenarios: Record<string, ScenarioReport | { error: string }>;
 }
 
+/**
+ * Aggregate every `${iterationDirectory}/<scenario>/report.yaml` into
+ * `${iterationDirectory}/report.yaml`. Includes an iteration-level
+ * `pass` flag (every scenario must pass) so the pipeline loop can
+ * decide whether to stop iterating without re-parsing the per-agent
+ * tree. Missing scenario report → `{ error: ... }` for that slot.
+ */
 export function aggregateIterationReport(
 	params: AggregateIterationReportParams,
 ): IterationReport {
 	const { iterationDirectory, runId, iteration, scenarios } = params;
 
-	const scenariosOut: Record<string, unknown> = {};
+	const scenariosOut: Record<string, ScenarioReport | { error: string }> = {};
 
 	for (const s of scenarios) {
 		const reportPath = join(s.scenarioDirectory, "report.yaml");
@@ -37,10 +39,15 @@ export function aggregateIterationReport(
 			continue;
 		}
 		try {
-			const parsed = parseYaml(readFileSync(reportPath, "utf8"));
-			scenariosOut[s.scenarioName] = parsed ?? {
-				error: "scenario report empty",
-			};
+			const parsed = parseYaml(readFileSync(reportPath, "utf8")) as
+				| ScenarioReport
+				| null
+				| undefined;
+			if (parsed === null || parsed === undefined || typeof parsed !== "object") {
+				scenariosOut[s.scenarioName] = { error: "scenario report empty" };
+				continue;
+			}
+			scenariosOut[s.scenarioName] = parsed;
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			scenariosOut[s.scenarioName] = {
@@ -49,9 +56,21 @@ export function aggregateIterationReport(
 		}
 	}
 
+	const entries = Object.values(scenariosOut);
+	const allPass =
+		entries.length > 0 &&
+		entries.every((entry): entry is ScenarioReport => {
+			return (
+				"pass" in entry &&
+				entry.pass === true &&
+				!("error" in entry && entry.error !== undefined)
+			);
+		});
+
 	const report: IterationReport = {
 		runId,
 		iteration,
+		pass: allPass,
 		scenarios: scenariosOut,
 	};
 
@@ -63,18 +82,19 @@ export function aggregateIterationReport(
 export interface IterationSummaryEntry {
 	number: number;
 	directory: string;
+	pass: boolean;
 }
 
 export interface RunSummary {
 	runId: string;
+	pass: boolean;
 	iterations: IterationSummaryEntry[];
 }
 
 /**
  * Write the top-level `${runDirectory}/run.yaml` summarizing every
- * iteration the pipeline executed. This is the single artifact that
- * outlives the per-iteration directories — useful for `afterAll`
- * hooks that need to walk the whole run.
+ * iteration the pipeline executed and the final pass verdict. This
+ * is the artifact that outlives the per-iteration directories.
  */
 export function writeRunSummary(
 	runDirectory: string,

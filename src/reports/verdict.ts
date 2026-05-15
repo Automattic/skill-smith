@@ -1,25 +1,76 @@
+import type { AgentVerdict } from "./agent-verdict";
+
 /**
- * Classify a judge verdict (parsed YAML from the per-agent `review`
- * block) into a pass/fail/skipped Cell with every failing rubric or
- * acceptance item.
- *
- * Shared by the console summary and the progress tracker so the
- * two views agree on what "passed" means.
+ * Display-side classification of an agent verdict, shared by the
+ * console summary and the progress tracker so both views agree on
+ * what "passed" means. Failing cells carry every rubric / acceptance
+ * item that failed, rendered with judge notes when available.
  */
 export type Cell =
 	| { kind: "PASS" }
 	| { kind: "FAIL"; failures: string[] }
 	| { kind: "SKIPPED"; reason: string };
 
-export function classifyVerdict(verdictRaw: unknown): Cell {
-	if (verdictRaw === null || typeof verdictRaw !== "object") {
+export function verdictToCell(verdict: AgentVerdict | undefined): Cell {
+	if (verdict === undefined) {
 		return { kind: "FAIL", failures: ["verdict missing"] };
 	}
-	const v = verdictRaw as Record<string, unknown>;
+	if ("skipped" in verdict) {
+		return { kind: "SKIPPED", reason: verdict.skipped };
+	}
+	if (verdict.pass === true) return { kind: "PASS" };
+
+	const failures: string[] = [];
+	if (verdict.error !== undefined) failures.push(verdict.error);
+	if (verdict.failures !== undefined) {
+		for (const f of verdict.failures) {
+			const head = `${f.kind} ${f.id}`;
+			failures.push(
+				f.notes !== undefined && f.notes.length > 0
+					? `${head} — ${f.notes}`
+					: head,
+			);
+		}
+	}
+	if (failures.length === 0) failures.push("verdict failed without detail");
+	return { kind: "FAIL", failures };
+}
+
+/**
+ * Treat an arbitrary parsed `review` payload as an `AgentVerdict`.
+ * Wraps `verdictToCell` so callers can normalize either the raw judge
+ * shape (old code paths) or the simplified shape we now persist.
+ */
+export function classifyVerdict(raw: unknown): Cell {
+	if (raw === null || raw === undefined || typeof raw !== "object") {
+		return { kind: "FAIL", failures: ["verdict missing"] };
+	}
+	const v = raw as Record<string, unknown>;
 
 	if (typeof v.skipped === "string") {
 		return { kind: "SKIPPED", reason: v.skipped };
 	}
+	if (v.pass === true) return { kind: "PASS" };
+	if (v.pass === false) {
+		const failures: string[] = [];
+		if (typeof v.error === "string") failures.push(v.error);
+		const items = v.failures as
+			| Array<{ kind?: unknown; id?: unknown; notes?: unknown }>
+			| undefined;
+		if (items !== undefined) {
+			for (const f of items) {
+				const kind = typeof f?.kind === "string" ? f.kind : "rubric";
+				const id = typeof f?.id === "string" ? f.id : "(unknown)";
+				const head = `${kind} ${id}`;
+				const notes = typeof f?.notes === "string" ? f.notes : "";
+				failures.push(notes.length > 0 ? `${head} — ${notes}` : head);
+			}
+		}
+		if (failures.length === 0) failures.push("verdict failed without detail");
+		return { kind: "FAIL", failures };
+	}
+
+	// Fall back to the raw judge shape so legacy verdict payloads still classify.
 	if (typeof v.error === "string") {
 		return { kind: "FAIL", failures: [v.error] };
 	}
@@ -30,7 +81,6 @@ export function classifyVerdict(verdictRaw: unknown): Cell {
 		| undefined;
 
 	const failures: string[] = [];
-
 	if (rubrics) {
 		for (const [id, r] of Object.entries(rubrics)) {
 			if (r?.pass !== true) failures.push(`rubric ${id}`);
@@ -46,12 +96,8 @@ export function classifyVerdict(verdictRaw: unknown): Cell {
 	}
 
 	if (!rubrics && !acceptance) {
-		return {
-			kind: "FAIL",
-			failures: ["no rubrics or acceptance in verdict"],
-		};
+		return { kind: "FAIL", failures: ["no rubrics or acceptance in verdict"] };
 	}
-
 	if (failures.length > 0) return { kind: "FAIL", failures };
 	return { kind: "PASS" };
 }
