@@ -32,8 +32,8 @@ acceptance:
   - Each Next/Previous anchor wires its click through `data-wp-on--click` (no manual `addEventListener` in view.js) bound to a store action that performs the in-place swap
   - The click action is wrapped with `withSyncEvent` so it can call `event.preventDefault()` synchronously before yielding, suppressing the browser's default full-page navigation
   - The click action is declared as a generator (`function*`), dynamically imports the router module via `yield import('@wordpress/interactivity-router')`, and then calls its `actions.navigate(href)` with the anchor's own `href`
-  - `render.php` reads `$_GET['pg']` (defaulting to 1 when absent / invalid) and uses it to compute which 3-post slice of the latest-posts query to render, so the correct posts are present in the initial server-rendered HTML
-  - `block.json`'s `supports.interactivity` is declared in object form with `clientNavigation: true`, since this block depends on the router for in-place page swaps
+  - "`render.php` reads `$_GET['pg']` (defaulting to 1 when absent / invalid) and uses it to compute which 3-post slice of the latest-posts query to render, so the correct posts are present in the initial server-rendered HTML"
+  - "`block.json`'s `supports.interactivity` is declared in object form with `clientNavigation: true`, since this block depends on the router for in-place page swaps"
 
 rubrics:
   - wp-interactivity-api-best-practices
