@@ -10,6 +10,7 @@ import type {
 } from "../config/types";
 import type { ProgressTracker } from "../progress";
 import type { TokenUsage } from "../providers/types";
+import { classifyVerdict } from "../reports/verdict";
 import { tryHook } from "../util/hooks";
 import type { RunLog } from "../util/run-log";
 import { runJudgeAgent } from "./judge-agent";
@@ -198,10 +199,13 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		review = { skipped: `judge dispatch failed: ${msg}` };
 		judgeError = msg;
 	}
+	const verdictResult = judgeError
+		? { status: "failed" as const, detail: judgeError }
+		: classifyReview(review);
 	tracker.phaseFinished(scenario.name, agent.id, "judge", {
-		status: judgeError === undefined ? "passed" : "failed",
+		status: verdictResult.status,
 		durationMs: Date.now() - judgeStart,
-		detail: judgeError,
+		detail: verdictResult.detail,
 	});
 
 	writeAgentReport(agentDirectory, testing, review);
@@ -213,6 +217,15 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		agentCtx,
 		log,
 	);
+}
+
+function classifyReview(
+	review: unknown,
+): { status: "passed" | "failed" | "skipped"; detail?: string } {
+	const cell = classifyVerdict(review);
+	if (cell.kind === "PASS") return { status: "passed" };
+	if (cell.kind === "SKIPPED") return { status: "skipped", detail: cell.reason };
+	return { status: "failed", detail: cell.failures.join(", ") };
 }
 
 /**
