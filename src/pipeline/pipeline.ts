@@ -181,6 +181,10 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 			if (i < maxIterations && selfImprovement.mode === "loop") {
 				await runImprovementCycle({
 					projectRoot,
+					runId,
+					runDirectory,
+					iterations,
+					scenarios: runScenarios,
 					config,
 					selfImprovement,
 					iteration: i,
@@ -298,6 +302,19 @@ async function runOneIteration(
 		);
 	}
 
+	const iterationCtx = {
+		...args.runCtx,
+		iteration: args.iteration,
+		iterationDirectory,
+	};
+	await tryHook(
+		"beforeIteration",
+		`iteration:${args.iteration}`,
+		args.config.hooks?.beforeIteration,
+		iterationCtx,
+		log,
+	);
+
 	log.section(`scenarios (iteration ${args.iteration})`);
 	for (const s of args.selection) {
 		log.info(`  - ${s.scenario.name}${s.error ? ` [error: ${s.error}]` : ""}`);
@@ -337,6 +354,14 @@ async function runOneIteration(
 		number: args.iteration,
 		directory: iterationDirectory,
 	});
+
+	await tryHook(
+		"afterIteration",
+		`iteration:${args.iteration}`,
+		args.config.hooks?.afterIteration,
+		{ ...iterationCtx, pass: report.pass },
+		log,
+	);
 
 	log.dump(iterationDirectory);
 

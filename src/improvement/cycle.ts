@@ -1,7 +1,16 @@
 import type { ResolvedSelfImprovement } from "../config/self-improvement";
-import type { SkillsmithConfig } from "../config/types";
+import type {
+	ExecuteHookContext,
+	IterationCompleteHookContext,
+	IterationInfo,
+	ProposalHookContext,
+	ReviewHookContext,
+	RunScenario,
+	SkillsmithConfig,
+} from "../config/types";
 import type { IterationReport } from "../reports/iteration-report";
 import type { EnumeratedScenario } from "../scenarios/enumerate";
+import { tryHook } from "../util/hooks";
 import type { RunLog } from "../util/run-log";
 import { buildImprovementContext } from "./context";
 import { runExecutor } from "./executor";
@@ -10,6 +19,10 @@ import { runReviewer } from "./reviewer";
 
 export interface RunImprovementCycleParams {
 	projectRoot: string;
+	runId: string;
+	runDirectory: string;
+	iterations: IterationInfo[];
+	scenarios: RunScenario[];
 	config: SkillsmithConfig;
 	selfImprovement: ResolvedSelfImprovement;
 	iteration: number;
@@ -38,6 +51,10 @@ export async function runImprovementCycle(
 ): Promise<ImprovementCycleResult> {
 	const {
 		projectRoot,
+		runId,
+		runDirectory,
+		iterations,
+		scenarios,
 		config,
 		selfImprovement,
 		iteration,
@@ -48,6 +65,17 @@ export async function runImprovementCycle(
 	} = params;
 
 	log.section(`improvement cycle (after iteration ${iteration})`);
+
+	const baseCtx: IterationCompleteHookContext = {
+		runId,
+		config,
+		runDirectory,
+		iterations,
+		scenarios,
+		iteration,
+		iterationDirectory,
+		pass: iterationReport.pass,
+	};
 
 	const agents = selfImprovement.agents;
 	if (agents.proposer === undefined || agents.executor === undefined) {
@@ -65,6 +93,14 @@ export async function runImprovementCycle(
 		allScenarios,
 	});
 
+	await tryHook(
+		"beforeProposal",
+		`iteration:${iteration}`,
+		config.hooks?.beforeProposal,
+		baseCtx,
+		log,
+	);
+
 	const proposer = await runProposer({
 		projectRoot,
 		agent: agents.proposer,
@@ -77,7 +113,27 @@ export async function runImprovementCycle(
 	const result: ImprovementCycleResult = { proposalPath: proposer.proposalPath };
 	let finalProposalPath = proposer.proposalPath;
 
+	const proposalCtx: ProposalHookContext = {
+		...baseCtx,
+		proposalPath: proposer.proposalPath,
+	};
+	await tryHook(
+		"afterProposal",
+		`iteration:${iteration}`,
+		config.hooks?.afterProposal,
+		proposalCtx,
+		log,
+	);
+
 	if (agents.reviewer !== undefined) {
+		await tryHook(
+			"beforeReview",
+			`iteration:${iteration}`,
+			config.hooks?.beforeReview,
+			proposalCtx,
+			log,
+		);
+
 		const reviewer = await runReviewer({
 			projectRoot,
 			agent: agents.reviewer,
@@ -89,9 +145,33 @@ export async function runImprovementCycle(
 		});
 		finalProposalPath = reviewer.reviewedProposalPath;
 		result.reviewedProposalPath = reviewer.reviewedProposalPath;
+
+		const reviewCtx: ReviewHookContext = {
+			...proposalCtx,
+			reviewedProposalPath: reviewer.reviewedProposalPath,
+		};
+		await tryHook(
+			"afterReview",
+			`iteration:${iteration}`,
+			config.hooks?.afterReview,
+			reviewCtx,
+			log,
+		);
 	} else {
 		log.info("improvement cycle: reviewer not configured, skipping");
 	}
+
+	const executeBeforeCtx: ProposalHookContext = {
+		...baseCtx,
+		proposalPath: finalProposalPath,
+	};
+	await tryHook(
+		"beforeExecute",
+		`iteration:${iteration}`,
+		config.hooks?.beforeExecute,
+		executeBeforeCtx,
+		log,
+	);
 
 	const executor = await runExecutor({
 		projectRoot,
@@ -104,6 +184,18 @@ export async function runImprovementCycle(
 		log,
 	});
 	result.skillsDiffPath = executor.skillsDiffPath;
+
+	const executeAfterCtx: ExecuteHookContext = {
+		...executeBeforeCtx,
+		skillsDiffPath: executor.skillsDiffPath,
+	};
+	await tryHook(
+		"afterExecute",
+		`iteration:${iteration}`,
+		config.hooks?.afterExecute,
+		executeAfterCtx,
+		log,
+	);
 
 	return result;
 }

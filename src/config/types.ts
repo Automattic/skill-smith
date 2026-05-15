@@ -116,6 +116,36 @@ export interface AgentContext extends ScenarioContext {
 	agentWorkspace: string;
 }
 
+/**
+ * Context passed to the iteration-scoped hooks. `iteration` is
+ * 1-indexed; `iterationDirectory` is `${runDirectory}/iteration-N`.
+ */
+export interface IterationHookContext extends RunContext {
+	iteration: number;
+	iterationDirectory: string;
+}
+
+/**
+ * Like `IterationHookContext` but at the end of an iteration —
+ * `pass` is the iteration's own verdict (every scenario that ran
+ * passed). The harness fires this even on the last iteration.
+ */
+export interface IterationCompleteHookContext extends IterationHookContext {
+	pass: boolean;
+}
+
+export interface ProposalHookContext extends IterationCompleteHookContext {
+	proposalPath: string;
+}
+
+export interface ReviewHookContext extends ProposalHookContext {
+	reviewedProposalPath?: string;
+}
+
+export interface ExecuteHookContext extends ProposalHookContext {
+	skillsDiffPath?: string;
+}
+
 export type HookFn<Ctx> = (ctx: Ctx) => void | Promise<void>;
 
 export interface Hooks {
@@ -127,4 +157,20 @@ export interface Hooks {
 	afterJudgeAgent?: HookFn<AgentContext>;
 	afterScenario?: HookFn<ScenarioContext>;
 	afterAll?: HookFn<RunContext>;
+	/** Fires once per iteration, before any scenario runs. */
+	beforeIteration?: HookFn<IterationHookContext>;
+	/** Fires once per iteration, after the iteration report is written. */
+	afterIteration?: HookFn<IterationCompleteHookContext>;
+	/** Fires before the proposer sub-agent runs (loop mode only). */
+	beforeProposal?: HookFn<IterationCompleteHookContext>;
+	/** Fires after the proposer wrote `proposal.md` (loop mode only). */
+	afterProposal?: HookFn<ProposalHookContext>;
+	/** Fires before the reviewer sub-agent runs (loop mode only). */
+	beforeReview?: HookFn<ProposalHookContext>;
+	/** Fires after the reviewer wrote `proposal.reviewed.md` (loop mode only). */
+	afterReview?: HookFn<ReviewHookContext>;
+	/** Fires before the executor sub-agent runs (loop mode only). */
+	beforeExecute?: HookFn<ProposalHookContext>;
+	/** Fires after the executor finished and `skills.diff` was captured. */
+	afterExecute?: HookFn<ExecuteHookContext>;
 }
