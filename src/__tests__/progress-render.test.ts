@@ -32,7 +32,7 @@ function snap(overrides: Partial<RunSnapshot> = {}): RunSnapshot {
 	};
 }
 
-test("renders header, two bars, elapsed and ETA when running", () => {
+test("renders header, two bars, and elapsed when running (no ETA)", () => {
 	const out = renderSnapshot(
 		snap({
 			startedAt: 0,
@@ -66,7 +66,8 @@ test("renders header, two bars, elapsed and ETA when running", () => {
 	assert.match(lines[1] ?? "", /pass 10 · fail 2 · run 1/);
 	assert.match(lines[2] ?? "", /^phases     /);
 	assert.match(lines[2] ?? "", /31\/135/);
-	assert.match(lines[3] ?? "", /^elapsed 04:12   ETA ~/);
+	assert.equal(lines[3], "elapsed 04:12");
+	assert.doesNotMatch(out, /ETA/);
 });
 
 test("bar fill scales with done/total", () => {

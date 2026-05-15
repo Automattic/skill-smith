@@ -1,3 +1,4 @@
+import { paint } from "../util/ansi";
 import type { Failure, RunSnapshot } from "./types";
 
 export interface RenderOptions {
@@ -11,7 +12,7 @@ export interface RenderOptions {
  *   skillsmith run <runId>
  *   scenarios  ████░░░░  N/M  pass A · fail B · skip C
  *   phases     ███░░░░░  N/M  pass A · fail B · skip C
- *   elapsed mm:ss   ETA ~mm:ss          (or "done" when finished)
+ *   elapsed mm:ss                          (or "elapsed mm:ss   done")
  *
  *   failures (K):
  *     ✗ <scenario>  <agent>  <phase>  <detail>
@@ -48,9 +49,7 @@ export function renderSnapshot(
 	if (snap.finished) {
 		lines.push(`elapsed ${formatClock(elapsedMs)}   done`);
 	} else {
-		const etaMs = estimateEta(pDone, ph.total, elapsedMs);
-		const etaText = etaMs === undefined ? "—" : `~${formatClock(etaMs)}`;
-		lines.push(`elapsed ${formatClock(elapsedMs)}   ETA ${etaText}`);
+		lines.push(`elapsed ${formatClock(elapsedMs)}`);
 	}
 
 	if (snap.failures.length > 0) {
@@ -96,16 +95,6 @@ function bar(
 	const filled = "█".repeat(fillCount);
 	const empty = "░".repeat(width - fillCount);
 	return `${paint(filled, "cyan", color)}${paint(empty, "gray", color)}`;
-}
-
-function estimateEta(
-	done: number,
-	total: number,
-	elapsedMs: number,
-): number | undefined {
-	if (done <= 0 || elapsedMs <= 0 || total <= done) return undefined;
-	const perUnit = elapsedMs / done;
-	return Math.round(perUnit * (total - done));
 }
 
 function formatClock(ms: number): string {
@@ -157,23 +146,4 @@ function formatFailure(
 	const agent = pad(f.agentId, widths.agent);
 	const phase = pad(f.phase ?? "—", widths.phase);
 	return `${cross} ${scenario}  ${agent}  ${phase}  ${f.detail}`;
-}
-
-type AnsiColor = "red" | "green" | "yellow" | "cyan" | "gray";
-
-const ANSI_CODES: Record<AnsiColor, string> = {
-	red: "31",
-	green: "32",
-	yellow: "33",
-	cyan: "36",
-	gray: "90",
-};
-
-function paint(
-	text: string,
-	color: AnsiColor | undefined,
-	enabled: boolean,
-): string {
-	if (!enabled || !color) return text;
-	return `\x1b[${ANSI_CODES[color]}m${text}\x1b[0m`;
 }
