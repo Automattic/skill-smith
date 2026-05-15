@@ -39,8 +39,13 @@ export interface ImprovementContext {
 export function buildImprovementContext(
 	params: BuildImprovementContextParams,
 ): ImprovementContext {
-	const { projectRoot, config, selfImprovement, iterationReport, allScenarios } =
-		params;
+	const {
+		projectRoot,
+		config,
+		selfImprovement,
+		iterationReport,
+		allScenarios,
+	} = params;
 
 	const failingScenarios = collectFailingScenarios(iterationReport);
 	const failureSummary = renderFailureSummary(failingScenarios);
@@ -120,7 +125,9 @@ function collectSkillIds(
 	failing: FailingScenario[],
 	allScenarios: EnumeratedScenario[],
 ): string[] {
-	const byName = new Map(allScenarios.map((s) => [s.scenario.name, s.scenario]));
+	const byName = new Map(
+		allScenarios.map((s) => [s.scenario.name, s.scenario]),
+	);
 	const ids = new Set<string>();
 	for (const { name } of failing) {
 		const scenario = byName.get(name);

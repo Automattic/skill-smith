@@ -11,10 +11,7 @@ import type {
 } from "../config/types";
 import type { ProgressTracker } from "../progress";
 import type { TokenUsage } from "../providers/types";
-import {
-	type AgentVerdict,
-	collapseReview,
-} from "../reports/agent-verdict";
+import { type AgentVerdict, collapseReview } from "../reports/agent-verdict";
 import { tryHook } from "../util/hooks";
 import type { RunLog } from "../util/run-log";
 import { runJudgeAgent } from "./judge-agent";
@@ -256,10 +253,12 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	);
 }
 
-function classifyVerdictForTracker(
-	verdict: AgentVerdict,
-): { status: "passed" | "failed" | "skipped"; detail?: string } {
-	if ("skipped" in verdict) return { status: "skipped", detail: verdict.skipped };
+function classifyVerdictForTracker(verdict: AgentVerdict): {
+	status: "passed" | "failed" | "skipped";
+	detail?: string;
+} {
+	if ("skipped" in verdict)
+		return { status: "skipped", detail: verdict.skipped };
 	if (verdict.pass === true) return { status: "passed" };
 	const failureDetail =
 		verdict.failures !== undefined && verdict.failures.length > 0

@@ -45,7 +45,11 @@ export function aggregateIterationReport(
 				| ScenarioReport
 				| null
 				| undefined;
-			if (parsed === null || parsed === undefined || typeof parsed !== "object") {
+			if (
+				parsed === null ||
+				parsed === undefined ||
+				typeof parsed !== "object"
+			) {
 				scenariosOut[s.scenarioName] = { error: "scenario report empty" };
 				continue;
 			}

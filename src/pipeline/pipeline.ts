@@ -23,7 +23,10 @@ import {
 	writeRunReport,
 	writeRunSummary,
 } from "../reports/iteration-report";
-import { aggregateScenarioReport, type ScenarioReport } from "../reports/scenario-report";
+import {
+	aggregateScenarioReport,
+	type ScenarioReport,
+} from "../reports/scenario-report";
 import { printSummary } from "../reports/summary";
 import {
 	type EnumeratedScenario,
@@ -74,7 +77,10 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 	const config = await loadConfig(projectRoot);
 	checkPaths(config, projectRoot);
-	const selfImprovement = resolveSelfImprovement(config, params.selfImprovement);
+	const selfImprovement = resolveSelfImprovement(
+		config,
+		params.selfImprovement,
+	);
 	const allScenarios = filterScenarios(
 		enumerateScenarios(config.paths, projectRoot),
 		params.scenarios,
@@ -84,10 +90,12 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	mkdirSync(runDirectory, { recursive: true });
 
 	const iterations: IterationInfo[] = [];
-	const runScenarios: RunScenario[] = allScenarios.map(({ dirName, scenario }) => ({
-		dirName,
-		scenario,
-	}));
+	const runScenarios: RunScenario[] = allScenarios.map(
+		({ dirName, scenario }) => ({
+			dirName,
+			scenario,
+		}),
+	);
 	const runCtx: RunContext = {
 		runId,
 		config,
@@ -139,7 +147,10 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		for (let i = 1; i <= maxIterations; i++) {
 			const selection =
 				i === 1
-					? { scenarios: allScenarios, agentFilter: undefined as Record<string, string[]> | undefined }
+					? {
+							scenarios: allScenarios,
+							agentFilter: undefined as Record<string, string[]> | undefined,
+						}
 					: selectScenarios(
 							i,
 							allScenarios,

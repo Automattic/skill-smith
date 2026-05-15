@@ -66,10 +66,9 @@ export async function runExecutor(
 		"Do not invoke `skillsmith` or any wrapper that would re-enter the harness.",
 	].join("\n");
 
-	const userMessage = [
-		`# Iteration ${iteration} proposal`,
-		proposalText,
-	].join("\n");
+	const userMessage = [`# Iteration ${iteration} proposal`, proposalText].join(
+		"\n",
+	);
 
 	log.info(
 		`executor starting: provider=${agent.provider} model=${agent.model} cwd=${skillsDir}`,

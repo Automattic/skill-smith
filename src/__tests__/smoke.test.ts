@@ -95,8 +95,8 @@ test("smoke run with mock provider produces full reports for every (scenario, ag
 	};
 	assert.equal(iterationReport.iteration, 1, "iteration report carries number");
 	assert.equal(
-		typeof iterationReport.scenarios?.["hello-scenario"]?.agents?.haiku
-			?.testing?.duration,
+		typeof iterationReport.scenarios?.["hello-scenario"]?.agents?.haiku?.testing
+			?.duration,
 		"number",
 		"iteration report embeds the agent testing block",
 	);
@@ -108,7 +108,11 @@ test("smoke run with mock provider produces full reports for every (scenario, ag
 		iterations?: Array<{ number?: number; directory?: string; pass?: boolean }>;
 	};
 	assert.equal(runSummary.pass, true, "run.yaml records the run pass verdict");
-	assert.equal(runSummary.iterations?.length, 1, "run.yaml lists one iteration");
+	assert.equal(
+		runSummary.iterations?.length,
+		1,
+		"run.yaml lists one iteration",
+	);
 	assert.equal(runSummary.iterations?.[0]?.number, 1, "iteration number 1");
 	assert.equal(runSummary.iterations?.[0]?.pass, true, "iteration passed");
 

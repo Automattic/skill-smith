@@ -110,7 +110,9 @@ export async function runImprovementCycle(
 		log,
 	});
 
-	const result: ImprovementCycleResult = { proposalPath: proposer.proposalPath };
+	const result: ImprovementCycleResult = {
+		proposalPath: proposer.proposalPath,
+	};
 	let finalProposalPath = proposer.proposalPath;
 
 	const proposalCtx: ProposalHookContext = {

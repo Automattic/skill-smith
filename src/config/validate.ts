@@ -96,10 +96,7 @@ function validateSelfImprovement(
 			`selfImprovement.evaluationMode must be one of ${VALID_EVALUATION_MODES.map((m) => `"${m}"`).join(", ")}`,
 		);
 	}
-	if (
-		block.finalPass !== undefined &&
-		typeof block.finalPass !== "boolean"
-	) {
+	if (block.finalPass !== undefined && typeof block.finalPass !== "boolean") {
 		errors.push("selfImprovement.finalPass must be a boolean");
 	}
 
@@ -122,10 +119,7 @@ function validateSelfImprovement(
 		if (paths === null || typeof paths !== "object") {
 			errors.push("selfImprovement.paths must be an object");
 		} else {
-			for (const key of [
-				"proposerGuidelines",
-				"executorGuidelines",
-			] as const) {
+			for (const key of ["proposerGuidelines", "executorGuidelines"] as const) {
 				const value = paths[key];
 				if (value !== undefined && typeof value !== "string") {
 					errors.push(`selfImprovement.paths.${key} must be a string`);

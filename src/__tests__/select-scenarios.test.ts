@@ -28,7 +28,9 @@ function mix(passes: string[], fails: string[]): ScenarioReport["agents"] {
 	const out: ScenarioReport["agents"] = {};
 	for (const id of passes) out[id] = { review: { pass: true } };
 	for (const id of fails)
-		out[id] = { review: { pass: false, failures: [{ kind: "rubric", id: "r" }] } };
+		out[id] = {
+			review: { pass: false, failures: [{ kind: "rubric", id: "r" }] },
+		};
 	return out;
 }
 
@@ -70,10 +72,10 @@ test("failed-scenarios keeps every agent of failing scenarios only", () => {
 		},
 	};
 	const sel = selectScenarios(2, all, reports, "failed-scenarios");
-	assert.deepEqual(
-		sel.scenarios.map((s) => s.scenario.name).sort(),
-		["counter", "paginated"],
-	);
+	assert.deepEqual(sel.scenarios.map((s) => s.scenario.name).sort(), [
+		"counter",
+		"paginated",
+	]);
 	assert.equal(sel.agentFilter, undefined);
 });
 
@@ -92,10 +94,10 @@ test("failed-pairs narrows to the exact failing agents per scenario", () => {
 		},
 	};
 	const sel = selectScenarios(2, all, reports, "failed-pairs");
-	assert.deepEqual(
-		sel.scenarios.map((s) => s.scenario.name).sort(),
-		["counter", "paginated"],
-	);
+	assert.deepEqual(sel.scenarios.map((s) => s.scenario.name).sort(), [
+		"counter",
+		"paginated",
+	]);
 	assert.ok(sel.agentFilter !== undefined);
 	assert.deepEqual(sel.agentFilter?.counter?.sort(), ["codex", "opus"]);
 	assert.deepEqual(sel.agentFilter?.paginated?.sort(), ["haiku"]);
@@ -116,10 +118,9 @@ test("scenarios with enumeration errors are always re-included", () => {
 		reports,
 		"failed-scenarios",
 	);
-	assert.deepEqual(
-		sel.scenarios.map((s) => s.scenario.name).sort(),
-		["broken"],
-	);
+	assert.deepEqual(sel.scenarios.map((s) => s.scenario.name).sort(), [
+		"broken",
+	]);
 });
 
 test("missing review counts as a failure (e.g. agent crashed mid-run)", () => {
