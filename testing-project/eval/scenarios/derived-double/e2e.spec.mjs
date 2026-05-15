@@ -1,4 +1,5 @@
 import { expect, test } from "@wordpress/e2e-test-utils-playwright";
+import { deactivateAllPlugins } from "../../utils/wp-cli.mjs";
 
 /**
  * E2E tests for the derived-double scenario.
@@ -10,6 +11,7 @@ import { expect, test } from "@wordpress/e2e-test-utils-playwright";
 test.describe("derived-double scenario", () => {
 	let post;
 	test.beforeAll(async ({ requestUtils }, workerInfo) => {
+		deactivateAllPlugins();
 		await requestUtils.activatePlugin(
 			`plugin-derived-double-${workerInfo.project.metadata.agentId}`,
 		);
@@ -23,11 +25,9 @@ test.describe("derived-double scenario", () => {
 		await page.goto(`/?p=${post.id}`);
 	});
 
-	test.afterAll(async ({ requestUtils }, workerInfo) => {
+	test.afterAll(async ({ requestUtils }) => {
+		deactivateAllPlugins();
 		await requestUtils.deleteAllPosts();
-		await requestUtils.deactivatePlugin(
-			`plugin-derived-double-${workerInfo.project.metadata.agentId}`,
-		);
 	});
 
 	/**

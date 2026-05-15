@@ -1,4 +1,5 @@
 import { expect, test } from "@wordpress/e2e-test-utils-playwright";
+import { deactivateAllPlugins } from "../../utils/wp-cli.mjs";
 
 /**
  * E2E tests for the toggle-visibility scenario.
@@ -7,6 +8,7 @@ import { expect, test } from "@wordpress/e2e-test-utils-playwright";
 test.describe("toggle-visibility scenario", () => {
 	let post;
 	test.beforeAll(async ({ requestUtils }, workerInfo) => {
+		deactivateAllPlugins();
 		await requestUtils.activatePlugin(
 			`plugin-toggle-visibility-${workerInfo.project.metadata.agentId}`,
 		);
@@ -20,11 +22,9 @@ test.describe("toggle-visibility scenario", () => {
 		await page.goto(`/?p=${post.id}`);
 	});
 
-	test.afterAll(async ({ requestUtils }, workerInfo) => {
+	test.afterAll(async ({ requestUtils }) => {
+		deactivateAllPlugins();
 		await requestUtils.deleteAllPosts();
-		await requestUtils.deactivatePlugin(
-			`plugin-toggle-visibility-${workerInfo.project.metadata.agentId}`,
-		);
 	});
 
 	test("paragraph is hidden initially with aria-expanded='false'", async ({
