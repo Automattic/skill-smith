@@ -4,6 +4,48 @@ export interface SkillsmithConfig {
 	agents: AgentsConfig;
 	paths: Paths;
 	hooks?: Hooks;
+	selfImprovement?: SelfImprovementConfig;
+}
+
+export type SelfImprovementMode = "test-only" | "loop";
+
+/**
+ * How a subsequent iteration narrows what to re-evaluate based on the
+ * previous iteration's report:
+ *   - `failed-pairs` — only the exact (scenario, agent) pairs that failed.
+ *   - `failed-scenarios` — every agent of every scenario where any agent failed.
+ *   - `all` — re-run the full matrix each iteration.
+ */
+export type EvaluationMode = "failed-pairs" | "failed-scenarios" | "all";
+
+export interface SelfImprovementAgents {
+	proposer?: AgentDefinition;
+	reviewer?: AgentDefinition;
+	executor?: AgentDefinition;
+}
+
+export interface SelfImprovementPaths {
+	/** Project-specific guidelines appended to the proposer's system prompt. */
+	proposerGuidelines?: string;
+	/** Project-specific guidelines appended to the executor's system prompt. */
+	executorGuidelines?: string;
+}
+
+/**
+ * Self-improvement loop settings. `mode: "test-only"` (default) keeps
+ * the one-iteration Skill Tester behaviour. `mode: "loop"` runs up to
+ * `maxIterations` iterations, applying a proposer/(reviewer)/executor
+ * edit between each one, and stops early when all scenarios pass.
+ * CLI flags (`--mode`, `--iterations`, `--evaluation`, `--final-pass`)
+ * override these per-invocation.
+ */
+export interface SelfImprovementConfig {
+	mode?: SelfImprovementMode;
+	maxIterations?: number;
+	evaluationMode?: EvaluationMode;
+	finalPass?: boolean;
+	agents?: SelfImprovementAgents;
+	paths?: SelfImprovementPaths;
 }
 
 export interface AgentsConfig {

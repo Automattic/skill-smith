@@ -4,6 +4,7 @@ export type {
 	AgentContext,
 	AgentDefinition,
 	AgentsConfig,
+	EvaluationMode,
 	HookFn,
 	Hooks,
 	IterationInfo,
@@ -12,6 +13,10 @@ export type {
 	RunScenario,
 	Scenario,
 	ScenarioContext,
+	SelfImprovementAgents,
+	SelfImprovementConfig,
+	SelfImprovementMode,
+	SelfImprovementPaths,
 	SkillsmithConfig,
 } from "./config/types";
 export type { Provider, ProviderId } from "./providers/types";

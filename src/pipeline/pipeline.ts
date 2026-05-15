@@ -2,6 +2,10 @@ import { existsSync, mkdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadConfig } from "../config/load";
 import { PreconditionError } from "../config/resolve-cwd";
+import {
+	resolveSelfImprovement,
+	type SelfImprovementOverrides,
+} from "../config/self-improvement";
 import type {
 	IterationInfo,
 	RunContext,
@@ -30,6 +34,7 @@ export interface PipelineParams {
 	runId: string;
 	verbose?: boolean;
 	scenarios?: string[];
+	selfImprovement?: SelfImprovementOverrides;
 }
 
 export interface ScenarioRunRecord {
@@ -54,6 +59,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 	const config = await loadConfig(projectRoot);
 	checkPaths(config, projectRoot);
+	const selfImprovement = resolveSelfImprovement(config, params.selfImprovement);
 	const scenarios = filterScenarios(
 		enumerateScenarios(config.paths, projectRoot),
 		params.scenarios,
@@ -84,6 +90,9 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 				.map(([k]) => k)
 				.join(", ") || "(none)"
 		}`,
+	);
+	log.info(
+		`selfImprovement: mode=${selfImprovement.mode} maxIterations=${selfImprovement.maxIterations} evaluation=${selfImprovement.evaluationMode} finalPass=${selfImprovement.finalPass}`,
 	);
 
 	const runCtx: RunContext = {
