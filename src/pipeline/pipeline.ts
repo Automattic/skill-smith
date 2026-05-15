@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { loadConfig } from "../config/load";
 import { PreconditionError } from "../config/resolve-cwd";
 import {
+	type ResolvedSelfImprovement,
 	resolveSelfImprovement,
 	type SelfImprovementOverrides,
 } from "../config/self-improvement";
@@ -13,12 +14,16 @@ import type {
 	ScenarioContext,
 	SkillsmithConfig,
 } from "../config/types";
+import { runImprovementCycle } from "../improvement/cycle";
 import { ProgressTracker } from "../progress";
 import {
 	aggregateIterationReport,
+	type IterationReport,
+	mergeIntoRunningReport,
+	writeRunReport,
 	writeRunSummary,
 } from "../reports/iteration-report";
-import { aggregateScenarioReport } from "../reports/scenario-report";
+import { aggregateScenarioReport, type ScenarioReport } from "../reports/scenario-report";
 import { printSummary } from "../reports/summary";
 import {
 	type EnumeratedScenario,
@@ -28,6 +33,7 @@ import { UserFacingError } from "../util/errors";
 import { tryHook } from "../util/hooks";
 import { RunLog } from "../util/run-log";
 import { runAgents } from "./agent-loop";
+import { selectScenarios } from "./select-scenarios";
 
 export interface PipelineParams {
 	projectRoot: string;
@@ -45,14 +51,23 @@ export interface ScenarioRunRecord {
 }
 
 /**
- * Top-level pipeline: load config, validate preconditions, enumerate
- * scenarios, run one iteration (Phase 1 fixes this at 1; loop mode
- * adds more), aggregate reports, then print the summary.
+ * Top-level pipeline. Loads config, validates paths, then drives one
+ * or more iterations:
+ *
+ *   1. Iteration 1 runs every scenario.
+ *   2. If `selfImprovement.mode === "loop"` and the run is not yet
+ *      passing, the improvement cycle runs (proposer → reviewer →
+ *      executor) and the next iteration starts with a subset chosen
+ *      by `evaluationMode`.
+ *   3. Stop when the merged matrix is all-pass, when `maxIterations`
+ *      is reached, or — when `finalPass=true` and the last iteration
+ *      was a subset — after one extra full sweep.
  *
  * Layout: `${runDirectory}/iteration-N/<scenario>/<agent>/...`. Each
  * iteration writes its own `report.yaml`, `summary.txt`, `run.log`.
- * The top-level `${runDirectory}/run.yaml` lists every iteration the
- * harness executed.
+ * The top-level `${runDirectory}/report.yaml` is the merged matrix
+ * across iterations; `${runDirectory}/run.yaml` is the iteration
+ * roster.
  */
 export async function runPipeline(params: PipelineParams): Promise<number> {
 	const { projectRoot, runId, verbose } = params;
@@ -60,7 +75,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	const config = await loadConfig(projectRoot);
 	checkPaths(config, projectRoot);
 	const selfImprovement = resolveSelfImprovement(config, params.selfImprovement);
-	const scenarios = filterScenarios(
+	const allScenarios = filterScenarios(
 		enumerateScenarios(config.paths, projectRoot),
 		params.scenarios,
 	);
@@ -68,115 +83,264 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	const runDirectory = resolve(projectRoot, config.paths.base, runId);
 	mkdirSync(runDirectory, { recursive: true });
 
-	const iterationNumber = 1;
-	const iterationDirectory = resolve(
-		runDirectory,
-		`iteration-${iterationNumber}`,
-	);
-	mkdirSync(iterationDirectory, { recursive: true });
-
 	const iterations: IterationInfo[] = [];
-
-	const log = new RunLog({ mirrorStderr: verbose ?? false });
-	log.header(`skillsmith run ${runId}`);
-	log.info(`projectRoot=${projectRoot}`);
-	log.info(`runDirectory=${runDirectory}`);
-	log.info(`iteration=${iterationNumber}`);
-	log.info(`iterationDirectory=${iterationDirectory}`);
-	log.info(
-		`hooks defined: ${
-			Object.entries(config.hooks ?? {})
-				.filter(([, v]) => typeof v === "function")
-				.map(([k]) => k)
-				.join(", ") || "(none)"
-		}`,
-	);
-	log.info(
-		`selfImprovement: mode=${selfImprovement.mode} maxIterations=${selfImprovement.maxIterations} evaluation=${selfImprovement.evaluationMode} finalPass=${selfImprovement.finalPass}`,
-	);
-
+	const runScenarios: RunScenario[] = allScenarios.map(({ dirName, scenario }) => ({
+		dirName,
+		scenario,
+	}));
 	const runCtx: RunContext = {
 		runId,
 		config,
 		runDirectory,
 		iterations,
-		scenarios: scenarios.map(({ dirName, scenario }) => ({
-			dirName,
-			scenario,
-		})),
+		scenarios: runScenarios,
 	};
-	await tryHook("beforeAll", "run", config.hooks?.beforeAll, runCtx, log);
-
-	log.section("scenarios");
-	for (const s of scenarios) {
-		log.info(`  - ${s.scenario.name}${s.error ? ` [error: ${s.error}]` : ""}`);
-	}
 
 	const tracker = new ProgressTracker(
 		{
 			runId,
-			scenarios: scenarios.map((s) => ({
+			scenarios: allScenarios.map((s) => ({
 				name: s.scenario.name,
 				agentIds: config.agents.testing.map((a) => a.id),
 			})),
 		},
 		verbose ? { interactive: false } : {},
 	);
-	for (const s of scenarios) {
+	for (const s of allScenarios) {
 		if (s.error !== undefined) {
 			tracker.scenarioSkipped(s.scenario.name, s.error);
 		}
 	}
 
-	let scenarioRecords: ScenarioRunRecord[];
-	try {
-		scenarioRecords = await Promise.all(
-			scenarios.map((s) =>
-				runScenario(s, {
-					runId,
-					config,
-					projectRoot,
-					runDirectory,
-					iterationDirectory,
-					iterations,
-					log,
-					tracker,
-					scenarios: runCtx.scenarios,
-				}),
-			),
-		);
+	const maxIterations =
+		selfImprovement.mode === "test-only" ? 1 : selfImprovement.maxIterations;
 
-		const iterationReport = aggregateIterationReport({
-			iterationDirectory,
-			runId,
-			iteration: iterationNumber,
-			scenarios: scenarioRecords,
-		});
+	let mergedScenarios: Record<string, ScenarioReport | { error: string }> = {};
+	let mergedPass = false;
+	let prevReport: IterationReport | undefined;
+	let lastWasSubset = false;
+	let firedBeforeAll = false;
+	let lastIterationDirectory = runDirectory;
+	const iterationPasses: boolean[] = [];
 
-		iterations.push({
-			number: iterationNumber,
-			directory: iterationDirectory,
-		});
-
+	const renderRunSummary = (): void => {
 		writeRunSummary(runDirectory, {
 			runId,
-			pass: iterationReport.pass,
-			iterations: [
-				{
-					number: iterationNumber,
-					directory: iterationDirectory,
-					pass: iterationReport.pass,
-				},
-			],
+			pass: mergedPass,
+			iterations: iterations.map((info, idx) => ({
+				number: info.number,
+				directory: info.directory,
+				pass: iterationPasses[idx] ?? false,
+			})),
 		});
+	};
+
+	try {
+		for (let i = 1; i <= maxIterations; i++) {
+			const selection =
+				i === 1
+					? { scenarios: allScenarios, agentFilter: undefined as Record<string, string[]> | undefined }
+					: selectScenarios(
+							i,
+							allScenarios,
+							prevReport?.scenarios ?? {},
+							selfImprovement.evaluationMode,
+						);
+
+			lastWasSubset = i > 1 && selfImprovement.evaluationMode !== "all";
+
+			const outcome = await runOneIteration({
+				iteration: i,
+				config,
+				projectRoot,
+				runDirectory,
+				runId,
+				verbose: verbose ?? false,
+				selection: selection.scenarios,
+				agentFilter: selection.agentFilter,
+				iterations,
+				runCtx,
+				tracker,
+				fireBeforeAll: !firedBeforeAll,
+				selfImprovement,
+			});
+			firedBeforeAll = true;
+			prevReport = outcome.report;
+			lastIterationDirectory = outcome.iterationDirectory;
+			iterationPasses.push(outcome.report.pass);
+
+			mergedScenarios = mergeIntoRunningReport(
+				mergedScenarios,
+				outcome.report.scenarios,
+			);
+			mergedPass = writeRunReport(runDirectory, runId, mergedScenarios);
+			renderRunSummary();
+
+			if (mergedPass) break;
+
+			if (i < maxIterations && selfImprovement.mode === "loop") {
+				await runImprovementCycle({
+					projectRoot,
+					config,
+					selfImprovement,
+					iteration: i,
+					iterationDirectory: outcome.iterationDirectory,
+					iterationReport: outcome.report,
+					allScenarios,
+					log: outcome.log,
+				});
+				outcome.log.dump(outcome.iterationDirectory);
+			}
+		}
+
+		if (
+			selfImprovement.finalPass &&
+			lastWasSubset &&
+			selfImprovement.mode === "loop" &&
+			!mergedPass
+		) {
+			const i = iterations.length + 1;
+			const outcome = await runOneIteration({
+				iteration: i,
+				config,
+				projectRoot,
+				runDirectory,
+				runId,
+				verbose: verbose ?? false,
+				selection: allScenarios,
+				agentFilter: undefined,
+				iterations,
+				runCtx,
+				tracker,
+				fireBeforeAll: false,
+				selfImprovement,
+			});
+			lastIterationDirectory = outcome.iterationDirectory;
+			iterationPasses.push(outcome.report.pass);
+			mergedScenarios = mergeIntoRunningReport(
+				mergedScenarios,
+				outcome.report.scenarios,
+			);
+			mergedPass = writeRunReport(runDirectory, runId, mergedScenarios);
+			renderRunSummary();
+		}
 	} finally {
-		await tryHook("afterAll", "run", config.hooks?.afterAll, runCtx, log);
+		const afterAllLog = new RunLog({ mirrorStderr: verbose ?? false });
+		await tryHook(
+			"afterAll",
+			"run",
+			config.hooks?.afterAll,
+			runCtx,
+			afterAllLog,
+		);
+		afterAllLog.dump(lastIterationDirectory);
 		tracker.finish();
 	}
 
+	return printSummary({ runDirectory, runId });
+}
+
+interface RunOneIterationParams {
+	iteration: number;
+	config: SkillsmithConfig;
+	projectRoot: string;
+	runDirectory: string;
+	runId: string;
+	verbose: boolean;
+	selection: EnumeratedScenario[];
+	agentFilter: Record<string, string[]> | undefined;
+	iterations: IterationInfo[];
+	runCtx: RunContext;
+	tracker: ProgressTracker;
+	fireBeforeAll: boolean;
+	selfImprovement: ResolvedSelfImprovement;
+}
+
+interface IterationOutcome {
+	report: IterationReport;
+	iterationDirectory: string;
+	log: RunLog;
+}
+
+async function runOneIteration(
+	args: RunOneIterationParams,
+): Promise<IterationOutcome> {
+	const iterationDirectory = resolve(
+		args.runDirectory,
+		`iteration-${args.iteration}`,
+	);
+	mkdirSync(iterationDirectory, { recursive: true });
+
+	const log = new RunLog({ mirrorStderr: args.verbose });
+	log.header(`skillsmith iteration ${args.iteration} (run ${args.runId})`);
+	log.info(`projectRoot=${args.projectRoot}`);
+	log.info(`runDirectory=${args.runDirectory}`);
+	log.info(`iterationDirectory=${iterationDirectory}`);
+	log.info(
+		`selfImprovement: mode=${args.selfImprovement.mode} maxIterations=${args.selfImprovement.maxIterations} evaluation=${args.selfImprovement.evaluationMode} finalPass=${args.selfImprovement.finalPass}`,
+	);
+	log.info(
+		`hooks defined: ${
+			Object.entries(args.config.hooks ?? {})
+				.filter(([, v]) => typeof v === "function")
+				.map(([k]) => k)
+				.join(", ") || "(none)"
+		}`,
+	);
+
+	if (args.fireBeforeAll) {
+		await tryHook(
+			"beforeAll",
+			"run",
+			args.config.hooks?.beforeAll,
+			args.runCtx,
+			log,
+		);
+	}
+
+	log.section(`scenarios (iteration ${args.iteration})`);
+	for (const s of args.selection) {
+		log.info(`  - ${s.scenario.name}${s.error ? ` [error: ${s.error}]` : ""}`);
+	}
+
+	let scenarioRecords: ScenarioRunRecord[];
+	try {
+		scenarioRecords = await Promise.all(
+			args.selection.map((s) =>
+				runScenario(s, {
+					runId: args.runId,
+					config: args.config,
+					projectRoot: args.projectRoot,
+					runDirectory: args.runDirectory,
+					iterationDirectory,
+					iterations: args.iterations,
+					agentFilter: args.agentFilter?.[s.scenario.name],
+					log,
+					tracker: args.tracker,
+					scenarios: args.runCtx.scenarios,
+				}),
+			),
+		);
+	} catch (err) {
+		log.dump(iterationDirectory);
+		throw err;
+	}
+
+	const report = aggregateIterationReport({
+		iterationDirectory,
+		runId: args.runId,
+		iteration: args.iteration,
+		scenarios: scenarioRecords,
+	});
+
+	args.iterations.push({
+		number: args.iteration,
+		directory: iterationDirectory,
+	});
+
 	log.dump(iterationDirectory);
 
-	return printSummary({ iterationDirectory, runId });
+	return { report, iterationDirectory, log };
 }
 
 function filterScenarios(
@@ -221,6 +385,7 @@ interface ScenarioRunArgs {
 	runDirectory: string;
 	iterationDirectory: string;
 	iterations: IterationInfo[];
+	agentFilter?: string[];
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
@@ -268,6 +433,7 @@ async function runScenario(
 				log: args.log,
 				tracker: args.tracker,
 				scenarios: args.scenarios,
+				agentIdFilter: args.agentFilter,
 			});
 		}
 

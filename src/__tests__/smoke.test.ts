@@ -34,6 +34,10 @@ test("smoke run with mock provider produces full reports for every (scenario, ag
 
 	assert.ok(existsSync(join(runDir, "run.yaml")), "top-level run.yaml exists");
 	assert.ok(
+		existsSync(join(runDir, "report.yaml")),
+		"top-level merged run report exists",
+	);
+	assert.ok(
 		existsSync(join(iterationDir, "report.yaml")),
 		"iteration report exists",
 	);

@@ -5,7 +5,7 @@ import { paint, shouldUseColor } from "../util/ansi";
 import { type Cell, classifyVerdict } from "./verdict";
 
 export interface PrintSummaryParams {
-	iterationDirectory: string;
+	runDirectory: string;
 	runId: string;
 }
 
@@ -34,10 +34,11 @@ interface DisplayRow {
 }
 
 /**
- * Render the console summary from `${iterationDirectory}/report.yaml`
- * and emit `RUN RESULT: PASS|FAIL`. Also writes a plain-text mirror
- * to `${iterationDirectory}/summary.txt`. Returns the process exit
- * code: 0 if every cell is PASS, 1 otherwise.
+ * Render the console summary from `${runDirectory}/report.yaml` — the
+ * merged matrix across every iteration the pipeline ran — and emit
+ * `RUN RESULT: PASS|FAIL`. Also writes a plain-text mirror to
+ * `${runDirectory}/summary.txt`. Returns the process exit code: 0 if
+ * every cell is PASS, 1 otherwise.
  *
  * The table is long-format: one line per (scenario, agent), carrying
  * the agent's verdict plus the testing agent's wall-clock duration and
@@ -45,15 +46,15 @@ interface DisplayRow {
  * its rows.
  */
 export function printSummary(params: PrintSummaryParams): number {
-	const { iterationDirectory } = params;
-	const reportPath = join(iterationDirectory, "report.yaml");
+	const { runDirectory } = params;
+	const reportPath = join(runDirectory, "report.yaml");
 	if (!existsSync(reportPath)) {
 		const missingLines = [
-			`No iteration report at ${reportPath}.`,
-			"RUN RESULT: FAIL — missing iteration report",
+			`No run report at ${reportPath}.`,
+			"RUN RESULT: FAIL — missing run report",
 		];
 		for (const line of missingLines) console.log(line);
-		writeRunSummary(iterationDirectory, missingLines);
+		writeRunSummary(runDirectory, missingLines);
 		return 1;
 	}
 
@@ -75,7 +76,7 @@ export function printSummary(params: PrintSummaryParams): number {
 	const plain = useColor
 		? renderSummaryLines(rows, sortedAgents, allPass, false)
 		: consoleLines;
-	writeRunSummary(iterationDirectory, plain);
+	writeRunSummary(runDirectory, plain);
 
 	return allPass ? 0 : 1;
 }

@@ -2,7 +2,9 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { ScenarioRunRecord } from "../pipeline/pipeline";
-import type { ScenarioReport } from "./scenario-report";
+import { isAgentVerdictPass } from "./agent-verdict";
+import type { AgentVerdict } from "./agent-verdict";
+import type { ScenarioAgentEntry, ScenarioReport } from "./scenario-report";
 
 export interface AggregateIterationReportParams {
 	iterationDirectory: string;
@@ -20,10 +22,10 @@ export interface IterationReport {
 
 /**
  * Aggregate every `${iterationDirectory}/<scenario>/report.yaml` into
- * `${iterationDirectory}/report.yaml`. Includes an iteration-level
- * `pass` flag (every scenario must pass) so the pipeline loop can
- * decide whether to stop iterating without re-parsing the per-agent
- * tree. Missing scenario report → `{ error: ... }` for that slot.
+ * `${iterationDirectory}/report.yaml`. The iteration-level `pass`
+ * flag reflects only the scenarios that ran this iteration (`true`
+ * iff every one passed). Missing scenario report →
+ * `{ error: ... }` for that slot.
  */
 export function aggregateIterationReport(
 	params: AggregateIterationReportParams,
@@ -56,16 +58,7 @@ export function aggregateIterationReport(
 		}
 	}
 
-	const entries = Object.values(scenariosOut);
-	const allPass =
-		entries.length > 0 &&
-		entries.every((entry): entry is ScenarioReport => {
-			return (
-				"pass" in entry &&
-				entry.pass === true &&
-				!("error" in entry && entry.error !== undefined)
-			);
-		});
+	const allPass = scenariosAllPass(scenariosOut);
 
 	const report: IterationReport = {
 		runId,
@@ -101,4 +94,88 @@ export function writeRunSummary(
 	summary: RunSummary,
 ): void {
 	writeFileSync(join(runDirectory, "run.yaml"), stringifyYaml(summary));
+}
+
+/**
+ * Merge a later iteration's scenarios into the running merged view.
+ * Scenarios re-evaluated in the new iteration replace the previous
+ * entry; scenarios absent from the new iteration retain their last
+ * known verdict. When a scenario re-ran with a subset of agents
+ * (failed-pairs mode), agent rows merge instead of replace: new
+ * agents win, untouched agents inherit their previous row.
+ */
+export function mergeIntoRunningReport(
+	prev: Record<string, ScenarioReport | { error: string }>,
+	curr: Record<string, ScenarioReport | { error: string }>,
+): Record<string, ScenarioReport | { error: string }> {
+	const out: Record<string, ScenarioReport | { error: string }> = { ...prev };
+	for (const [name, body] of Object.entries(curr)) {
+		if (!("agents" in body)) {
+			out[name] = body;
+			continue;
+		}
+		const prevBody = out[name];
+		if (prevBody === undefined || !("agents" in prevBody)) {
+			out[name] = body;
+			continue;
+		}
+		const mergedAgents: Record<string, ScenarioAgentEntry> = {
+			...prevBody.agents,
+		};
+		for (const [agentId, entry] of Object.entries(body.agents)) {
+			mergedAgents[agentId] = entry;
+		}
+		const merged: ScenarioReport = {
+			...body,
+			agents: mergedAgents,
+			pass: agentsAllPass(mergedAgents),
+		};
+		if (body.error !== undefined) merged.error = body.error;
+		else delete merged.error;
+		out[name] = merged;
+	}
+	return out;
+}
+
+/**
+ * Write `${runDirectory}/report.yaml` — the merged matrix across every
+ * iteration the pipeline ran. This is the canonical "final" report
+ * the console summary renders.
+ */
+export function writeRunReport(
+	runDirectory: string,
+	runId: string,
+	scenarios: Record<string, ScenarioReport | { error: string }>,
+): boolean {
+	const pass = scenariosAllPass(scenarios);
+	writeFileSync(
+		join(runDirectory, "report.yaml"),
+		stringifyYaml({ runId, pass, scenarios }),
+	);
+	return pass;
+}
+
+function scenariosAllPass(
+	scenarios: Record<string, ScenarioReport | { error: string }>,
+): boolean {
+	const entries = Object.values(scenarios);
+	if (entries.length === 0) return false;
+	return entries.every((entry): entry is ScenarioReport => {
+		if (!("pass" in entry)) return false;
+		if (entry.pass !== true) return false;
+		if ("error" in entry && entry.error !== undefined) return false;
+		return true;
+	});
+}
+
+function agentsAllPass(agents: Record<string, ScenarioAgentEntry>): boolean {
+	const entries = Object.values(agents);
+	if (entries.length === 0) return false;
+	for (const entry of entries) {
+		if (entry.error !== undefined) return false;
+		const review = entry.review as AgentVerdict | undefined;
+		if (review === undefined) return false;
+		if (!isAgentVerdictPass(review)) return false;
+	}
+	return true;
 }
