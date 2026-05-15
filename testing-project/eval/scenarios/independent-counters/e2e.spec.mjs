@@ -1,4 +1,5 @@
 import { expect, test } from "@wordpress/e2e-test-utils-playwright";
+import { deactivateAllPlugins } from "../../utils/wp-cli.mjs";
 
 /**
  * E2E tests for the independent-counters scenario.
@@ -10,6 +11,7 @@ import { expect, test } from "@wordpress/e2e-test-utils-playwright";
 test.describe("independent-counters scenario", () => {
 	let post;
 	test.beforeAll(async ({ requestUtils }, workerInfo) => {
+		deactivateAllPlugins();
 		await requestUtils.activatePlugin(
 			`plugin-independent-counters-${workerInfo.project.metadata.agentId}`,
 		);
@@ -24,11 +26,9 @@ test.describe("independent-counters scenario", () => {
 		await page.goto(`/?p=${post.id}`);
 	});
 
-	test.afterAll(async ({ requestUtils }, workerInfo) => {
+	test.afterAll(async ({ requestUtils }) => {
+		deactivateAllPlugins();
 		await requestUtils.deleteAllPosts();
-		await requestUtils.deactivatePlugin(
-			`plugin-independent-counters-${workerInfo.project.metadata.agentId}`,
-		);
 	});
 
 	test("renders two instances each starting at 0", async ({ page }) => {

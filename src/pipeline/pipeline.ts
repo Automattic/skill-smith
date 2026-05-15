@@ -4,6 +4,7 @@ import { loadConfig } from "../config/load";
 import { PreconditionError } from "../config/resolve-cwd";
 import type {
 	RunContext,
+	RunScenario,
 	ScenarioContext,
 	SkillsmithConfig,
 } from "../config/types";
@@ -14,6 +15,7 @@ import {
 	type EnumeratedScenario,
 	enumerateScenarios,
 } from "../scenarios/enumerate";
+import { UserFacingError } from "../util/errors";
 import { tryHook } from "../util/hooks";
 import { RunLog } from "../util/run-log";
 import { runAgents } from "./agent-loop";
@@ -21,6 +23,7 @@ import { runAgents } from "./agent-loop";
 export interface PipelineParams {
 	projectRoot: string;
 	runId: string;
+	scenarios?: string[];
 }
 
 export interface ScenarioRunRecord {
@@ -40,6 +43,10 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 	const config = await loadConfig(projectRoot);
 	checkPaths(config, projectRoot);
+	const scenarios = filterScenarios(
+		enumerateScenarios(config.paths, projectRoot),
+		params.scenarios,
+	);
 
 	const runDirectory = resolve(projectRoot, config.paths.base, runId);
 
@@ -56,10 +63,16 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		}`,
 	);
 
-	const runCtx: RunContext = { runId, config };
+	const runCtx: RunContext = {
+		runId,
+		config,
+		scenarios: scenarios.map(({ dirName, scenario }) => ({
+			dirName,
+			scenario,
+		})),
+	};
 	await tryHook("beforeAll", "run", config.hooks?.beforeAll, runCtx, log);
 
-	const scenarios = enumerateScenarios(config.paths, projectRoot);
 	log.section("scenarios");
 	for (const s of scenarios) {
 		log.info(`  - ${s.scenario.name}${s.error ? ` [error: ${s.error}]` : ""}`);
@@ -69,7 +82,14 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	try {
 		scenarioRecords = await Promise.all(
 			scenarios.map((s) =>
-				runScenario(s, { runId, config, projectRoot, runDirectory, log }),
+				runScenario(s, {
+					runId,
+					config,
+					projectRoot,
+					runDirectory,
+					log,
+					scenarios: runCtx.scenarios,
+				}),
 			),
 		);
 	} finally {
@@ -87,12 +107,48 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	return printSummary({ runDirectory, runId });
 }
 
+function filterScenarios(
+	scenarios: EnumeratedScenario[],
+	rawFilters: string[] | undefined,
+): EnumeratedScenario[] {
+	if (rawFilters === undefined || rawFilters.length === 0) {
+		return scenarios;
+	}
+
+	const filters: string[] = [];
+	const seen = new Set<string>();
+	for (const raw of rawFilters) {
+		const filter = raw.trim();
+		if (filter.length === 0) {
+			throw new UserFacingError("Scenario IDs must not be empty.");
+		}
+		if (!seen.has(filter)) {
+			seen.add(filter);
+			filters.push(filter);
+		}
+	}
+
+	const byDirName = new Map(scenarios.map((s) => [s.dirName, s]));
+	const unknown = filters.filter((filter) => !byDirName.has(filter));
+	if (unknown.length > 0) {
+		const label =
+			unknown.length === 1
+				? `Unknown scenario: ${unknown[0]}`
+				: `Unknown scenarios: ${unknown.join(", ")}`;
+		const available = scenarios.map((s) => `- ${s.dirName}`).join("\n");
+		throw new UserFacingError(`${label}\n\nAvailable scenarios:\n${available}`);
+	}
+
+	return filters.map((filter) => byDirName.get(filter) as EnumeratedScenario);
+}
+
 interface ScenarioRunArgs {
 	runId: string;
 	config: SkillsmithConfig;
 	projectRoot: string;
 	runDirectory: string;
 	log: RunLog;
+	scenarios: RunScenario[];
 }
 
 async function runScenario(
@@ -104,6 +160,7 @@ async function runScenario(
 	const scenarioCtx: ScenarioContext = {
 		runId: args.runId,
 		config: args.config,
+		scenarios: args.scenarios,
 		scenario,
 	};
 
@@ -130,6 +187,7 @@ async function runScenario(
 				runId: args.runId,
 				projectRoot: args.projectRoot,
 				log: args.log,
+				scenarios: args.scenarios,
 			});
 		}
 

@@ -1,4 +1,5 @@
 import { expect, test } from "@wordpress/e2e-test-utils-playwright";
+import { deactivateAllPlugins } from "../../utils/wp-cli.mjs";
 
 /**
  * E2E tests for the config-fetch scenario.
@@ -11,6 +12,7 @@ import { expect, test } from "@wordpress/e2e-test-utils-playwright";
 test.describe("config-fetch scenario", () => {
 	let post;
 	test.beforeAll(async ({ requestUtils }, workerInfo) => {
+		deactivateAllPlugins();
 		await requestUtils.activatePlugin(
 			`plugin-config-fetch-${workerInfo.project.metadata.agentId}`,
 		);
@@ -20,11 +22,9 @@ test.describe("config-fetch scenario", () => {
 		});
 	});
 
-	test.afterAll(async ({ requestUtils }, workerInfo) => {
+	test.afterAll(async ({ requestUtils }) => {
+		deactivateAllPlugins();
 		await requestUtils.deleteAllPosts();
-		await requestUtils.deactivatePlugin(
-			`plugin-config-fetch-${workerInfo.project.metadata.agentId}`,
-		);
 	});
 
 	test("clicking the button fetches /wp/v2/posts/1 with the nonce header and renders the title", async ({
