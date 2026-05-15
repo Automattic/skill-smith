@@ -31,6 +31,12 @@ export interface RunAgentsParams {
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
+	/**
+	 * When present, only testing agents whose ids appear in this list
+	 * run for this scenario. Used by `failed-pairs` mode to re-run only
+	 * the agents that failed in the previous iteration.
+	 */
+	agentIdFilter?: string[];
 }
 
 export interface TestingAgentResult {
@@ -69,10 +75,24 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 		log,
 		tracker,
 		scenarios,
+		agentIdFilter,
 	} = params;
 
+	const filterSet =
+		agentIdFilter !== undefined ? new Set(agentIdFilter) : undefined;
+	const agents =
+		filterSet === undefined
+			? config.agents.testing
+			: config.agents.testing.filter((a) => filterSet.has(a.id));
+
+	if (filterSet !== undefined) {
+		log.info(
+			`agent filter active for ${scenario.name}: ${agents.map((a) => a.id).join(",") || "(none)"}`,
+		);
+	}
+
 	await Promise.all(
-		config.agents.testing.map((agent) =>
+		agents.map((agent) =>
 			runAgentPair({
 				agent,
 				scenario,
