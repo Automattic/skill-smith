@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
@@ -136,9 +136,12 @@ export default defineConfig({
 			writeFileSync(join(agentWorkspace, "AGENTS.md"), agentsMd(slug));
 		},
 
-		afterAll: ({ runId, config }) => {
+		afterAll: ({ runId, config, scenarios }) => {
 			const runDirectory = join(config.paths.base, runId);
 			const reportPath = join(runDirectory, "tests-report.json");
+			const e2eSpecs = scenarios.map(({ dirName }) =>
+				join("eval", "scenarios", dirName, "e2e.spec.mjs"),
+			);
 			// `.wp-env.json` is gitignored and owned by this hook: it lives
 			// only for the duration of the run and is removed afterwards.
 			const wpEnvConfigPath = join(PROJECT_ROOT, ".wp-env.json");
@@ -197,7 +200,7 @@ export default defineConfig({
 					cwd: PROJECT_ROOT,
 					env: wpEnv,
 				});
-				execSync("npm run test:e2e", {
+				execFileSync("npm", ["run", "test:e2e", "--", ...e2eSpecs], {
 					stdio: "inherit",
 					cwd: PROJECT_ROOT,
 					env: { ...wpEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath },

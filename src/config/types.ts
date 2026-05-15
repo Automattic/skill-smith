@@ -44,6 +44,12 @@ export interface Scenario {
 export interface RunContext {
 	runId: string;
 	config: SkillsmithConfig;
+	scenarios: RunScenario[];
+}
+
+export interface RunScenario {
+	dirName: string;
+	scenario: Scenario;
 }
 
 export interface ScenarioContext extends RunContext {
