@@ -90,26 +90,31 @@ export default defineConfig({
 				model: "claude-haiku-4-5-20251001",
 			},
 			{
-				id: "anthropic-sonnet",
-				provider: "anthropic-api",
-				model: "claude-sonnet-4-6",
+				id: "opus",
+				provider: "claude-code",
+				model: "claude-opus-4-6",
 			},
-			{
-				id: "openai-api-nano",
-				provider: "openai-api",
-				model: "gpt-5.4-nano",
-			},
+			// {
+			// 	id: "anthropic-sonnet",
+			// 	provider: "anthropic-api",
+			// 	model: "claude-sonnet-4-6",
+			// },
+			// {
+			// 	id: "openai-api-nano",
+			// 	provider: "openai-api",
+			// 	model: "gpt-5.4-nano",
+			// },
 			{ id: "codex-mini", provider: "codex", model: "gpt-5.4-mini" },
 			{
 				id: "codex-gpt55",
 				provider: "codex",
 				model: "gpt-5.5",
 			},
-			{
-				id: "gemini-flash",
-				provider: "gemini-api",
-				model: "gemini-2.5-flash",
-			},
+			// {
+			// 	id: "gemini-flash",
+			// 	provider: "gemini-api",
+			// 	model: "gemini-2.5-flash",
+			// },
 		],
 		judge: [
 			{
@@ -136,7 +141,7 @@ export default defineConfig({
 			writeFileSync(join(agentWorkspace, "AGENTS.md"), agentsMd(slug));
 		},
 
-		afterAll: ({ runId, config, scenarios }) => {
+		afterAll: ({ runId, config, scenarios, iterations }) => {
 			const runDirectory = join(config.paths.base, runId);
 			const reportPath = join(runDirectory, "tests-report.json");
 			const e2eSpecs = scenarios.map(({ dirName }) =>
@@ -146,12 +151,19 @@ export default defineConfig({
 			// only for the duration of the run and is removed afterwards.
 			const wpEnvConfigPath = join(PROJECT_ROOT, ".wp-env.json");
 
+			// In loop mode every iteration writes a fresh set of workspaces
+			// below `iteration-N/<scenario>/<agent>/workspace`. The e2e
+			// pass should grade the latest snapshot, so the hook walks the
+			// most recent iteration's directory.
+			const lastIteration = iterations.at(-1);
+			const iterationDirectory = lastIteration?.directory ?? runDirectory;
+
 			const pluginPaths: string[] = [];
-			for (const scenarioEntry of readdirSync(runDirectory, {
+			for (const scenarioEntry of readdirSync(iterationDirectory, {
 				withFileTypes: true,
 			})) {
 				if (!scenarioEntry.isDirectory()) continue;
-				const scenarioDir = join(runDirectory, scenarioEntry.name);
+				const scenarioDir = join(iterationDirectory, scenarioEntry.name);
 				for (const agentEntry of readdirSync(scenarioDir, {
 					withFileTypes: true,
 				})) {

@@ -30,15 +30,20 @@ test("smoke run with mock provider produces full reports for every (scenario, ag
 	const runIds = readdirSync(baseDir).filter((n) => /^\d{8}-\d{6}$/.test(n));
 	assert.equal(runIds.length, 1, `exactly one runId; got ${runIds.join(", ")}`);
 	const runDir = join(baseDir, runIds[0] ?? "");
+	const iterationDir = join(runDir, "iteration-1");
 
-	assert.ok(existsSync(join(runDir, "report.yaml")), "run report exists");
-	assert.ok(existsSync(join(runDir, "run.log")), "run log exists");
+	assert.ok(existsSync(join(runDir, "run.yaml")), "top-level run.yaml exists");
 	assert.ok(
-		existsSync(join(runDir, "hello-scenario", "report.yaml")),
+		existsSync(join(iterationDir, "report.yaml")),
+		"iteration report exists",
+	);
+	assert.ok(existsSync(join(iterationDir, "run.log")), "run log exists");
+	assert.ok(
+		existsSync(join(iterationDir, "hello-scenario", "report.yaml")),
 		"scenario report exists",
 	);
 	for (const id of ["haiku", "sonnet"]) {
-		const reportPath = join(runDir, "hello-scenario", id, "report.yaml");
+		const reportPath = join(iterationDir, "hello-scenario", id, "report.yaml");
 		assert.ok(existsSync(reportPath), `report.yaml exists for ${id}`);
 		const agentReport = parseYaml(readFileSync(reportPath, "utf8")) as Record<
 			string,
@@ -61,33 +66,41 @@ test("smoke run with mock provider produces full reports for every (scenario, ag
 			150,
 			`agent report for ${id} has testing.tokenUsage.totalTokens`,
 		);
-		const ws = join(runDir, "hello-scenario", id, "workspace");
+		const ws = join(iterationDir, "hello-scenario", id, "workspace");
 		assert.ok(existsSync(ws), `workspace mkdir'd for ${id}`);
 	}
 
-	// Metrics propagate up through the scenario and run reports.
+	// Metrics propagate up through the scenario and iteration reports.
 	const scenarioReport = parseYaml(
-		readFileSync(join(runDir, "hello-scenario", "report.yaml"), "utf8"),
+		readFileSync(join(iterationDir, "hello-scenario", "report.yaml"), "utf8"),
 	) as { agents?: Record<string, { testing?: { duration?: unknown } }> };
 	assert.equal(
 		typeof scenarioReport.agents?.haiku?.testing?.duration,
 		"number",
 		"scenario report embeds the agent testing block",
 	);
-	const runReport = parseYaml(
-		readFileSync(join(runDir, "report.yaml"), "utf8"),
+	const iterationReport = parseYaml(
+		readFileSync(join(iterationDir, "report.yaml"), "utf8"),
 	) as {
+		iteration?: number;
 		scenarios?: Record<
 			string,
 			{ agents?: Record<string, { testing?: { duration?: unknown } }> }
 		>;
 	};
+	assert.equal(iterationReport.iteration, 1, "iteration report carries number");
 	assert.equal(
-		typeof runReport.scenarios?.["hello-scenario"]?.agents?.haiku?.testing
-			?.duration,
+		typeof iterationReport.scenarios?.["hello-scenario"]?.agents?.haiku
+			?.testing?.duration,
 		"number",
-		"run report embeds the agent testing block",
+		"iteration report embeds the agent testing block",
 	);
+
+	const runSummary = parseYaml(
+		readFileSync(join(runDir, "run.yaml"), "utf8"),
+	) as { iterations?: Array<{ number?: number; directory?: string }> };
+	assert.equal(runSummary.iterations?.length, 1, "run.yaml lists one iteration");
+	assert.equal(runSummary.iterations?.[0]?.number, 1, "iteration number 1");
 
 	const out = captured.join("\n");
 	assert.match(out, /scenario\s+agent\s+result\s+duration\s+tokens/);

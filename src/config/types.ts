@@ -41,9 +41,22 @@ export interface Scenario {
 	[key: string]: unknown;
 }
 
+/**
+ * Metadata for one iteration the pipeline has completed (or is about
+ * to complete). The harness appends one entry per iteration to
+ * `RunContext.iterations` as the loop advances so hooks can walk the
+ * artifacts produced across the whole run.
+ */
+export interface IterationInfo {
+	number: number;
+	directory: string;
+}
+
 export interface RunContext {
 	runId: string;
 	config: SkillsmithConfig;
+	runDirectory: string;
+	iterations: IterationInfo[];
 	scenarios: RunScenario[];
 }
 

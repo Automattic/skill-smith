@@ -5,7 +5,7 @@ import { paint, shouldUseColor } from "../util/ansi";
 import { type Cell, classifyVerdict } from "./verdict";
 
 export interface PrintSummaryParams {
-	runDirectory: string;
+	iterationDirectory: string;
 	runId: string;
 }
 
@@ -34,10 +34,10 @@ interface DisplayRow {
 }
 
 /**
- * Render the console summary from `${runDirectory}/report.yaml` and
- * emit `RUN RESULT: PASS|FAIL`. Also writes a plain-text mirror to
- * `${runDirectory}/summary.txt`. Returns the process exit code: 0 if
- * every cell is PASS, 1 otherwise.
+ * Render the console summary from `${iterationDirectory}/report.yaml`
+ * and emit `RUN RESULT: PASS|FAIL`. Also writes a plain-text mirror
+ * to `${iterationDirectory}/summary.txt`. Returns the process exit
+ * code: 0 if every cell is PASS, 1 otherwise.
  *
  * The table is long-format: one line per (scenario, agent), carrying
  * the agent's verdict plus the testing agent's wall-clock duration and
@@ -45,15 +45,15 @@ interface DisplayRow {
  * its rows.
  */
 export function printSummary(params: PrintSummaryParams): number {
-	const { runDirectory } = params;
-	const reportPath = join(runDirectory, "report.yaml");
+	const { iterationDirectory } = params;
+	const reportPath = join(iterationDirectory, "report.yaml");
 	if (!existsSync(reportPath)) {
 		const missingLines = [
-			`No run report at ${reportPath}.`,
-			"RUN RESULT: FAIL — missing run report",
+			`No iteration report at ${reportPath}.`,
+			"RUN RESULT: FAIL — missing iteration report",
 		];
 		for (const line of missingLines) console.log(line);
-		writeRunSummary(runDirectory, missingLines);
+		writeRunSummary(iterationDirectory, missingLines);
 		return 1;
 	}
 
@@ -75,7 +75,7 @@ export function printSummary(params: PrintSummaryParams): number {
 	const plain = useColor
 		? renderSummaryLines(rows, sortedAgents, allPass, false)
 		: consoleLines;
-	writeRunSummary(runDirectory, plain);
+	writeRunSummary(iterationDirectory, plain);
 
 	return allPass ? 0 : 1;
 }
@@ -330,9 +330,9 @@ function failureLines(row: Row, sortedAgents: string[]): string[] {
 	return out;
 }
 
-function writeRunSummary(runDirectory: string, lines: string[]): void {
+function writeRunSummary(directory: string, lines: string[]): void {
 	try {
-		writeFileSync(join(runDirectory, "summary.txt"), `${lines.join("\n")}\n`);
+		writeFileSync(join(directory, "summary.txt"), `${lines.join("\n")}\n`);
 	} catch {
 		// best-effort; we already printed to the console
 	}

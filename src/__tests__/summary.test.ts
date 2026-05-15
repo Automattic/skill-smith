@@ -69,7 +69,7 @@ test("all-pass run exits 0 with RUN RESULT: PASS", async () => {
 	});
 
 	const { value, out } = captureStdout(() =>
-		printSummary({ runDirectory, runId: "x" }),
+		printSummary({ iterationDirectory: runDirectory, runId: "x" }),
 	);
 
 	assert.equal(value, 0);
@@ -106,7 +106,7 @@ test("any failure → exit 1, FAIL, and a line per failing rubric/acceptance", a
 	});
 
 	const { value, out } = captureStdout(() =>
-		printSummary({ runDirectory, runId: "x" }),
+		printSummary({ iterationDirectory: runDirectory, runId: "x" }),
 	);
 
 	assert.equal(value, 1);
@@ -162,7 +162,7 @@ test("multiple failing scenarios each get their own block", async () => {
 	});
 
 	const { out } = captureStdout(() =>
-		printSummary({ runDirectory, runId: "x" }),
+		printSummary({ iterationDirectory: runDirectory, runId: "x" }),
 	);
 
 	assert.ok(
@@ -191,7 +191,7 @@ test("SKIPPED cells render with reason", async () => {
 	});
 
 	const { value, out } = captureStdout(() =>
-		printSummary({ runDirectory, runId: "x" }),
+		printSummary({ iterationDirectory: runDirectory, runId: "x" }),
 	);
 
 	assert.equal(value, 1);
@@ -237,7 +237,7 @@ test("long format unifies the scenario cell across agent rows", async () => {
 	});
 
 	const { out } = captureStdout(() =>
-		printSummary({ runDirectory, runId: "x" }),
+		printSummary({ iterationDirectory: runDirectory, runId: "x" }),
 	);
 
 	// The scenario name leads exactly one table row; the second agent
@@ -269,7 +269,7 @@ test("writes summary.txt mirroring the console (without ANSI)", async () => {
 		},
 	});
 
-	captureStdout(() => printSummary({ runDirectory, runId: "x" }));
+	captureStdout(() => printSummary({ iterationDirectory: runDirectory, runId: "x" }));
 
 	const summaryPath = join(runDirectory, "summary.txt");
 	assert.ok(existsSync(summaryPath), "summary.txt should be written");

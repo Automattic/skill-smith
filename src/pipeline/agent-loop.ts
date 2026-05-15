@@ -4,6 +4,7 @@ import { stringify as stringifyYaml } from "yaml";
 import type {
 	AgentContext,
 	AgentDefinition,
+	IterationInfo,
 	RunScenario,
 	Scenario,
 	SkillsmithConfig,
@@ -21,6 +22,8 @@ export interface RunAgentsParams {
 	scenarioDirectory: string;
 	config: SkillsmithConfig;
 	runId: string;
+	runDirectory: string;
+	iterations: IterationInfo[];
 	projectRoot: string;
 	log: RunLog;
 	tracker: ProgressTracker;
@@ -57,6 +60,8 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 		scenarioDirectory,
 		config,
 		runId,
+		runDirectory,
+		iterations,
 		projectRoot,
 		log,
 		tracker,
@@ -71,6 +76,8 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 				scenarioDirectory,
 				config,
 				runId,
+				runDirectory,
+				iterations,
 				projectRoot,
 				log,
 				tracker,
@@ -86,6 +93,8 @@ interface RunAgentPairParams {
 	scenarioDirectory: string;
 	config: SkillsmithConfig;
 	runId: string;
+	runDirectory: string;
+	iterations: IterationInfo[];
 	projectRoot: string;
 	log: RunLog;
 	tracker: ProgressTracker;
@@ -99,6 +108,8 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		scenarioDirectory,
 		config,
 		runId,
+		runDirectory,
+		iterations,
 		projectRoot,
 		log,
 		tracker,
@@ -112,6 +123,8 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	const agentCtx: AgentContext = {
 		runId,
 		config,
+		runDirectory,
+		iterations,
 		scenarios,
 		scenario,
 		agent,

@@ -96,7 +96,7 @@ function latestRunDir(): string {
 
 function reportScenarioNames(): string[] {
 	const report = parseYaml(
-		readFileSync(join(latestRunDir(), "report.yaml"), "utf8"),
+		readFileSync(join(latestRunDir(), "iteration-1", "report.yaml"), "utf8"),
 	) as { scenarios: Record<string, unknown> };
 	return Object.keys(report.scenarios).sort();
 }

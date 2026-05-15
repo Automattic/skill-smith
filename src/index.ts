@@ -6,6 +6,7 @@ export type {
 	AgentsConfig,
 	HookFn,
 	Hooks,
+	IterationInfo,
 	Paths,
 	RunContext,
 	RunScenario,

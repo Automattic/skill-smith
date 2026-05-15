@@ -1,15 +1,19 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadConfig } from "../config/load";
 import { PreconditionError } from "../config/resolve-cwd";
 import type {
+	IterationInfo,
 	RunContext,
 	RunScenario,
 	ScenarioContext,
 	SkillsmithConfig,
 } from "../config/types";
 import { ProgressTracker } from "../progress";
-import { aggregateRunReport } from "../reports/run-report";
+import {
+	aggregateIterationReport,
+	writeRunSummary,
+} from "../reports/iteration-report";
 import { aggregateScenarioReport } from "../reports/scenario-report";
 import { printSummary } from "../reports/summary";
 import {
@@ -37,8 +41,13 @@ export interface ScenarioRunRecord {
 
 /**
  * Top-level pipeline: load config, validate preconditions, enumerate
- * scenarios, fan out the scenario loop in parallel, aggregate the run
- * report, then print the summary.
+ * scenarios, run one iteration (Phase 1 fixes this at 1; loop mode
+ * adds more), aggregate reports, then print the summary.
+ *
+ * Layout: `${runDirectory}/iteration-N/<scenario>/<agent>/...`. Each
+ * iteration writes its own `report.yaml`, `summary.txt`, `run.log`.
+ * The top-level `${runDirectory}/run.yaml` lists every iteration the
+ * harness executed.
  */
 export async function runPipeline(params: PipelineParams): Promise<number> {
 	const { projectRoot, runId, verbose } = params;
@@ -51,11 +60,23 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	);
 
 	const runDirectory = resolve(projectRoot, config.paths.base, runId);
+	mkdirSync(runDirectory, { recursive: true });
+
+	const iterationNumber = 1;
+	const iterationDirectory = resolve(
+		runDirectory,
+		`iteration-${iterationNumber}`,
+	);
+	mkdirSync(iterationDirectory, { recursive: true });
+
+	const iterations: IterationInfo[] = [];
 
 	const log = new RunLog({ mirrorStderr: verbose ?? false });
 	log.header(`skillsmith run ${runId}`);
 	log.info(`projectRoot=${projectRoot}`);
 	log.info(`runDirectory=${runDirectory}`);
+	log.info(`iteration=${iterationNumber}`);
+	log.info(`iterationDirectory=${iterationDirectory}`);
 	log.info(
 		`hooks defined: ${
 			Object.entries(config.hooks ?? {})
@@ -68,6 +89,8 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	const runCtx: RunContext = {
 		runId,
 		config,
+		runDirectory,
+		iterations,
 		scenarios: scenarios.map(({ dirName, scenario }) => ({
 			dirName,
 			scenario,
@@ -105,26 +128,42 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 					config,
 					projectRoot,
 					runDirectory,
+					iterationDirectory,
+					iterations,
 					log,
 					tracker,
 					scenarios: runCtx.scenarios,
 				}),
 			),
 		);
+
+		aggregateIterationReport({
+			iterationDirectory,
+			runId,
+			iteration: iterationNumber,
+			scenarios: scenarioRecords,
+		});
+
+		iterations.push({
+			number: iterationNumber,
+			directory: iterationDirectory,
+		});
+
+		writeRunSummary(runDirectory, {
+			runId,
+			iterations: iterations.map((i) => ({
+				number: i.number,
+				directory: i.directory,
+			})),
+		});
 	} finally {
 		await tryHook("afterAll", "run", config.hooks?.afterAll, runCtx, log);
 		tracker.finish();
 	}
 
-	aggregateRunReport({
-		runDirectory,
-		runId,
-		scenarios: scenarioRecords,
-	});
+	log.dump(iterationDirectory);
 
-	log.dump(runDirectory);
-
-	return printSummary({ runDirectory, runId });
+	return printSummary({ iterationDirectory, runId });
 }
 
 function filterScenarios(
@@ -167,6 +206,8 @@ interface ScenarioRunArgs {
 	config: SkillsmithConfig;
 	projectRoot: string;
 	runDirectory: string;
+	iterationDirectory: string;
+	iterations: IterationInfo[];
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
@@ -177,10 +218,12 @@ async function runScenario(
 	args: ScenarioRunArgs,
 ): Promise<ScenarioRunRecord> {
 	const { scenario, error } = enumerated;
-	const scenarioDirectory = resolve(args.runDirectory, scenario.name);
+	const scenarioDirectory = resolve(args.iterationDirectory, scenario.name);
 	const scenarioCtx: ScenarioContext = {
 		runId: args.runId,
 		config: args.config,
+		runDirectory: args.runDirectory,
+		iterations: args.iterations,
 		scenarios: args.scenarios,
 		scenario,
 	};
@@ -206,6 +249,8 @@ async function runScenario(
 				scenarioDirectory,
 				config: args.config,
 				runId: args.runId,
+				runDirectory: args.runDirectory,
+				iterations: args.iterations,
 				projectRoot: args.projectRoot,
 				log: args.log,
 				tracker: args.tracker,
