@@ -48,12 +48,16 @@ export async function runVercel(
 			(n, step) => n + step.toolCalls.length,
 			0,
 		);
-		// `totalUsage` is already aggregated across steps; `inputTokens` /
-		// `outputTokens` are `number | undefined`, so coalesce to 0.
+		// `totalUsage` is already aggregated across steps; every field is
+		// `number | undefined`, so coalesce to 0. Vercel's `inputTokens` is
+		// gross prompt size (cached + uncached), matching our normalized
+		// `TokenUsage.inputTokens` definition.
 		const inputTokens = result.totalUsage.inputTokens ?? 0;
+		const cachedInputTokens = result.totalUsage.cachedInputTokens ?? 0;
 		const outputTokens = result.totalUsage.outputTokens ?? 0;
 		usage = {
 			inputTokens,
+			cachedInputTokens,
 			outputTokens,
 			totalTokens: inputTokens + outputTokens,
 		};

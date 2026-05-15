@@ -43,10 +43,22 @@ export const claudeCodeProvider: Provider = {
 					if (message.subtype === "success") finalText = message.result;
 					else error = `result.${message.subtype}`;
 					// Exactly one result message per query carries usage.
-					const inputTokens = message.usage.input_tokens;
+					// The Anthropic SDK splits input four ways; the gross
+					// prompt size billed is input_tokens (uncached new) +
+					// cache_creation_input_tokens + cache_read_input_tokens.
+					// Without folding cache reads in, the figure under-reports
+					// real usage by ~100x for agent runs that re-use a large
+					// system prompt across tool turns.
+					const newInputTokens = message.usage.input_tokens;
+					const cacheCreationTokens =
+						message.usage.cache_creation_input_tokens;
+					const cacheReadTokens = message.usage.cache_read_input_tokens;
+					const inputTokens =
+						newInputTokens + cacheCreationTokens + cacheReadTokens;
 					const outputTokens = message.usage.output_tokens;
 					usage = {
 						inputTokens,
+						cachedInputTokens: cacheReadTokens,
 						outputTokens,
 						totalTokens: inputTokens + outputTokens,
 					};

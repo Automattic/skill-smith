@@ -20,6 +20,7 @@ export const mockProvider: Provider = {
 				toolUseCount: 0,
 				usage: {
 					inputTokens: 100,
+					cachedInputTokens: 0,
 					outputTokens: 50,
 					totalTokens: 150,
 				},

@@ -50,9 +50,13 @@ export function createCodexProvider(CodexCtor: CodexCtor): Provider {
 			let finalText = "";
 			let toolUseCount = 0;
 			let error: string | undefined;
-			// A streamed run can emit more than one `turn.completed`; sum
-			// usage across all of them.
+			// Codex emits one `turn.completed` per call to `runStreamed`,
+			// carrying cumulative usage across all internal tool-use round
+			// trips within that turn. We follow the SDK's own `run()` helper
+			// and keep the last value seen rather than summing — defensive
+			// in case the binary ever fires more than one in a single turn.
 			let inputTokens = 0;
+			let cachedInputTokens = 0;
 			let outputTokens = 0;
 			let sawUsage = false;
 
@@ -101,8 +105,13 @@ export function createCodexProvider(CodexCtor: CodexCtor): Provider {
 							}
 							break;
 						case "turn.completed":
-							inputTokens += event.usage.input_tokens;
-							outputTokens += event.usage.output_tokens;
+							// `input_tokens` is gross prompt size (includes
+							// `cached_input_tokens`); see codex-sdk
+							// dist/index.d.ts:119-128. Matches the harness's
+							// normalized `inputTokens` definition.
+							inputTokens = event.usage.input_tokens;
+							cachedInputTokens = event.usage.cached_input_tokens;
+							outputTokens = event.usage.output_tokens;
 							sawUsage = true;
 							break;
 						case "turn.failed":
@@ -125,6 +134,7 @@ export function createCodexProvider(CodexCtor: CodexCtor): Provider {
 			if (sawUsage) {
 				const usage: TokenUsage = {
 					inputTokens,
+					cachedInputTokens,
 					outputTokens,
 					totalTokens: inputTokens + outputTokens,
 				};

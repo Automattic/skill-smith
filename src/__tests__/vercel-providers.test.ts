@@ -96,6 +96,7 @@ test("gemini-api returns GOOGLE_GENERATIVE_AI_API_KEY error when the env var is 
 test("runVercel maps result.totalUsage onto the normalized usage shape", async () => {
 	const model = fakeModel({
 		inputTokens: 200,
+		cachedInputTokens: 150,
 		outputTokens: 80,
 		totalTokens: 280,
 	});
@@ -103,6 +104,7 @@ test("runVercel maps result.totalUsage onto the normalized usage shape", async (
 	assert.equal(result.finalText, "ok");
 	assert.deepEqual(result.usage, {
 		inputTokens: 200,
+		cachedInputTokens: 150,
 		outputTokens: 80,
 		totalTokens: 280,
 	});
@@ -117,6 +119,7 @@ test("runVercel coalesces undefined token counts to 0", async () => {
 	const result = await runVercel(baseParams("openai-api"), model);
 	assert.deepEqual(result.usage, {
 		inputTokens: 0,
+		cachedInputTokens: 0,
 		outputTokens: 0,
 		totalTokens: 0,
 	});

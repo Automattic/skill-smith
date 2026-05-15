@@ -109,12 +109,17 @@ test("codex provider returns finalText from agent_message", async () => {
 	assert.equal(result.error, undefined);
 	assert.deepEqual(result.usage, {
 		inputTokens: 0,
+		cachedInputTokens: 0,
 		outputTokens: 0,
 		totalTokens: 0,
 	});
 });
 
-test("codex provider accumulates usage across turn.completed events", async () => {
+test("codex provider takes the last turn.completed usage", async () => {
+	// Codex emits one turn.completed per `runStreamed` call with usage
+	// cumulative for that call (codex-sdk dist/index.js:107-108 — the SDK's
+	// own `run()` helper overwrites rather than sums). If the binary ever
+	// fires more than one, we follow the same convention and keep the last.
 	const fake = makeFake({
 		events: [
 			{
@@ -133,9 +138,9 @@ test("codex provider accumulates usage across turn.completed events", async () =
 			{
 				type: "turn.completed",
 				usage: {
-					input_tokens: 30,
-					cached_input_tokens: 0,
-					output_tokens: 20,
+					input_tokens: 130,
+					cached_input_tokens: 20,
+					output_tokens: 60,
 					reasoning_output_tokens: 0,
 				},
 			},
@@ -145,6 +150,7 @@ test("codex provider accumulates usage across turn.completed events", async () =
 	const result = await provider.invoke(baseParams());
 	assert.deepEqual(result.usage, {
 		inputTokens: 130,
+		cachedInputTokens: 20,
 		outputTokens: 60,
 		totalTokens: 190,
 	});

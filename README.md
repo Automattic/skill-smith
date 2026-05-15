@@ -61,7 +61,7 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
       4. **`afterTestAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
       5. **`beforeJudgeAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
       6. **Judge agent.** Receives `scenario`, the rubrics it references, and `agentWorkspace`; produces a review verdict.
-      7. **Agent report.** The harness writes `report.yaml` to the agent directory: a `testing` block with the testing agent's wall-clock `duration` (ms) and, when the provider reports it, `tokenUsage` (`inputTokens`, `outputTokens`, `totalTokens`); plus a `review` block holding the judge verdict.
+      7. **Agent report.** The harness writes `report.yaml` to the agent directory: a `testing` block with the testing agent's wall-clock `duration` (ms) and, when the provider reports it, `tokenUsage` (`inputTokens` — gross prompt size including the cache-read portion; `cachedInputTokens` — the subset that was served from the prompt cache; `outputTokens`; `totalTokens` = `inputTokens + outputTokens`); plus a `review` block holding the judge verdict.
       8. **`afterJudgeAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
    4. **Scenario report.** The harness aggregates every agent's `report.yaml` into the scenario's `report.yaml`.
    5. **`afterScenario({ config, runId, scenario })`**.

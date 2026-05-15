@@ -24,14 +24,18 @@ export interface InvokeParams {
 }
 
 /**
- * Normalized token accounting reported by a provider. `totalTokens` is
- * always `inputTokens + outputTokens`, computed uniformly across every
- * provider so the number means the same thing everywhere. Cross-provider
- * cache- and reasoning-token accounting differs and is deliberately out
- * of scope — those breakdowns are not folded into these figures.
+ * Normalized token accounting reported by a provider. `inputTokens` is
+ * the **gross** prompt size in tokens for the whole run — including the
+ * portion that was a prompt-cache hit. `cachedInputTokens` is the subset
+ * of `inputTokens` that was served from cache; `inputTokens -
+ * cachedInputTokens` is the "new" tokens the model actually processed
+ * for the first time. `totalTokens` is `inputTokens + outputTokens` so
+ * the figure is directly comparable across providers regardless of
+ * native cache semantics.
  */
 export interface TokenUsage {
 	inputTokens: number;
+	cachedInputTokens: number;
 	outputTokens: number;
 	totalTokens: number;
 }
