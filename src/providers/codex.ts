@@ -5,7 +5,13 @@ import type {
 	ThreadOptions,
 } from "@openai/codex-sdk";
 import type { AgentDefinition } from "../config/types";
-import type { InvokeParams, InvokeResult, Provider, Role } from "./types";
+import type {
+	InvokeParams,
+	InvokeResult,
+	Provider,
+	Role,
+	TokenUsage,
+} from "./types";
 
 const SANDBOX_BY_ROLE: Record<Role, ThreadOptions["sandboxMode"]> = {
 	testing: "workspace-write",
@@ -44,6 +50,15 @@ export function createCodexProvider(CodexCtor: CodexCtor): Provider {
 			let finalText = "";
 			let toolUseCount = 0;
 			let error: string | undefined;
+			// Codex emits one `turn.completed` per call to `runStreamed`,
+			// carrying cumulative usage across all internal tool-use round
+			// trips within that turn. We follow the SDK's own `run()` helper
+			// and keep the last value seen rather than summing — defensive
+			// in case the binary ever fires more than one in a single turn.
+			let inputTokens = 0;
+			let cachedInputTokens = 0;
+			let outputTokens = 0;
+			let sawUsage = false;
 
 			try {
 				const codex = new CodexCtor({
@@ -89,6 +104,16 @@ export function createCodexProvider(CodexCtor: CodexCtor): Provider {
 									break;
 							}
 							break;
+						case "turn.completed":
+							// `input_tokens` is gross prompt size (includes
+							// `cached_input_tokens`); see codex-sdk
+							// dist/index.d.ts:119-128. Matches the harness's
+							// normalized `inputTokens` definition.
+							inputTokens = event.usage.input_tokens;
+							cachedInputTokens = event.usage.cached_input_tokens;
+							outputTokens = event.usage.output_tokens;
+							sawUsage = true;
+							break;
 						case "turn.failed":
 							error = firstError(error, event.error?.message ?? "turn.failed");
 							break;
@@ -106,6 +131,15 @@ export function createCodexProvider(CodexCtor: CodexCtor): Provider {
 
 			const result: InvokeResult = { finalText, toolUseCount };
 			if (error !== undefined) result.error = error;
+			if (sawUsage) {
+				const usage: TokenUsage = {
+					inputTokens,
+					cachedInputTokens,
+					outputTokens,
+					totalTokens: inputTokens + outputTokens,
+				};
+				result.usage = usage;
+			}
 			return result;
 		},
 	};

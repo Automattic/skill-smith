@@ -17,7 +17,7 @@
  */
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import { generateText, type LanguageModel, stepCountIs } from "ai";
-import type { InvokeParams, InvokeResult } from "../types";
+import type { InvokeParams, InvokeResult, TokenUsage } from "../types";
 import { fsTools } from "./fs-tools";
 
 const MAX_STEPS = 25;
@@ -31,6 +31,7 @@ export async function runVercel(
 	let finalText = "";
 	let toolUseCount = 0;
 	let error: string | undefined;
+	let usage: TokenUsage | undefined;
 
 	try {
 		const result = await generateText({
@@ -47,12 +48,26 @@ export async function runVercel(
 			(n, step) => n + step.toolCalls.length,
 			0,
 		);
+		// `totalUsage` is already aggregated across steps; every field is
+		// `number | undefined`, so coalesce to 0. Vercel's `inputTokens` is
+		// gross prompt size (cached + uncached), matching our normalized
+		// `TokenUsage.inputTokens` definition.
+		const inputTokens = result.totalUsage.inputTokens ?? 0;
+		const cachedInputTokens = result.totalUsage.cachedInputTokens ?? 0;
+		const outputTokens = result.totalUsage.outputTokens ?? 0;
+		usage = {
+			inputTokens,
+			cachedInputTokens,
+			outputTokens,
+			totalTokens: inputTokens + outputTokens,
+		};
 	} catch (err) {
 		error = err instanceof Error ? err.message : String(err);
 	}
 
 	const out: InvokeResult = { finalText, toolUseCount };
 	if (error !== undefined) out.error = error;
+	if (usage !== undefined) out.usage = usage;
 	return out;
 }
 

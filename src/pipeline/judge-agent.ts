@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { parse as parseYaml } from "yaml";
 import type {
 	AgentDefinition,
 	Scenario,
@@ -29,12 +29,14 @@ export interface RunJudgeAgentParams {
  * If `judges` has more than one entry the harness uses the first and
  * logs a `multiJudge` gap; cross-judge aggregation is not yet defined.
  *
- * Output → `${agentDirectory}/judge-review.yaml`. Unparseable model
- * output → write the raw text alongside `error: "unparseable"`.
+ * Returns the review object — `{ rubrics, acceptance }` on success, or
+ * an error-shaped payload on the failure paths. The caller
+ * (`agent-loop.ts`) is the single writer of the per-agent
+ * `report.yaml`, embedding this under the `review` key.
  */
 export async function runJudgeAgent(
 	params: RunJudgeAgentParams,
-): Promise<void> {
+): Promise<unknown> {
 	const {
 		scenario,
 		judges,
@@ -49,9 +51,8 @@ export async function runJudgeAgent(
 
 	const judge = judges[0];
 	if (judge === undefined) {
-		writeReview(agentDirectory, { error: "no judge configured" });
 		log.info(`${scope}: no judge configured`);
-		return;
+		return { error: "no judge configured" };
 	}
 	if (judges.length > 1) {
 		log.gap("multiJudge", {
@@ -82,26 +83,24 @@ export async function runJudgeAgent(
 	});
 
 	if (result.error !== undefined) {
-		writeReview(agentDirectory, {
+		log.info(`${scope}: dispatch failed — ${result.error}`);
+		return {
 			error: `judge dispatch failed: ${result.error}`,
 			raw: result.finalText,
-		});
-		log.info(`${scope}: dispatch failed — ${result.error}`);
-		return;
+		};
 	}
 
 	const parsed = parseJudgeYaml(result.finalText);
 	if (parsed === undefined) {
-		writeReview(agentDirectory, {
+		log.info(`${scope}: judge YAML unparseable, raw stored`);
+		return {
 			error: "unparseable",
 			raw: result.finalText,
-		});
-		log.info(`${scope}: judge YAML unparseable, raw stored`);
-		return;
+		};
 	}
 
-	writeReview(agentDirectory, parsed);
 	log.info(`${scope}: judge verdict written`);
+	return parsed;
 }
 
 function buildJudgeSystemPrompt(
@@ -171,8 +170,4 @@ function buildUserMessage(
 	if (sections.length === 0) sections.push("=== (no files written) ===");
 	sections.push("\n--\n", scenario.description);
 	return sections.join("\n");
-}
-
-function writeReview(agentDirectory: string, body: unknown): void {
-	writeFileSync(join(agentDirectory, "judge-review.yaml"), stringifyYaml(body));
 }

@@ -9,6 +9,7 @@ import type {
 	SkillsmithConfig,
 } from "../config/types";
 import type { ProgressTracker } from "../progress";
+import type { TokenUsage } from "../providers/types";
 import { tryHook } from "../util/hooks";
 import type { RunLog } from "../util/run-log";
 import { runJudgeAgent } from "./judge-agent";
@@ -30,6 +31,18 @@ export interface TestingAgentResult {
 	toolUseCount: number;
 	filesWritten: string[];
 	error?: string;
+	usage?: TokenUsage;
+}
+
+/**
+ * The `testing` block persisted into the per-agent `report.yaml`.
+ * `duration` is wall-clock milliseconds for the testing-agent
+ * invocation; `tokenUsage` is omitted when the provider reported no
+ * usage (e.g. the testing agent errored before returning any).
+ */
+interface TestingBlock {
+	duration: number;
+	tokenUsage?: TokenUsage;
 }
 
 /**
@@ -136,11 +149,17 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 			error: msg,
 		};
 	}
+	const testingDuration = Date.now() - testingStart;
 	tracker.phaseFinished(scenario.name, agent.id, "testing", {
 		status: testingResult.error === undefined ? "passed" : "failed",
-		durationMs: Date.now() - testingStart,
+		durationMs: testingDuration,
 		detail: testingResult.error,
 	});
+
+	const testing: TestingBlock = { duration: testingDuration };
+	if (testingResult.usage !== undefined) {
+		testing.tokenUsage = testingResult.usage;
+	}
 
 	await tryHook(
 		"afterTestAgent",
@@ -161,8 +180,9 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	tracker.phaseStarted(scenario.name, agent.id, "judge");
 	const judgeStart = Date.now();
 	let judgeError: string | undefined;
+	let review: unknown;
 	try {
-		await runJudgeAgent({
+		review = await runJudgeAgent({
 			scenario,
 			judges: config.agents.judge,
 			agentDirectory,
@@ -175,7 +195,7 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		log.info(`judge-agent failed (${scope}): ${msg}`);
-		writeSkippedReview(agentDirectory, `judge dispatch failed: ${msg}`);
+		review = { skipped: `judge dispatch failed: ${msg}` };
 		judgeError = msg;
 	}
 	tracker.phaseFinished(scenario.name, agent.id, "judge", {
@@ -183,6 +203,8 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		durationMs: Date.now() - judgeStart,
 		detail: judgeError,
 	});
+
+	writeAgentReport(agentDirectory, testing, review);
 
 	await tryHook(
 		"afterJudgeAgent",
@@ -193,10 +215,19 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	);
 }
 
-function writeSkippedReview(agentDirectory: string, reason: string): void {
+/**
+ * Single writer of the per-agent `report.yaml`. Pairs the `testing`
+ * block (always present) with whatever the judge step produced under
+ * `review`.
+ */
+function writeAgentReport(
+	agentDirectory: string,
+	testing: TestingBlock,
+	review: unknown,
+): void {
 	mkdirSync(agentDirectory, { recursive: true });
 	writeFileSync(
-		join(agentDirectory, "judge-review.yaml"),
-		stringifyYaml({ skipped: reason }),
+		join(agentDirectory, "report.yaml"),
+		stringifyYaml({ testing, review }),
 	);
 }
