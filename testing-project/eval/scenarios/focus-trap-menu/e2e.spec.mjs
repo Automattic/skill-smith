@@ -1,4 +1,5 @@
 import { expect, test } from "@wordpress/e2e-test-utils-playwright";
+import { deactivateAllPlugins } from "../../utils/wp-cli.mjs";
 
 /**
  * E2E tests for the focus-trap-menu scenario.
@@ -7,6 +8,7 @@ import { expect, test } from "@wordpress/e2e-test-utils-playwright";
 test.describe("focus-trap-menu scenario", () => {
 	let post;
 	test.beforeAll(async ({ requestUtils }, workerInfo) => {
+		deactivateAllPlugins();
 		await requestUtils.activatePlugin(
 			`plugin-focus-trap-menu-${workerInfo.project.metadata.agentId}`,
 		);
@@ -20,11 +22,9 @@ test.describe("focus-trap-menu scenario", () => {
 		await page.goto(`/?p=${post.id}`);
 	});
 
-	test.afterAll(async ({ requestUtils }, workerInfo) => {
+	test.afterAll(async ({ requestUtils }) => {
+		deactivateAllPlugins();
 		await requestUtils.deleteAllPosts();
-		await requestUtils.deactivatePlugin(
-			`plugin-focus-trap-menu-${workerInfo.project.metadata.agentId}`,
-		);
 	});
 
 	test("drawer is closed initially with aria-expanded='false'", async ({

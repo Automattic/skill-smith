@@ -4,23 +4,20 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  Create an interactive expandable-note block for WordPress. The block should:
-  1. Render a button followed by a short paragraph beneath it.
-  2. Toggle the paragraph's visibility when the button is clicked.
-  3. Reflect the open/closed state on the button via aria-expanded.
-  4. The paragraph must be hidden initially (before any JavaScript runs).
-
-  Drive both the button's aria-expanded state and the paragraph's
-  visibility from a single boolean — do not maintain two independent
-  flags.
+  I want an interactive block for WordPress for an expandable note.
+  It should render a button with a short paragraph beneath it. When
+  the page first loads, the paragraph is hidden and the button reports
+  aria-expanded="false". Clicking the button reveals the paragraph and
+  flips aria-expanded to "true"; clicking it again hides the paragraph
+  and flips aria-expanded back to "false". The button's aria-expanded
+  value should always match whether the paragraph is currently visible.
 
 acceptance:
-  - Uses data-wp-context (or wp_interactivity_state) to hold a single boolean visibility flag
-  - Button uses data-wp-on--click bound to a store action
-  - Button uses data-wp-bind--aria-expanded reflecting that boolean
-  - Paragraph uses data-wp-bind--hidden bound to the negated boolean
-  - Toggle action mutates the boolean via getContext() (or state) — no manual DOM manipulation in view.js
-  - Initial server-rendered HTML has the paragraph with the hidden attribute set and aria-expanded="false" on the button
+  - A single boolean in state or context drives both the button's aria-expanded value and the paragraph's hidden state, so the two cannot drift apart
+  - The button uses data-wp-on--click bound to a named toggle action that flips that boolean
+  - The button uses data-wp-bind--aria-expanded bound to that boolean (so aria-expanded reflects it directly)
+  - The paragraph uses data-wp-bind--hidden bound to the negation of that boolean (or the button uses an equivalent bound directive that hides the paragraph when the boolean is false)
+  - Server-rendered HTML reflects the initial closed state: the paragraph carries the hidden attribute and the button has aria-expanded="false"
 
 rubrics:
   - wp-interactivity-api-best-practices

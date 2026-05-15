@@ -1,0 +1,9 @@
+name: counter-scenario
+description: Counter scenario
+skills:
+  - foo
+prompt: Build a counter.
+acceptance:
+  - Counter works.
+rubrics:
+  - r1

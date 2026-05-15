@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
@@ -13,6 +13,7 @@ import { defineConfig } from "skillsmith";
 const PROJECT_ROOT = dirname(fileURLToPath(import.meta.url));
 const BLOCK_NAME = "skillsmith/testing-block";
 const SLUG_PATTERN = /^[a-z0-9-]+$/;
+const WP_ENV_PORT = Number(process.env.WP_ENV_PORT ?? 8987);
 
 function pluginSlug(scenarioName: string, agentId: string): string {
 	if (!SLUG_PATTERN.test(scenarioName)) {
@@ -88,14 +89,33 @@ export default defineConfig({
 				provider: "claude-code",
 				model: "claude-haiku-4-5-20251001",
 			},
-			{ id: "sonnet", provider: "claude-code", model: "claude-sonnet-4-6" },
-			{ id: "opus", provider: "claude-code", model: "claude-opus-4-7" },
+			{
+				id: "anthropic-sonnet",
+				provider: "anthropic-api",
+				model: "claude-sonnet-4-6",
+			},
+			{
+				id: "openai-api-nano",
+				provider: "openai-api",
+				model: "gpt-5.4-nano",
+			},
+			{ id: "codex-mini", provider: "codex", model: "gpt-5.4-mini" },
+			{
+				id: "codex-gpt55",
+				provider: "codex",
+				model: "gpt-5.5",
+			},
+			{
+				id: "gemini-flash",
+				provider: "gemini-api",
+				model: "gemini-2.5-flash",
+			},
 		],
 		judge: [
 			{
-				id: "opus",
-				provider: "claude-code",
-				model: "claude-opus-4-7",
+				id: "codex",
+				provider: "codex",
+				model: "gpt-5.5",
 				effort: "xhigh",
 			},
 		],
@@ -116,9 +136,12 @@ export default defineConfig({
 			writeFileSync(join(agentWorkspace, "AGENTS.md"), agentsMd(slug));
 		},
 
-		afterAll: ({ runId, config }) => {
+		afterAll: ({ runId, config, scenarios }) => {
 			const runDirectory = join(config.paths.base, runId);
 			const reportPath = join(runDirectory, "tests-report.json");
+			const e2eSpecs = scenarios.map(({ dirName }) =>
+				join("eval", "scenarios", dirName, "e2e.spec.mjs"),
+			);
 			// `.wp-env.json` is gitignored and owned by this hook: it lives
 			// only for the duration of the run and is removed afterwards.
 			const wpEnvConfigPath = join(PROJECT_ROOT, ".wp-env.json");
@@ -150,6 +173,7 @@ export default defineConfig({
 				`${JSON.stringify(
 					{
 						plugins: pluginPaths,
+						port: WP_ENV_PORT,
 						testsEnvironment: false,
 						// wp-env always runs `wp plugin activate <basename>` for
 						// every entry in `plugins` during start; `afterStart`
@@ -165,16 +189,29 @@ export default defineConfig({
 				)}\n`,
 			);
 
+			const wpEnv = {
+				...process.env,
+				WP_ENV_PORT: String(WP_ENV_PORT),
+				WP_BASE_URL: `http://localhost:${WP_ENV_PORT}`,
+			};
 			try {
-				execSync("npm run env:start", { stdio: "inherit", cwd: PROJECT_ROOT });
-				execSync("npm run test:e2e", {
+				execSync("npm run env:start", {
 					stdio: "inherit",
 					cwd: PROJECT_ROOT,
-					env: { ...process.env, PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath },
+					env: wpEnv,
+				});
+				execFileSync("npm", ["run", "test:e2e", "--", ...e2eSpecs], {
+					stdio: "inherit",
+					cwd: PROJECT_ROOT,
+					env: { ...wpEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath },
 				});
 			} finally {
 				try {
-					execSync("npm run env:stop", { stdio: "inherit", cwd: PROJECT_ROOT });
+					execSync("npm run env:stop", {
+						stdio: "inherit",
+						cwd: PROJECT_ROOT,
+						env: wpEnv,
+					});
 				} catch (err) {
 					console.error("wp-env stop failed:", err);
 				}

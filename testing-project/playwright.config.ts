@@ -11,7 +11,8 @@ const STORAGE_STATE_PATH = path.join(
 // @wordpress/e2e-test-utils-playwright reads WP_BASE_URL and STORAGE_STATE_PATH
 // at module load. Pin them here so both global-setup and the package's own
 // per-worker requestUtils fixture write to the same file.
-process.env.WP_BASE_URL ??= "http://localhost:8888";
+const WP_ENV_PORT = process.env.WP_ENV_PORT ?? "8987";
+process.env.WP_BASE_URL ??= `http://localhost:${WP_ENV_PORT}`;
 process.env.STORAGE_STATE_PATH ??= STORAGE_STATE_PATH;
 
 export default defineConfig({

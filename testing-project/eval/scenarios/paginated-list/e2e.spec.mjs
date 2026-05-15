@@ -1,4 +1,5 @@
 import { expect, test } from "@wordpress/e2e-test-utils-playwright";
+import { deactivateAllPlugins } from "../../utils/wp-cli.mjs";
 
 /**
  * E2E tests for the paginated-list scenario.
@@ -14,6 +15,7 @@ import { expect, test } from "@wordpress/e2e-test-utils-playwright";
 test.describe("paginated-list scenario", () => {
 	let post;
 	test.beforeAll(async ({ requestUtils }, workerInfo) => {
+		deactivateAllPlugins();
 		await requestUtils.activatePlugin(
 			`plugin-paginated-list-${workerInfo.project.metadata.agentId}`,
 		);
@@ -35,11 +37,9 @@ test.describe("paginated-list scenario", () => {
 		await page.goto(`/?p=${post.id}`);
 	});
 
-	test.afterAll(async ({ requestUtils }, workerInfo) => {
+	test.afterAll(async ({ requestUtils }) => {
+		deactivateAllPlugins();
 		await requestUtils.deleteAllPosts();
-		await requestUtils.deactivatePlugin(
-			`plugin-paginated-list-${workerInfo.project.metadata.agentId}`,
-		);
 	});
 
 	test("renders the first page of 3 newest posts server-side", async ({

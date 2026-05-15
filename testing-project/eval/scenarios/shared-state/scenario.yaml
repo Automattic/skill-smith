@@ -4,23 +4,20 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  Create an interactive shared-tally block for WordPress. The block should:
-  1. Render a counter (starting at 0) and an "Increment" button.
-  2. Hold the counter value in GLOBAL state (initialized in PHP via
-     wp_interactivity_state), NOT in local context.
-  3. When the same block is placed multiple times on a single page, all
-     instances must reflect the same counter value, and clicking Increment
-     on ANY instance must update the displayed value on EVERY instance.
+  I'd like an interactive block for WordPress that shows a shared tally
+  counter. It should display a number (starting at 0) and an "Increment"
+  button. The key thing is that the counter is shared page-wide: if I drop
+  the block onto a page multiple times, every instance should show the same
+  number, and clicking "Increment" on any one of them should bump the number
+  up on all of them at once.
 
 acceptance:
-  - PHP calls wp_interactivity_state with the initial counter value (0)
-  - Counter renders via data-wp-text="state.counter" (NOT context.counter)
-  - Increment button uses data-wp-on--click bound to a store action
-  - Action mutates state.counter directly (e.g. state.counter += 1)
-  - data-wp-context is NOT used to hold the counter
-  - The same data-wp-interactive namespace is used on every instance
-  - block.json declares supports.interactivity and a viewScriptModule entry
-  - Initial server-rendered HTML shows "0" in every instance's counter
+  - Counter value lives in global state seeded via `wp_interactivity_state()` (not in `data-wp-context` / `wp_interactivity_data_wp_context()`), so it is shared across instances rather than per-instance
+  - Initial global state for the counter is seeded to 0 on the server
+  - Every rendered instance uses the same `data-wp-interactive` namespace string, and that namespace matches the one passed to `store()`
+  - The displayed value is bound with `data-wp-text` referencing the global state property (e.g. `state.counter`), not a context property
+  - Has a named increment action wired via `data-wp-on--click` on the Increment button
+  - The increment action mutates the shared `state.*` counter property (not a `context.*` property)
 
 rubrics:
   - wp-interactivity-api-best-practices

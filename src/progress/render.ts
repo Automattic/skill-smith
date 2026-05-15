@@ -78,12 +78,19 @@ function counterSummary(c: CounterSlice, color: boolean): string {
 		`pass ${paint(String(c.passed), "green", color)}`,
 		`fail ${paint(String(c.failed), c.failed > 0 ? "red" : undefined, color)}`,
 	];
-	if (c.skipped > 0) parts.push(`skip ${paint(String(c.skipped), "yellow", color)}`);
-	if (c.running > 0) parts.push(`run ${paint(String(c.running), "cyan", color)}`);
+	if (c.skipped > 0)
+		parts.push(`skip ${paint(String(c.skipped), "yellow", color)}`);
+	if (c.running > 0)
+		parts.push(`run ${paint(String(c.running), "cyan", color)}`);
 	return parts.join(" · ");
 }
 
-function bar(done: number, total: number, width: number, color: boolean): string {
+function bar(
+	done: number,
+	total: number,
+	width: number,
+	color: boolean,
+): string {
 	if (total <= 0) return paint("░".repeat(width), "gray", color);
 	const fillCount = Math.min(width, Math.round((done / total) * width));
 	const filled = "█".repeat(fillCount);

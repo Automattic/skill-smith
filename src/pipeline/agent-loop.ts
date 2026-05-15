@@ -4,6 +4,7 @@ import { stringify as stringifyYaml } from "yaml";
 import type {
 	AgentContext,
 	AgentDefinition,
+	RunScenario,
 	Scenario,
 	SkillsmithConfig,
 } from "../config/types";
@@ -21,6 +22,7 @@ export interface RunAgentsParams {
 	projectRoot: string;
 	log: RunLog;
 	tracker: ProgressTracker;
+	scenarios: RunScenario[];
 }
 
 export interface TestingAgentResult {
@@ -44,6 +46,7 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 		projectRoot,
 		log,
 		tracker,
+		scenarios,
 	} = params;
 
 	await Promise.all(
@@ -57,6 +60,7 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 				projectRoot,
 				log,
 				tracker,
+				scenarios,
 			}),
 		),
 	);
@@ -71,6 +75,7 @@ interface RunAgentPairParams {
 	projectRoot: string;
 	log: RunLog;
 	tracker: ProgressTracker;
+	scenarios: RunScenario[];
 }
 
 async function runAgentPair(params: RunAgentPairParams): Promise<void> {
@@ -83,6 +88,7 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		projectRoot,
 		log,
 		tracker,
+		scenarios,
 	} = params;
 	const agentDirectory = join(scenarioDirectory, agent.id);
 	const agentWorkspace = join(agentDirectory, "workspace");
@@ -92,6 +98,7 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	const agentCtx: AgentContext = {
 		runId,
 		config,
+		scenarios,
 		scenario,
 		agent,
 		agentWorkspace,

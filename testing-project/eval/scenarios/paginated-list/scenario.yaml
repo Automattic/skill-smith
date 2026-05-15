@@ -4,31 +4,36 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  Create an interactive paginated-list block for WordPress. The block should:
-  1. Render the 3 most recent published posts on the front-end, newest first.
-     Each post is shown with its title (a link to the post is fine).
-  2. Render Next/Previous pagination links underneath, with text "Next" and
-     "Previous" respectively. Hide the Previous link on page 1 and the Next
-     link on the last page.
-  3. When Next/Previous is clicked, update the list CLIENT-SIDE — no full
-     page reload — using the Interactivity API router.
+  I want an interactive block for WordPress that displays a paginated list
+  of my most recent posts.
 
-  The page number must be carried in the URL query parameter `pg` (e.g.
-  ?pg=2). Do NOT use the `paged` parameter (it collides with WordPress's
-  built-in main-query pagination).
+  On every page, show the 3 most recent published posts, newest first, with
+  each post's title rendered as a link to the post.
 
-  The pagination links must remain real <a href="..."> anchors so they
-  still work without JavaScript.
+  Below the list, show "Previous" and "Next" controls for paging through
+  older/newer posts. Hide "Previous" while we're on page 1, and hide "Next"
+  once we're on the last page.
+
+  When a visitor clicks Next or Previous, the post list should swap to the
+  new page in place — no full browser reload, no flash of a blank page —
+  and the URL should update to reflect the new page. Use `pg` as the query
+  parameter name (e.g. `?pg=2`); please do NOT use `paged`, because that
+  clashes with WordPress's main-query pagination.
+
+  One more thing: if a visitor has JavaScript disabled, the pagination
+  controls should still work as normal links. So the Next/Previous controls
+  need to be real `<a href="...">` anchors pointing at the corresponding
+  `?pg=<n>` URL — the in-place swap is a progressive enhancement on top of
+  links that already work on their own.
 
 acceptance:
-  - The block's wrapper has data-wp-router-region with a unique namespaced ID
-  - Pagination links are rendered as <a> elements with valid href values that include ?pg=<n>
-  - Pagination links use data-wp-on--click bound to an action that calls actions.navigate(href)
-  - The action is wrapped with withSyncEvent and calls event.preventDefault()
-  - view.js imports the router via dynamic `yield import('@wordpress/interactivity-router')`
-  - block.json declares supports.interactivity (with clientNavigation true) and a viewScriptModule entry
-  - render.php reads $_GET['pg'] (with a fallback to 1) and uses it to compute the slice of posts
-  - On click, the URL updates to ?pg=2 without a full page reload
+  - The wrapper around the post list and Next/Previous controls carries `data-wp-router-region` (with a stable region id) so the runtime knows what to swap on client-side navigation
+  - Next/Previous controls are real `<a>` anchors whose `href` is the canonical `?pg=<n>` URL for the target page, so the block is functional with JavaScript disabled
+  - Each Next/Previous anchor wires its click through `data-wp-on--click` (no manual `addEventListener` in view.js) bound to a store action that performs the in-place swap
+  - The click action is wrapped with `withSyncEvent` so it can call `event.preventDefault()` synchronously before yielding, suppressing the browser's default full-page navigation
+  - The click action is declared as a generator (`function*`), dynamically imports the router module via `yield import('@wordpress/interactivity-router')`, and then calls its `actions.navigate(href)` with the anchor's own `href`
+  - `render.php` reads `$_GET['pg']` (defaulting to 1 when absent / invalid) and uses it to compute which 3-post slice of the latest-posts query to render, so the correct posts are present in the initial server-rendered HTML
+  - `block.json`'s `supports.interactivity` is declared in object form with `clientNavigation: true`, since this block depends on the router for in-place page swaps
 
 rubrics:
   - wp-interactivity-api-best-practices

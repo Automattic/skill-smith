@@ -4,9 +4,7 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  Create an interactive counter block for WordPress. The block should:
-  1. Display a counter value (starting at 5)
-  2. Have "Increment" and "Decrement" buttons that change the counter value
+  I want to build a small interactive block for WordPress. On the front end it should show a number that starts at 5, plus two buttons labeled "Increment" and "Decrement". Clicking "Increment" should bump the number up by one, and clicking "Decrement" should bring it down by one. The displayed number needs to update right away when a button is clicked.
 
 acceptance:
   - Has increment and decrement actions that modify the counter state

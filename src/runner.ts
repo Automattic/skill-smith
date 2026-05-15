@@ -1,9 +1,11 @@
 import { PreconditionError, resolveProjectRoot } from "./config/resolve-cwd";
 import { runPipeline } from "./pipeline/pipeline";
+import { UserFacingError } from "./util/errors";
 
 export interface RunOptions {
 	cwd?: string;
 	verbose?: boolean;
+	scenarios?: string[];
 }
 
 function makeRunId(now: Date = new Date()): string {
@@ -25,9 +27,10 @@ export async function run(options: RunOptions = {}): Promise<number> {
 			projectRoot,
 			runId: makeRunId(),
 			verbose: options.verbose ?? false,
+			scenarios: options.scenarios,
 		});
 	} catch (err) {
-		if (err instanceof PreconditionError) {
+		if (err instanceof PreconditionError || err instanceof UserFacingError) {
 			console.error(err.message);
 			return 1;
 		}

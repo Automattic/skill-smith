@@ -261,7 +261,11 @@ test("tick is suppressed before the first event-driven paint", async () => {
 	);
 
 	await new Promise((r) => setTimeout(r, 60));
-	assert.equal(chunks.length, 0, "no paint before first event, even with ticks");
+	assert.equal(
+		chunks.length,
+		0,
+		"no paint before first event, even with ticks",
+	);
 	tracker.finish();
 });
 
