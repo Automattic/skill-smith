@@ -4,25 +4,21 @@ skills:
   - wp-interactivity-api
 
 prompt: |
-  Create an interactive fruit-list block for WordPress. The block should:
-  1. Initialize a fruit list in PHP with these initial values:
-     ["Apple", "Banana", "Cherry"].
-  2. Render the list as a <ul> where each fruit is an <li> using the
-     Interactivity API's data-wp-each directive (with a <template> tag).
-  3. Include an "Add Mango" button that appends "Mango" to the list when
-     clicked.
+  I'd like an interactive block for WordPress that shows a list of fruits.
 
-  The initial three fruits must appear in the server-rendered HTML before
-  any JavaScript runs.
+  When the page first loads, the list should already contain three fruits:
+  Apple, Banana, and Cherry.
+
+  Below the list there should be a button labeled "Add Mango". Clicking it
+  should add "Mango" as a new item at the end of the list.
 
 acceptance:
-  - PHP calls wp_interactivity_state with a `fruits` array containing Apple, Banana, Cherry
-  - List uses <template data-wp-each="state.fruits"> wrapping the <li> template
-  - Inside the template, each <li> renders the fruit name via data-wp-text="context.item"
-  - Initial server-rendered HTML contains <li> elements for "Apple", "Banana", and "Cherry" (no JS required)
-  - Add Mango button uses data-wp-on--click bound to a store action
-  - Action mutates state.fruits via .push() (no array reassignment)
-  - After clicking Add Mango, a new <li> with text "Mango" appears as the last item
+  - The `fruits` array is seeded server-side via `wp_interactivity_state()` (not hand-encoded JSON in HTML attributes, and not a PHP-only variable that never enters Interactivity state), and its initial value is the three strings "Apple", "Banana", "Cherry" in that order
+  - The <ul> renders its items via the Interactivity API's `data-wp-each` directive iterating over the fruits collection, with the per-item <li> defined inside a child `<template>` element — not a PHP `foreach` that emits static <li> tags
+  - The `<li>` inside the `<template>` binds its text via `data-wp-text` referencing the per-iteration context item (e.g. `data-wp-text="context.item"`), rather than echoing the value through PHP or assigning it from JS
+  - The three initial `<li>` elements are present in the server-rendered HTML produced by `data-wp-each`'s server-side hydration of the seeded fruits array, so the list is visible before JavaScript runs
+  - There is a named store action wired to the "Add Mango" button through `data-wp-on--click` (no manual `addEventListener` in view.js)
+  - The "Add Mango" action mutates the existing fruits array in place via `.push("Mango")` (or equivalent in-place mutation) rather than reassigning `state.fruits` to a new array, so `data-wp-each` reactivity picks up the new item
 
 rubrics:
   - wp-interactivity-api-best-practices
