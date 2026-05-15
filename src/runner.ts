@@ -4,6 +4,7 @@ import { UserFacingError } from "./util/errors";
 
 export interface RunOptions {
 	cwd?: string;
+	verbose?: boolean;
 	scenarios?: string[];
 }
 
@@ -25,6 +26,7 @@ export async function run(options: RunOptions = {}): Promise<number> {
 		return await runPipeline({
 			projectRoot,
 			runId: makeRunId(),
+			verbose: options.verbose ?? false,
 			scenarios: options.scenarios,
 		});
 	} catch (err) {

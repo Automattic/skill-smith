@@ -3,17 +3,27 @@ import { dirname, join } from "node:path";
 
 type HookOutcome = "invoked" | "noop" | "error";
 
+export interface RunLogOptions {
+	mirrorStderr?: boolean;
+}
+
 /**
- * In-memory accumulator for the run log. Mirrored to stderr live so
- * users see progress during long agent calls; dumped to
- * `${runDirectory}/run.log` at the end as the authoritative artifact.
+ * In-memory accumulator for the run log. Optionally mirrored to stderr
+ * (off by default; the progress tracker owns the live stderr view).
+ * Dumped to `${runDirectory}/run.log` at the end as the authoritative
+ * artifact regardless of the mirror setting.
  */
 export class RunLog {
 	private readonly lines: string[] = [];
+	private readonly mirrorStderr: boolean;
+
+	constructor(opts: RunLogOptions = {}) {
+		this.mirrorStderr = opts.mirrorStderr ?? false;
+	}
 
 	private append(line: string): void {
 		this.lines.push(line);
-		process.stderr.write(`${line}\n`);
+		if (this.mirrorStderr) process.stderr.write(`${line}\n`);
 	}
 
 	header(line: string): void {

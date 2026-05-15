@@ -8,6 +8,7 @@ import type {
 	ScenarioContext,
 	SkillsmithConfig,
 } from "../config/types";
+import { ProgressTracker } from "../progress";
 import { aggregateRunReport } from "../reports/run-report";
 import { aggregateScenarioReport } from "../reports/scenario-report";
 import { printSummary } from "../reports/summary";
@@ -23,6 +24,7 @@ import { runAgents } from "./agent-loop";
 export interface PipelineParams {
 	projectRoot: string;
 	runId: string;
+	verbose?: boolean;
 	scenarios?: string[];
 }
 
@@ -39,7 +41,7 @@ export interface ScenarioRunRecord {
  * report, then print the summary.
  */
 export async function runPipeline(params: PipelineParams): Promise<number> {
-	const { projectRoot, runId } = params;
+	const { projectRoot, runId, verbose } = params;
 
 	const config = await loadConfig(projectRoot);
 	checkPaths(config, projectRoot);
@@ -50,7 +52,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 	const runDirectory = resolve(projectRoot, config.paths.base, runId);
 
-	const log = new RunLog();
+	const log = new RunLog({ mirrorStderr: verbose ?? false });
 	log.header(`skillsmith run ${runId}`);
 	log.info(`projectRoot=${projectRoot}`);
 	log.info(`runDirectory=${runDirectory}`);
@@ -78,6 +80,22 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		log.info(`  - ${s.scenario.name}${s.error ? ` [error: ${s.error}]` : ""}`);
 	}
 
+	const tracker = new ProgressTracker(
+		{
+			runId,
+			scenarios: scenarios.map((s) => ({
+				name: s.scenario.name,
+				agentIds: config.agents.testing.map((a) => a.id),
+			})),
+		},
+		verbose ? { interactive: false } : {},
+	);
+	for (const s of scenarios) {
+		if (s.error !== undefined) {
+			tracker.scenarioSkipped(s.scenario.name, s.error);
+		}
+	}
+
 	let scenarioRecords: ScenarioRunRecord[];
 	try {
 		scenarioRecords = await Promise.all(
@@ -88,12 +106,14 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 					projectRoot,
 					runDirectory,
 					log,
+					tracker,
 					scenarios: runCtx.scenarios,
 				}),
 			),
 		);
 	} finally {
 		await tryHook("afterAll", "run", config.hooks?.afterAll, runCtx, log);
+		tracker.finish();
 	}
 
 	aggregateRunReport({
@@ -148,6 +168,7 @@ interface ScenarioRunArgs {
 	projectRoot: string;
 	runDirectory: string;
 	log: RunLog;
+	tracker: ProgressTracker;
 	scenarios: RunScenario[];
 }
 
@@ -187,6 +208,7 @@ async function runScenario(
 				runId: args.runId,
 				projectRoot: args.projectRoot,
 				log: args.log,
+				tracker: args.tracker,
 				scenarios: args.scenarios,
 			});
 		}

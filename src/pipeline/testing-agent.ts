@@ -88,6 +88,7 @@ export async function runTestingAgent(
 		filesWritten,
 	};
 	if (result.error !== undefined) out.error = result.error;
+	if (result.usage !== undefined) out.usage = result.usage;
 	return out;
 }
 
