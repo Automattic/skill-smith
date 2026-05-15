@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -73,7 +79,7 @@ test("all-pass run exits 0 with RUN RESULT: PASS", async () => {
 	assert.match(out, /RUN RESULT: PASS/);
 });
 
-test("any failure → exit 1, FAIL, and per-scenario one-liner", async () => {
+test("any failure → exit 1, FAIL, and a line per failing rubric/acceptance", async () => {
 	const { runDirectory } = withReport({
 		"counter-block": {
 			scenario: "counter-block",
@@ -87,7 +93,13 @@ test("any failure → exit 1, FAIL, and per-scenario one-liner", async () => {
 				},
 				opus: {
 					testing: { duration: 1100 },
-					review: { rubrics: { r1: { pass: false, notes: "bad" } } },
+					review: {
+						rubrics: {
+							r1: { pass: false, notes: "bad" },
+							r2: { pass: false, notes: "also bad" },
+						},
+						acceptance: [{ item: "uses fetch", pass: false }],
+					},
 				},
 			},
 		},
@@ -101,7 +113,68 @@ test("any failure → exit 1, FAIL, and per-scenario one-liner", async () => {
 	assert.match(out, /counter-block\s+haiku\s+PASS\s+1\.2s/);
 	assert.match(out, /\bopus\s+FAIL\s+1\.1s/);
 	assert.match(out, /RUN RESULT: FAIL/);
-	assert.match(out, /counter-block: opus: rubric r1 not pass/);
+	assert.match(out, /opus: rubric r1/);
+	assert.match(out, /opus: rubric r2/);
+	assert.match(out, /opus: acceptance uses fetch/);
+	assert.doesNotMatch(out, /not pass/);
+});
+
+test("multiple failing scenarios each get their own block", async () => {
+	const { runDirectory } = withReport({
+		"config-fetch": {
+			scenario: "config-fetch",
+			agents: {
+				"codex-gpt55": {
+					testing: { duration: 1000 },
+					review: {
+						rubrics: { r1: { pass: false } },
+						acceptance: [{ item: "ok", pass: true }],
+					},
+				},
+				"codex-mini": {
+					testing: { duration: 1000 },
+					review: {
+						rubrics: { r2: { pass: false } },
+						acceptance: [{ item: "ok", pass: true }],
+					},
+				},
+			},
+		},
+		other: {
+			scenario: "other",
+			agents: {
+				"codex-gpt55": {
+					testing: { duration: 1000 },
+					review: {
+						rubrics: { r3: { pass: false } },
+						acceptance: [{ item: "ok", pass: true }],
+					},
+				},
+				"codex-mini": {
+					testing: { duration: 1000 },
+					review: {
+						rubrics: { r3: { pass: true } },
+						acceptance: [{ item: "ok", pass: true }],
+					},
+				},
+			},
+		},
+	});
+
+	const { out } = captureStdout(() =>
+		printSummary({ runDirectory, runId: "x" }),
+	);
+
+	assert.ok(
+		out.includes(
+			"config-fetch\n  codex-gpt55: rubric r1\n  codex-mini: rubric r2",
+		),
+		`failure block for config-fetch missing in:\n${out}`,
+	);
+	assert.ok(
+		out.includes("other\n  codex-gpt55: rubric r3"),
+		`failure block for other missing in:\n${out}`,
+	);
 });
 
 test("SKIPPED cells render with reason", async () => {
@@ -123,7 +196,7 @@ test("SKIPPED cells render with reason", async () => {
 
 	assert.equal(value, 1);
 	assert.match(out, /counter-block\s+haiku\s+SKIPPED\s+0\.8s/);
-	assert.match(out, /counter-block: haiku: SKIPPED empty agent config/);
+	assert.match(out, /haiku: SKIPPED empty agent config/);
 });
 
 test("long format unifies the scenario cell across agent rows", async () => {
@@ -178,4 +251,35 @@ test("long format unifies the scenario cell across agent rows", async () => {
 	// Thousands-separated tokens and m/ss duration formatting.
 	assert.match(out, /haiku\s+PASS\s+1\.2s\s+1,500/);
 	assert.match(out, /opus\s+PASS\s+1m05s\s+1,200/);
+});
+
+test("writes summary.txt mirroring the console (without ANSI)", async () => {
+	const { runDirectory } = withReport({
+		"counter-block": {
+			scenario: "counter-block",
+			agents: {
+				haiku: {
+					testing: { duration: 800 },
+					review: {
+						rubrics: { r1: { pass: false } },
+						acceptance: [{ item: "x", pass: true }],
+					},
+				},
+			},
+		},
+	});
+
+	captureStdout(() => printSummary({ runDirectory, runId: "x" }));
+
+	const summaryPath = join(runDirectory, "summary.txt");
+	assert.ok(existsSync(summaryPath), "summary.txt should be written");
+	const body = readFileSync(summaryPath, "utf8");
+	assert.match(body, /counter-block\s+haiku\s+FAIL/);
+	assert.match(body, /RUN RESULT: FAIL/);
+	assert.match(body, /haiku: rubric r1/);
+	assert.equal(
+		body.includes(String.fromCharCode(27)),
+		false,
+		"summary.txt must not contain ANSI escapes",
+	);
 });
