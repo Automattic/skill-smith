@@ -1,6 +1,12 @@
 import type { AgentDefinition } from "../config/types";
 
-export type ProviderId = "claude-code" | "openai-api" | "codex" | "mock";
+export type ProviderId =
+	| "claude-code"
+	| "openai-api"
+	| "anthropic-api"
+	| "gemini-api"
+	| "codex"
+	| "mock";
 
 /**
  * The two sub-agent roles the harness dispatches. `testing` writes to
