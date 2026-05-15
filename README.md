@@ -51,8 +51,9 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
 
 1. **Init run.** Generate `runId`, load scenarios from `config.paths.scenarios`, and apply any positional scenario directory filters.
 2. **`beforeAll({ config, runId, scenarios })`**. `scenarios` is the filtered list of selected scenario directory IDs and parsed scenario bodies.
-3. **Scenario loop — parallel.** For each scenario:
-   1. **Init scenario.** Create the scenario directory, load testing agents from `config.agents.testing` and the judge from `config.agents.judge`.
+3. **Iteration directory.** Create `${runDirectory}/iteration-N/`. Test-only mode runs exactly one iteration; loop mode (see below) may run more, each with its own subdirectory.
+4. **Scenario loop — parallel.** For each scenario:
+   1. **Init scenario.** Create the scenario directory inside the current iteration, load testing agents from `config.agents.testing` and the judge from `config.agents.judge`.
    2. **`beforeScenario({ config, runId, scenario })`**.
    3. **Agent loop — parallel.** For each testing agent:
       1. **Init agent.** Create the agent directory and `agentWorkspace`.
@@ -61,12 +62,12 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
       4. **`afterTestAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
       5. **`beforeJudgeAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
       6. **Judge agent.** Receives `scenario`, the rubrics it references, and `agentWorkspace`; produces a review verdict.
-      7. **Agent report.** The harness writes `report.yaml` to the agent directory: a `testing` block with the testing agent's wall-clock `duration` (ms) and, when the provider reports it, `tokenUsage` (`inputTokens` — gross prompt size including the cache-read portion; `cachedInputTokens` — the subset that was served from the prompt cache; `outputTokens`; `totalTokens` = `inputTokens + outputTokens`); plus a `review` block holding the judge verdict.
+      7. **Agent report.** The harness writes `report.yaml` to the agent directory: a `testing` block with the testing agent's wall-clock `duration` (ms) and, when the provider reports it, `tokenUsage` (`inputTokens` — gross prompt size including the cache-read portion; `cachedInputTokens` — the subset that was served from the prompt cache; `outputTokens`; `totalTokens` = `inputTokens + outputTokens`); plus a `review` block — `{ pass: true }` on pass, otherwise the failing rubrics / acceptance items with the judge's notes inline.
       8. **`afterJudgeAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
    4. **Scenario report.** The harness aggregates every agent's `report.yaml` into the scenario's `report.yaml`.
    5. **`afterScenario({ config, runId, scenario })`**.
-4. **Run report.** The harness aggregates every scenario's `report.yaml` into a top-level `report.yaml`.
-5. **`afterAll({ config, runId, scenarios })`**.
+5. **Iteration report.** The harness aggregates every scenario's `report.yaml` into `iteration-N/report.yaml` and writes the merged matrix across iterations to `${runDirectory}/report.yaml` plus an iteration roster to `${runDirectory}/run.yaml`.
+6. **`afterAll({ config, runId, scenarios, iterations })`**.
 
 ### Hook examples
 
@@ -84,4 +85,110 @@ A **rubric** is prose reference material the judge LLM consults — describing s
 
 ## How the Self-Improvement works
 
-TBD
+When a run produces failures, the harness can loop: edit the failing skill, re-run the affected scenarios, and stop when the suite passes or the iteration budget is exhausted. Loop mode is opt-in — the default behaviour is the one-shot Skill Tester described above.
+
+### Lifecycle
+
+Every run lives under `${paths.base}/<runId>/`. Each iteration owns its own subdirectory; the top-level `report.yaml` is the merged matrix across iterations, and `run.yaml` lists the iterations themselves.
+
+```
+.skillsmith/20260512-123456/
+├── run.yaml                       # iteration roster + final pass verdict
+├── report.yaml                    # merged (scenario × agent) matrix
+├── summary.txt                    # plain-text mirror of the console summary
+├── iteration-1/
+│   ├── report.yaml                # what ran this iteration (failures detailed)
+│   ├── run.log
+│   ├── proposal.md                # proposer output (loop mode, not yet passing)
+│   ├── proposal.reviewed.md       # reviewer output (when reviewer is configured)
+│   ├── skills.diff                # `git diff` of the skills dir after executor runs
+│   └── <scenario>/<agent>/...     # workspaces and per-agent reports
+├── iteration-2/
+│   └── ...
+```
+
+1. **Iteration 1** runs every scenario (same as Skill Tester).
+2. After each iteration, if the merged matrix is not yet passing and `selfImprovement.mode === "loop"`, the **improvement cycle** runs:
+   1. **Proposer.** Reads the failure summary plus the text of every skill referenced by a failing scenario, and the optional proposer guidelines. Writes a markdown proposal to `iteration-N/proposal.md`.
+   2. **Reviewer** *(optional)*. Reads the proposal plus the failure context. Either ACKs (proposal passes through unchanged) or returns a revised version in `iteration-N/proposal.reviewed.md`.
+   3. **Executor.** Applies the final proposal to files under `paths.skills`. Runs with `Read/Write/Edit/Glob/Grep/Bash` tools, jailed to the skills directory. The harness then captures `git diff` to `iteration-N/skills.diff`.
+3. **Iteration N+1** runs a subset of scenarios chosen by `selfImprovement.evaluationMode`:
+   - `failed-pairs` — only (scenario, agent) pairs that failed last iteration.
+   - `failed-scenarios` *(default)* — every agent of every failing scenario.
+   - `all` — the full matrix.
+   Scenarios that were not re-evaluated keep their previous verdict in the merged matrix.
+4. The loop exits early on all-pass. If `finalPass: true` and the last iteration ran a subset, the harness runs one extra full sweep at the end so the final report reflects the current state of every (scenario, agent) pair.
+
+The proposer and reviewer run with read-only tooling. Only the executor can write — and only inside `paths.skills`. The harness never commits or pushes; the diff lives in the working tree for human review.
+
+### Per-iteration reports
+
+Reports are deliberately compact. The per-agent `review` block collapses to `{ pass: true }` on pass; on failure it lists only the rubrics and acceptance items that failed, with the judge's notes inline:
+
+```yaml
+testing:
+  duration: 12345
+  tokenUsage:
+    inputTokens: 1024
+    cachedInputTokens: 512
+    outputTokens: 128
+    totalTokens: 1152
+review:
+  pass: false
+  failures:
+    - kind: rubric
+      id: avoids-dom-manipulation
+      notes: "Component uses document.querySelector inside render."
+    - kind: acceptance
+      id: uses fetch
+```
+
+### Configuration
+
+```ts
+// skillsmith.config.ts
+export default defineConfig({
+  agents: {
+    testing: [...],
+    judge: [...],
+  },
+  selfImprovement: {
+    mode: "loop",                       // "test-only" (default) | "loop"
+    maxIterations: 3,                   // default 3
+    evaluationMode: "failed-scenarios", // "failed-pairs" | "failed-scenarios" | "all"
+    finalPass: false,
+    agents: {
+      proposer: { id: "proposer", provider: "claude-code", model: "claude-opus-4-7" },
+      reviewer: { id: "reviewer", provider: "anthropic-api", model: "claude-sonnet-4-6" },
+      executor: { id: "executor", provider: "claude-code", model: "claude-sonnet-4-6" },
+    },
+    paths: {
+      proposerGuidelines: "./eval/improvement/proposer.md",
+      executorGuidelines: "./eval/improvement/executor.md",
+    },
+  },
+});
+```
+
+When a guidelines file is not configured, the harness uses minimal built-in defaults: "keep changes as minimal as possible" for the proposer, "apply the proposal exactly; do not commit" for the executor.
+
+### CLI flags
+
+Flags override the config block for a single invocation:
+
+```
+skillsmith --mode loop --iterations 5 --evaluation failed-pairs --final-pass
+```
+
+### Hooks
+
+The base hooks (`beforeAll`, `beforeScenario`, ...) still fire. Loop mode adds eight more:
+
+| Hook | Fires |
+| --- | --- |
+| `beforeIteration` / `afterIteration` | around each iteration |
+| `beforeProposal` / `afterProposal` | around the proposer call |
+| `beforeReview` / `afterReview` | around the reviewer call (when configured) |
+| `beforeExecute` / `afterExecute` | around the executor call |
+
+Each receives the iteration number, the iteration directory, and (where applicable) `proposalPath`, `reviewedProposalPath`, and `skillsDiffPath`.

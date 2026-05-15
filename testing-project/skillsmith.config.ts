@@ -126,6 +126,36 @@ export default defineConfig({
 		],
 	},
 
+	// Self-improvement is opt-in. With this block in place a run with
+	// `--mode loop` will, after each failing iteration, ask the proposer
+	// to draft edits to the relevant SKILL.md files, optionally have the
+	// reviewer revise them, and let the executor apply them — then
+	// re-run the failing scenarios. `--mode test-only` (the default)
+	// ignores the block entirely.
+	selfImprovement: {
+		mode: "test-only",
+		maxIterations: 3,
+		evaluationMode: "failed-scenarios",
+		agents: {
+			proposer: {
+				id: "proposer",
+				provider: "claude-code",
+				model: "claude-opus-4-6",
+			},
+			reviewer: {
+				id: "reviewer",
+				provider: "codex",
+				model: "gpt-5.5",
+				effort: "high",
+			},
+			executor: {
+				id: "executor",
+				provider: "claude-code",
+				model: "claude-sonnet-4-6",
+			},
+		},
+	},
+
 	hooks: {
 		// Plugin slug stays unique per (scenario, agent) so afterAll can
 		// activate them independently; the block name is fixed because the
