@@ -57,17 +57,22 @@ test("summarizeFailures: rubric + acceptance counts get pluralised", () => {
 		"1 rubric, 1 acceptance failed",
 	);
 	assert.equal(
-		summarizeFailures(["rubric r1", "rubric r2", "acceptance a1", "acceptance a2"]),
+		summarizeFailures([
+			"rubric r1",
+			"rubric r2",
+			"acceptance a1",
+			"acceptance a2",
+		]),
 		"2 rubrics, 2 acceptances failed",
 	);
 });
 
 test("summarizeFailures: only one category present omits the other", () => {
-	assert.equal(summarizeFailures(["rubric r1", "rubric r2"]), "2 rubrics failed");
 	assert.equal(
-		summarizeFailures(["acceptance a1"]),
-		"1 acceptance failed",
+		summarizeFailures(["rubric r1", "rubric r2"]),
+		"2 rubrics failed",
 	);
+	assert.equal(summarizeFailures(["acceptance a1"]), "1 acceptance failed");
 });
 
 test("summarizeFailures: diagnostic strings pass through unchanged", () => {

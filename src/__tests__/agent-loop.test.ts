@@ -56,12 +56,7 @@ test("judge phase is skipped when the testing agent reports an error", async () 
 	assert.ok(existsSync(failWorkspace));
 
 	// The other agent's full pipeline still runs as normal.
-	const okReportPath = join(
-		runDir,
-		"hello-scenario",
-		"ok",
-		"report.yaml",
-	);
+	const okReportPath = join(runDir, "hello-scenario", "ok", "report.yaml");
 	const okReport = parseYaml(readFileSync(okReportPath, "utf8")) as {
 		review?: { rubrics?: unknown };
 	};
