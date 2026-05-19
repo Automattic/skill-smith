@@ -9,6 +9,11 @@ export interface PrintSummaryParams {
 	runId: string;
 }
 
+export interface PreparedSummary {
+	consoleLines: string[];
+	exitCode: number;
+}
+
 /** Testing-agent metrics pulled from the `testing` block of an agent report. */
 interface Metrics {
 	duration?: number;
@@ -34,17 +39,17 @@ interface DisplayRow {
 }
 
 /**
- * Render the console summary from `${runDirectory}/report.yaml` and
- * emit `RUN RESULT: PASS|FAIL`. Also writes a plain-text mirror to
- * `${runDirectory}/summary.txt`. Returns the process exit code: 0 if
- * every cell is PASS, 1 otherwise.
+ * Render the summary from `${runDirectory}/report.yaml`, write the
+ * plain-text mirror to `${runDirectory}/summary.txt`, and return the
+ * console lines + exit code so the caller can decide when to print.
+ * Exit code is 0 if every cell is PASS, 1 otherwise.
  *
  * The table is long-format: one line per (scenario, agent), carrying
  * the agent's verdict plus the testing agent's wall-clock duration and
  * total token usage. The scenario name is shown only on the first of
  * its rows.
  */
-export function printSummary(params: PrintSummaryParams): number {
+export function prepareSummary(params: PrintSummaryParams): PreparedSummary {
 	const { runDirectory } = params;
 	const reportPath = join(runDirectory, "report.yaml");
 	if (!existsSync(reportPath)) {
@@ -52,9 +57,8 @@ export function printSummary(params: PrintSummaryParams): number {
 			`No run report at ${reportPath}.`,
 			"RUN RESULT: FAIL — missing run report",
 		];
-		for (const line of missingLines) console.log(line);
 		writeRunSummary(runDirectory, missingLines);
-		return 1;
+		return { consoleLines: missingLines, exitCode: 1 };
 	}
 
 	const rows = loadRows(reportPath);
@@ -63,21 +67,19 @@ export function printSummary(params: PrintSummaryParams): number {
 		rows.length > 0 && rows.every((r) => isRowPass(r, sortedAgents));
 
 	const useColor = shouldUseColor(process.stdout);
-	const consoleLines = renderSummaryLines(
-		rows,
-		sortedAgents,
-		allPass,
-		useColor,
-	);
-	console.log("");
-	for (const line of consoleLines) console.log(line);
-
+	const rendered = renderSummaryLines(rows, sortedAgents, allPass, useColor);
 	const plain = useColor
 		? renderSummaryLines(rows, sortedAgents, allPass, false)
-		: consoleLines;
+		: rendered;
 	writeRunSummary(runDirectory, plain);
 
-	return allPass ? 0 : 1;
+	return { consoleLines: ["", ...rendered], exitCode: allPass ? 0 : 1 };
+}
+
+/** Print previously prepared console lines and return the exit code. */
+export function emitSummary(prepared: PreparedSummary): number {
+	for (const line of prepared.consoleLines) console.log(line);
+	return prepared.exitCode;
 }
 
 function loadRows(reportPath: string): Row[] {
@@ -131,7 +133,9 @@ function renderSummaryLines(
 		lines.push("RUN RESULT: PASS");
 		return lines;
 	}
-	lines.push(color ? paint("RUN RESULT: FAIL", "red", true) : "RUN RESULT: FAIL");
+	lines.push(
+		color ? paint("RUN RESULT: FAIL", "red", true) : "RUN RESULT: FAIL",
+	);
 	lines.push("");
 	const failingRows = rows.filter((r) => !isRowPass(r, sortedAgents));
 	failingRows.forEach((row, i) => {

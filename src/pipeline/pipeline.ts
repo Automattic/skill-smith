@@ -11,7 +11,11 @@ import type {
 import { ProgressTracker } from "../progress";
 import { aggregateRunReport } from "../reports/run-report";
 import { aggregateScenarioReport } from "../reports/scenario-report";
-import { printSummary } from "../reports/summary";
+import {
+	type PreparedSummary,
+	emitSummary,
+	prepareSummary,
+} from "../reports/summary";
 import {
 	type EnumeratedScenario,
 	enumerateScenarios,
@@ -96,6 +100,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		}
 	}
 
+	let prepared: PreparedSummary;
 	try {
 		const scenarioRecords = await Promise.all(
 			scenarios.map((s) =>
@@ -115,6 +120,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 			runId,
 			scenarios: scenarioRecords,
 		});
+		prepared = prepareSummary({ runDirectory, runId });
 	} finally {
 		await tryHook("afterAll", "run", config.hooks?.afterAll, runCtx, log);
 		tracker.finish();
@@ -122,7 +128,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 	log.dump(runDirectory);
 
-	return printSummary({ runDirectory, runId });
+	return emitSummary(prepared);
 }
 
 function filterScenarios(
