@@ -96,9 +96,8 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		}
 	}
 
-	let scenarioRecords: ScenarioRunRecord[];
 	try {
-		scenarioRecords = await Promise.all(
+		const scenarioRecords = await Promise.all(
 			scenarios.map((s) =>
 				runScenario(s, {
 					runId,
@@ -111,16 +110,15 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 				}),
 			),
 		);
+		aggregateRunReport({
+			runDirectory,
+			runId,
+			scenarios: scenarioRecords,
+		});
 	} finally {
 		await tryHook("afterAll", "run", config.hooks?.afterAll, runCtx, log);
 		tracker.finish();
 	}
-
-	aggregateRunReport({
-		runDirectory,
-		runId,
-		scenarios: scenarioRecords,
-	});
 
 	log.dump(runDirectory);
 
