@@ -119,8 +119,8 @@ test("API run without scenarios runs all scenarios", async () => {
 		"config-fetch-scenario",
 		"counter-scenario",
 	]);
-	assert.match(result.stdout, /counter-scenario\s*\|\s*PASS/);
-	assert.match(result.stdout, /config-fetch-scenario\s*\|\s*PASS/);
+	assert.match(result.stdout, /counter-scenario\s+\S+\s+PASS/);
+	assert.match(result.stdout, /config-fetch-scenario\s+\S+\s+PASS/);
 });
 
 test("API run with an empty scenario list runs all scenarios", async () => {
@@ -260,8 +260,8 @@ test("CLI parser rejects unsupported option-like args before run", async () => {
 	const result = await runCli(["--scenario", "counter"]);
 
 	assert.equal(result.exitCode, 1);
-	assert.match(result.stderr, /Unsupported option: --scenario/);
-	assert.match(result.stderr, /Usage: skillsmith \[scenario-dir \.\.\.\]/);
+	assert.match(result.stderr, /Unknown option '--scenario'/);
+	assert.match(result.stderr, /Usage: skillsmith \[--verbose\]/);
 	assert.doesNotMatch(result.stderr, /Error:/);
 	assert.deepEqual(cliHookEvents(), []);
 	assert.equal(existsSync(join(projectRoot, ".skillsmith")), false);

@@ -27,7 +27,11 @@ import {
 	aggregateScenarioReport,
 	type ScenarioReport,
 } from "../reports/scenario-report";
-import { printSummary } from "../reports/summary";
+import {
+	type PreparedSummary,
+	emitSummary,
+	prepareSummary,
+} from "../reports/summary";
 import {
 	type EnumeratedScenario,
 	enumerateScenarios,
@@ -143,6 +147,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		});
 	};
 
+	let prepared: PreparedSummary;
 	try {
 		for (let i = 1; i <= maxIterations; i++) {
 			const selection =
@@ -239,6 +244,8 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 			mergedPass = writeRunReport(runDirectory, runId, mergedScenarios);
 			renderRunSummary();
 		}
+
+		prepared = prepareSummary({ runDirectory, runId });
 	} finally {
 		const afterAllLog = new RunLog({ mirrorStderr: verbose ?? false });
 		await tryHook(
@@ -252,7 +259,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		tracker.finish();
 	}
 
-	return printSummary({ runDirectory, runId });
+	return emitSummary(prepared);
 }
 
 interface RunOneIterationParams {
