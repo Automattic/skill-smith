@@ -219,12 +219,14 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	);
 }
 
-function classifyReview(
-	review: unknown,
-): { status: "passed" | "failed" | "skipped"; detail?: string } {
+function classifyReview(review: unknown): {
+	status: "passed" | "failed" | "skipped";
+	detail?: string;
+} {
 	const cell = classifyVerdict(review);
 	if (cell.kind === "PASS") return { status: "passed" };
-	if (cell.kind === "SKIPPED") return { status: "skipped", detail: cell.reason };
+	if (cell.kind === "SKIPPED")
+		return { status: "skipped", detail: cell.reason };
 	return { status: "failed", detail: cell.failures.join(", ") };
 }
 
