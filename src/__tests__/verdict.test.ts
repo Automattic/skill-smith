@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { classifyVerdict } from "../reports/verdict";
+import { classifyVerdict, summarizeFailures } from "../reports/verdict";
 
 test("all-pass rubrics + acceptance → PASS", () => {
 	const cell = classifyVerdict({
@@ -49,4 +49,35 @@ test("missing rubrics and acceptance → FAIL", () => {
 test("non-object verdict → FAIL", () => {
 	assert.equal(classifyVerdict(null).kind, "FAIL");
 	assert.equal(classifyVerdict("nope").kind, "FAIL");
+});
+
+test("summarizeFailures: rubric + acceptance counts get pluralised", () => {
+	assert.equal(
+		summarizeFailures(["rubric r1", "acceptance a1"]),
+		"1 rubric, 1 acceptance failed",
+	);
+	assert.equal(
+		summarizeFailures(["rubric r1", "rubric r2", "acceptance a1", "acceptance a2"]),
+		"2 rubrics, 2 acceptances failed",
+	);
+});
+
+test("summarizeFailures: only one category present omits the other", () => {
+	assert.equal(summarizeFailures(["rubric r1", "rubric r2"]), "2 rubrics failed");
+	assert.equal(
+		summarizeFailures(["acceptance a1"]),
+		"1 acceptance failed",
+	);
+});
+
+test("summarizeFailures: diagnostic strings pass through unchanged", () => {
+	assert.equal(summarizeFailures(["verdict missing"]), "verdict missing");
+	assert.equal(
+		summarizeFailures(["no rubrics or acceptance in verdict"]),
+		"no rubrics or acceptance in verdict",
+	);
+	assert.equal(
+		summarizeFailures(["judge dispatch failed: 403 Forbidden"]),
+		"judge dispatch failed: 403 Forbidden",
+	);
 });

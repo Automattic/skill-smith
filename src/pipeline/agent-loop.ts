@@ -10,7 +10,7 @@ import type {
 } from "../config/types";
 import type { ProgressTracker } from "../progress";
 import type { TokenUsage } from "../providers/types";
-import { classifyVerdict } from "../reports/verdict";
+import { classifyVerdict, summarizeFailures } from "../reports/verdict";
 import { tryHook } from "../util/hooks";
 import type { RunLog } from "../util/run-log";
 import { runJudgeAgent } from "./judge-agent";
@@ -227,7 +227,7 @@ function classifyReview(review: unknown): {
 	if (cell.kind === "PASS") return { status: "passed" };
 	if (cell.kind === "SKIPPED")
 		return { status: "skipped", detail: cell.reason };
-	return { status: "failed", detail: cell.failures.join(", ") };
+	return { status: "failed", detail: summarizeFailures(cell.failures) };
 }
 
 /**
