@@ -170,53 +170,68 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		log,
 	);
 
-	await tryHook(
-		"beforeJudgeAgent",
-		scope,
-		config.hooks?.beforeJudgeAgent,
-		agentCtx,
-		log,
-	);
-
-	tracker.phaseStarted(scenario.name, agent.id, "judge");
-	const judgeStart = Date.now();
-	let judgeError: string | undefined;
 	let review: unknown;
-	try {
-		review = await runJudgeAgent({
-			scenario,
-			judges: config.agents.judge,
-			agentDirectory,
-			agentWorkspace,
-			projectRoot,
-			config,
-			log,
-			testingResult,
+	if (testingResult.error !== undefined) {
+		// Testing didn't produce evaluable output (missing API key, transport
+		// error, etc.). Skip the judge entirely: an empty workspace can't pass
+		// the rubrics, so running the judge would burn compute and add a
+		// redundant `N rubrics failed` row to the dashboard one line below the
+		// real cause. The paired before/afterJudgeAgent hooks are skipped
+		// symmetrically.
+		review = { skipped: `testing failed: ${testingResult.error}` };
+		tracker.phaseFinished(scenario.name, agent.id, "judge", {
+			status: "skipped",
+			detail: "testing failed",
 		});
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
-		log.info(`judge-agent failed (${scope}): ${msg}`);
-		review = { skipped: `judge dispatch failed: ${msg}` };
-		judgeError = msg;
+		writeAgentReport(agentDirectory, testing, review);
+	} else {
+		await tryHook(
+			"beforeJudgeAgent",
+			scope,
+			config.hooks?.beforeJudgeAgent,
+			agentCtx,
+			log,
+		);
+
+		tracker.phaseStarted(scenario.name, agent.id, "judge");
+		const judgeStart = Date.now();
+		let judgeError: string | undefined;
+		try {
+			review = await runJudgeAgent({
+				scenario,
+				judges: config.agents.judge,
+				agentDirectory,
+				agentWorkspace,
+				projectRoot,
+				config,
+				log,
+				testingResult,
+			});
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			log.info(`judge-agent failed (${scope}): ${msg}`);
+			review = { skipped: `judge dispatch failed: ${msg}` };
+			judgeError = msg;
+		}
+		const verdictResult = judgeError
+			? { status: "failed" as const, detail: judgeError }
+			: classifyReview(review);
+		tracker.phaseFinished(scenario.name, agent.id, "judge", {
+			status: verdictResult.status,
+			durationMs: Date.now() - judgeStart,
+			detail: verdictResult.detail,
+		});
+
+		writeAgentReport(agentDirectory, testing, review);
+
+		await tryHook(
+			"afterJudgeAgent",
+			scope,
+			config.hooks?.afterJudgeAgent,
+			agentCtx,
+			log,
+		);
 	}
-	const verdictResult = judgeError
-		? { status: "failed" as const, detail: judgeError }
-		: classifyReview(review);
-	tracker.phaseFinished(scenario.name, agent.id, "judge", {
-		status: verdictResult.status,
-		durationMs: Date.now() - judgeStart,
-		detail: verdictResult.detail,
-	});
-
-	writeAgentReport(agentDirectory, testing, review);
-
-	await tryHook(
-		"afterJudgeAgent",
-		scope,
-		config.hooks?.afterJudgeAgent,
-		agentCtx,
-		log,
-	);
 }
 
 function classifyReview(review: unknown): {
