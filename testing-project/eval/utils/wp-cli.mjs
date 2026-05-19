@@ -13,5 +13,11 @@ export function wpCli(args, options = {}) {
 }
 
 export function deactivateAllPlugins() {
-	wpCli(["plugin", "deactivate", "--all"]);
+	try {
+		wpCli(["plugin", "deactivate", "--all", "--quiet"], { stdio: "pipe" });
+	} catch (err) {
+		if (err.stdout) process.stdout.write(err.stdout);
+		if (err.stderr) process.stderr.write(err.stderr);
+		throw err;
+	}
 }
