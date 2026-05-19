@@ -131,7 +131,9 @@ function renderSummaryLines(
 		lines.push("RUN RESULT: PASS");
 		return lines;
 	}
-	lines.push(color ? paint("RUN RESULT: FAIL", "red", true) : "RUN RESULT: FAIL");
+	lines.push(
+		color ? paint("RUN RESULT: FAIL", "red", true) : "RUN RESULT: FAIL",
+	);
 	lines.push("");
 	const failingRows = rows.filter((r) => !isRowPass(r, sortedAgents));
 	failingRows.forEach((row, i) => {

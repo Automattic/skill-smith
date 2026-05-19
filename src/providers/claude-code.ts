@@ -50,8 +50,7 @@ export const claudeCodeProvider: Provider = {
 					// real usage by ~100x for agent runs that re-use a large
 					// system prompt across tool turns.
 					const newInputTokens = message.usage.input_tokens;
-					const cacheCreationTokens =
-						message.usage.cache_creation_input_tokens;
+					const cacheCreationTokens = message.usage.cache_creation_input_tokens;
 					const cacheReadTokens = message.usage.cache_read_input_tokens;
 					const inputTokens =
 						newInputTokens + cacheCreationTokens + cacheReadTokens;
