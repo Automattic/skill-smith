@@ -125,12 +125,6 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		},
 		verbose ? { interactive: false } : {},
 	);
-	for (const s of allScenarios) {
-		if (s.error !== undefined) {
-			tracker.scenarioSkipped(s.scenario.name, s.error);
-		}
-	}
-
 	const maxIterations =
 		selfImprovement.mode === "test-only" ? 1 : selfImprovement.maxIterations;
 
@@ -174,6 +168,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 			const outcome = await runOneIteration({
 				iteration: i,
+				iterationTotal: maxIterations,
 				config,
 				projectRoot,
 				runDirectory,
@@ -229,6 +224,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 			const i = iterations.length + 1;
 			const outcome = await runOneIteration({
 				iteration: i,
+				iterationTotal: i,
 				config,
 				projectRoot,
 				runDirectory,
@@ -271,6 +267,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 interface RunOneIterationParams {
 	iteration: number;
+	iterationTotal: number;
 	config: SkillsmithConfig;
 	projectRoot: string;
 	runDirectory: string;
@@ -299,6 +296,17 @@ async function runOneIteration(
 		`iteration-${args.iteration}`,
 	);
 	mkdirSync(iterationDirectory, { recursive: true });
+
+	args.tracker.beginIteration(
+		args.iteration,
+		args.iterationTotal,
+		args.selection.map((s) => s.scenario.name),
+	);
+	for (const s of args.selection) {
+		if (s.error !== undefined) {
+			args.tracker.scenarioSkipped(s.scenario.name, s.error);
+		}
+	}
 
 	const log = new RunLog({ mirrorStderr: args.verbose });
 	log.header(`skillsmith iteration ${args.iteration} (run ${args.runId})`);

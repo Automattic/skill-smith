@@ -256,6 +256,40 @@ test("counters: scenario passes only when every phase is terminal-non-failed", (
 	assert.match(out, /pass 1 · fail 1 · run 1/);
 });
 
+test("beginIteration resets phases, clears failures, and shows the iteration line", () => {
+	const { stream, chunks } = captureStream();
+	const tracker = new ProgressTracker(
+		{
+			runId: "r1",
+			scenarios: [
+				{ name: "s1", agentIds: ["sonnet"] },
+				{ name: "s2", agentIds: ["sonnet"] },
+			],
+		},
+		{ stream, color: false, interactive: false, throttleMs: 0 },
+	);
+
+	tracker.beginIteration(1, 3);
+	tracker.phaseFinished("s1", "sonnet", "testing", {
+		status: "failed",
+		detail: "boom",
+	});
+	tracker.phaseFinished("s1", "sonnet", "judge", { status: "passed" });
+
+	// Iteration 2 re-runs only the failing scenario; s2 drops out.
+	tracker.beginIteration(2, 3, ["s1"]);
+	tracker.phaseFinished("s1", "sonnet", "testing", { status: "passed" });
+	tracker.phaseFinished("s1", "sonnet", "judge", { status: "passed" });
+	tracker.finish();
+
+	const out = chunks.join("");
+	assert.match(out, /iteration 2\/3/);
+	// Subset iteration counts only the active scenario.
+	assert.match(out, /scenarios.*1\/1/);
+	// Iteration 1's failure was cleared by the reset.
+	assert.doesNotMatch(out, /failures/);
+});
+
 test("wall-clock tick repaints to refresh elapsed even with no events", async () => {
 	const { stream, chunks } = captureStream();
 	const tracker = new ProgressTracker(

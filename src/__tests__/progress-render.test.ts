@@ -70,6 +70,20 @@ test("renders header, two bars, and elapsed when running (no ETA)", () => {
 	assert.doesNotMatch(out, /ETA/);
 });
 
+test("renders an iteration line below the header in loop mode", () => {
+	const out = renderSnapshot(snap({ iteration: { current: 2, total: 3 } }));
+	const lines = out.split("\n");
+	assert.equal(lines[0], "skillsmith run 20260506-170805");
+	assert.equal(lines[1], "iteration 2/3");
+	assert.match(lines[2] ?? "", /^scenarios  /);
+});
+
+test("omits the iteration line for single-iteration runs", () => {
+	const out = renderSnapshot(snap({ iteration: { current: 1, total: 1 } }));
+	assert.doesNotMatch(out, /iteration/);
+	assert.match(out.split("\n")[1] ?? "", /^scenarios  /);
+});
+
 test("bar fill scales with done/total", () => {
 	const half = renderSnapshot(
 		snap({
