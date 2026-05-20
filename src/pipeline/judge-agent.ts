@@ -112,7 +112,7 @@ function buildJudgeSystemPrompt(
 	const rubricBlobs = scenario.rubrics.map((id) => {
 		const path = join(rubricsRoot, `${id}.md`);
 		const body = existsSync(path) ? readFileSync(path, "utf8") : "TO BE FILLED";
-		return `# Rubric: ${id}\n${body}`;
+		return `=== Rubric id: ${id} ===\n${body}\n=== End rubric: ${id} ===`;
 	});
 
 	const acceptanceBlock = [
@@ -125,9 +125,26 @@ function buildJudgeSystemPrompt(
 		"# Output format",
 		"You are grading an implementation against the rubrics above. Do not consult any skill documentation.",
 		"Return a YAML document with these top-level keys:",
-		"  rubrics: { <rubric-id>: { pass: <bool>, notes: <string> } }",
-		"  acceptance: [{ item: <string>, pass: <bool>, notes: <string> }]",
-		"Do not output anything else.",
+		"  rubrics: a mapping whose keys are EXACTLY the rubric ids listed below and nothing else. Do not invent sub-rubrics from the section headings inside a rubric body; aggregate the whole rubric into a single entry per id, with `pass` (boolean) and `notes` (literal block scalar) as described below. The exact YAML shape is shown in the example.",
+		...scenario.rubrics.map((id) => `    - ${id}`),
+		"  acceptance: a list of entries, one per scenario acceptance item, each with `item` (literal block scalar), `pass` (boolean), and `notes` (literal block scalar). The exact YAML shape is shown in the example.",
+		"",
+		"Every `item` and `notes` value MUST use a YAML literal block scalar (`|`) on its own line, indented under the key. Do not use plain or quoted strings for these fields — their free-form content may contain `*`, `{`, `}`, `:`, or quote characters that break YAML parsing in any other style.",
+		"",
+		"Example shape:",
+		"  rubrics:",
+		"    some-rubric-id:",
+		"      pass: true",
+		"      notes: |",
+		"        Free-form notes here. Any characters are safe inside a literal block.",
+		"  acceptance:",
+		"    - item: |",
+		"        The acceptance item text, copied verbatim.",
+		"      pass: false",
+		"      notes: |",
+		"        Why it failed.",
+		"",
+		"Output only the YAML document. You may optionally wrap it in a single ```yaml ... ``` fence (the parser strips one fence if present); do not include any other prose, headings, or commentary before or after.",
 		"",
 		"# Recursion guard",
 		"Do not invoke `skillsmith` or any wrapper that would re-enter the harness.",
