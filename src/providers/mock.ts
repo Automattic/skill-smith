@@ -11,6 +11,15 @@ export const mockProvider: Provider = {
 	id: "mock",
 	async invoke(params: InvokeParams): Promise<InvokeResult> {
 		if (params.role === "testing") {
+			// Sentinel id used by `agent-loop.test.ts` to exercise the
+			// "testing failed → judge skipped" branch deterministically.
+			if (params.agent.id === "mock-fail-testing") {
+				return {
+					finalText: "",
+					toolUseCount: 0,
+					error: "mock testing failure",
+				};
+			}
 			writeFileSync(
 				join(params.cwd, "mock-output.txt"),
 				`mock testing output for ${params.agent.id}\n`,

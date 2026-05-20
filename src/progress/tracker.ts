@@ -212,10 +212,15 @@ export class ProgressTracker {
 					? `\x1b[${this.lastPaintedLines}A\x1b[0J`
 					: "";
 			this.stream.write(`${erase}${block}\n`);
-			this.lastPaintedLines = block.split("\n").length;
+			this.lastPaintedLines = terminalRows(block, this.streamColumns());
 		} else if (this.finished) {
 			this.stream.write(`${block}\n`);
 		}
+	}
+
+	private streamColumns(): number {
+		const cols = (this.stream as { columns?: unknown }).columns;
+		return typeof cols === "number" && cols > 0 ? cols : 80;
 	}
 
 	private counters(): RunCounters {
@@ -308,4 +313,25 @@ function isTty(stream: NodeJS.WritableStream): boolean {
 function defaultColor(stream: NodeJS.WritableStream): boolean {
 	const noColor = process.env.NO_COLOR !== undefined;
 	return isTty(stream) && !noColor;
+}
+
+const ANSI_SGR = /\x1b\[[0-9;]*m/g;
+
+function visibleWidth(line: string): number {
+	return line.replace(ANSI_SGR, "").length;
+}
+
+/**
+ * Count terminal rows the block actually occupies once the stream wraps
+ * lines wider than `columns`. The bug being fixed: `block.split("\n").length`
+ * undercounts when a failure detail wraps, so the next paint's `\x1b[NA`
+ * walks up too few rows and leaves the top of the previous dashboard intact.
+ */
+function terminalRows(block: string, columns: number): number {
+	let rows = 0;
+	for (const line of block.split("\n")) {
+		const w = visibleWidth(line);
+		rows += w === 0 ? 1 : Math.ceil(w / columns);
+	}
+	return rows;
 }

@@ -111,6 +111,42 @@ test("subsequent paints erase the prior block via cursor escape", () => {
 	assert.match(second, eraseRe);
 });
 
+test("erase prefix counts wrapped terminal rows, not logical lines", () => {
+	const { stream, chunks } = captureStream();
+	Object.assign(stream, { isTTY: true, columns: 40 });
+	const clock = new FakeClock(1000);
+	const tracker = new ProgressTracker(
+		{ runId: "r1", scenarios: [{ name: "s1", agentIds: ["sonnet"] }] },
+		{
+			stream,
+			color: false,
+			interactive: true,
+			throttleMs: 0,
+			tickMs: 0,
+			now: clock.now,
+		},
+	);
+
+	tracker.phaseFinished("s1", "sonnet", "testing", {
+		status: "failed",
+		detail: "x".repeat(200),
+	});
+	const first = chunks.at(-1) ?? "";
+	const logicalLines = first.replace(/\n$/, "").split("\n").length;
+
+	clock.advance(1);
+	tracker.phaseStarted("s1", "sonnet", "judge");
+	const second = chunks.at(-1) ?? "";
+
+	const match = second.match(/^\x1b\[(\d+)A\x1b\[0J/);
+	assert.ok(match, "second paint must start with cursor-up + erase");
+	const eraseRows = Number(match[1]);
+	assert.ok(
+		eraseRows > logicalLines,
+		`erase rows (${eraseRows}) must exceed logical lines (${logicalLines}) when a detail wraps`,
+	);
+});
+
 test("non-interactive mode writes only the final block on finish", async () => {
 	const { stream, chunks } = captureStream();
 	const tracker = new ProgressTracker(
