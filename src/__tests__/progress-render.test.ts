@@ -75,13 +75,13 @@ test("renders an iteration line below the header in loop mode", () => {
 	const lines = out.split("\n");
 	assert.equal(lines[0], "skillsmith run 20260506-170805");
 	assert.equal(lines[1], "iteration 2/3");
-	assert.match(lines[2] ?? "", /^scenarios  /);
+	assert.match(lines[2] ?? "", /^scenarios {2}/);
 });
 
 test("omits the iteration line for single-iteration runs", () => {
 	const out = renderSnapshot(snap({ iteration: { current: 1, total: 1 } }));
 	assert.doesNotMatch(out, /iteration/);
-	assert.match(out.split("\n")[1] ?? "", /^scenarios  /);
+	assert.match(out.split("\n")[1] ?? "", /^scenarios {2}/);
 });
 
 test("bar fill scales with done/total", () => {
