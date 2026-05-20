@@ -15,6 +15,7 @@ import type {
 	SkillsmithConfig,
 } from "../config/types";
 import { runImprovementCycle } from "../improvement/cycle";
+import { isGitWorkTree } from "../improvement/git";
 import { ProgressTracker } from "../progress";
 import {
 	aggregateIterationReport,
@@ -85,6 +86,12 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		config,
 		params.selfImprovement,
 	);
+	if (selfImprovement.mode === "loop" && !isGitWorkTree(projectRoot)) {
+		throw new UserFacingError(
+			`Self-improvement loop mode requires a git repository: ${projectRoot} is not inside a git work tree.\n` +
+				"The loop captures skill edits as a diff via `git diff`. Run `git init` (and commit the skills) or run with `--mode test-only`.",
+		);
+	}
 	const allScenarios = filterScenarios(
 		enumerateScenarios(config.paths, projectRoot),
 		params.scenarios,
