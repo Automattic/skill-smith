@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { parse as parseYaml } from "yaml";
 import type {
 	AgentDefinition,
 	Scenario,
@@ -30,9 +29,10 @@ export interface RunJudgeAgentParams {
  * logs a `multiJudge` gap; cross-judge aggregation is not yet defined.
  *
  * Returns the review object — `{ rubrics, acceptance }` on success, or
- * an error-shaped payload on the failure paths. The caller
- * (`agent-loop.ts`) is the single writer of the per-agent
- * `report.yaml`, embedding this under the `review` key.
+ * an error-shaped payload on the failure paths. The judge emits a
+ * single JSON object (no YAML). The caller (`agent-loop.ts`) is the
+ * single writer of the per-agent `report.json`, embedding this under
+ * the `review` key.
  */
 export async function runJudgeAgent(
 	params: RunJudgeAgentParams,
@@ -90,9 +90,9 @@ export async function runJudgeAgent(
 		};
 	}
 
-	const parsed = parseJudgeYaml(result.finalText);
+	const parsed = parseJudgeJson(result.finalText);
 	if (parsed === undefined) {
-		log.info(`${scope}: judge YAML unparseable, raw stored`);
+		log.info(`${scope}: judge JSON unparseable, raw stored`);
 		return {
 			error: "unparseable",
 			raw: result.finalText,
@@ -121,28 +121,41 @@ function buildJudgeSystemPrompt(
 		...scenario.acceptance.map((item) => `- ${item}`),
 	].join("\n");
 
-	const yamlInstruction = [
+	const rubricIdList = scenario.rubrics.map((id) => `  - ${id}`).join("\n");
+	const jsonInstruction = [
 		"# Output format",
 		"You are grading an implementation against the rubrics above. Do not consult any skill documentation.",
-		"Return a YAML document with these top-level keys:",
-		"  rubrics: { <rubric-id>: { pass: <bool>, notes: <string> } }",
-		"  acceptance: [{ item: <string>, pass: <bool>, notes: <string> }]",
-		"Do not output anything else.",
+		"Return a single JSON object with exactly these two top-level keys (siblings, not nested):",
+		"  {",
+		'    "rubrics": {',
+		'      "<rubric-id>": { "pass": <bool>, "notes": "<string>" }',
+		"    },",
+		'    "acceptance": [',
+		'      { "item": "<string>", "pass": <bool>, "notes": "<string>" }',
+		"    ]",
+		"  }",
+		"`rubrics` is a record keyed by rubric id; `acceptance` is an array. They MUST be siblings at the top level — never nest `acceptance` inside `rubrics`.",
+		"`rubrics` MUST contain exactly one entry per rubric file provided above, keyed by the file's id (the value after `# Rubric:`). Do NOT invent extra keys by splitting a rubric file along its `##` headings or bullet points; fold all sub-section findings for a rubric into that single entry's `notes`. `pass` is true only if every requirement in the rubric file is satisfied.",
+		"The keys of `rubrics` MUST be exactly:",
+		rubricIdList,
+		'`notes` and `item` are JSON strings: escape literal newlines as \\n, double quotes as \\", and backslashes as \\\\. There is no YAML-style `|` block scalar in JSON.',
+		"Strict JSON only: no trailing commas, no comments, no single-quoted strings.",
+		"Do not output any prose or Markdown fences — only the JSON object.",
 		"",
 		"# Recursion guard",
 		"Do not invoke `skillsmith` or any wrapper that would re-enter the harness.",
 	].join("\n");
 
-	return [...rubricBlobs, acceptanceBlock, yamlInstruction].join("\n\n");
+	return [...rubricBlobs, acceptanceBlock, jsonInstruction].join("\n\n");
 }
 
-function parseJudgeYaml(finalText: string): object | undefined {
+function parseJudgeJson(finalText: string): object | undefined {
 	const trimmed = finalText.trim();
 	const fence = trimmed.match(/^```(?:[a-zA-Z]+)?\n([\s\S]*?)\n```$/);
-	const yamlText = fence?.[1] ?? trimmed;
+	const jsonText = fence?.[1] ?? trimmed;
 	let parsed: unknown;
 	try {
-		parsed = parseYaml(yamlText);
+		parsed = JSON.parse(jsonText);
 	} catch {
 		return undefined;
 	}

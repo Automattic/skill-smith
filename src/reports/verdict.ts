@@ -1,10 +1,12 @@
 import type { AgentVerdict } from "./agent-verdict";
 
 /**
- * Display-side classification of an agent verdict, shared by the
- * console summary and the progress tracker so both views agree on
- * what "passed" means. Failing cells carry every rubric / acceptance
- * item that failed, rendered with judge notes when available.
+ * Classify a judge verdict (parsed JSON from the per-agent `review`
+ * block) into a pass/fail/skipped Cell with every failing rubric or
+ * acceptance item, rendered with judge notes when available.
+ *
+ * Shared by the console summary and the progress tracker so the
+ * two views agree on what "passed" means.
  */
 export type Cell =
 	| { kind: "PASS" }
@@ -83,7 +85,9 @@ export function classifyVerdict(raw: unknown): Cell {
 	const failures: string[] = [];
 	if (rubrics) {
 		for (const [id, r] of Object.entries(rubrics)) {
-			if (r?.pass !== true) failures.push(`rubric ${id}`);
+			if (r?.pass !== true) {
+				failures.push(`rubric ${id}`);
+			}
 		}
 	}
 	if (acceptance) {

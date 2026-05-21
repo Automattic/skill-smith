@@ -42,7 +42,7 @@ test.describe("async-fetch scenario", () => {
 
 		await page.getByRole("button", { name: /fetch joke/i }).click();
 
-		await expect(page.locator("[data-wp-interactive]")).toContainText(
+		await expect(page.locator(".wp-block-skillsmith-testing-block")).toContainText(
 			"Why did the chicken cross the road? To yield a Promise.",
 		);
 		expect(requestCount).toBe(1);
@@ -62,13 +62,13 @@ test.describe("async-fetch scenario", () => {
 		await page.goto(`/?p=${post.id}`);
 
 		// Before any click, the joke text must not be present.
-		await expect(page.locator("[data-wp-interactive]")).not.toContainText(
+		await expect(page.locator(".wp-block-skillsmith-testing-block")).not.toContainText(
 			"Eventually-resolved joke.",
 		);
 
 		await page.getByRole("button", { name: /fetch joke/i }).click();
 
-		await expect(page.locator("[data-wp-interactive]")).toContainText(
+		await expect(page.locator(".wp-block-skillsmith-testing-block")).toContainText(
 			"Eventually-resolved joke.",
 		);
 	});

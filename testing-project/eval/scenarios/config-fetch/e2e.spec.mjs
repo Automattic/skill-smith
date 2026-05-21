@@ -50,7 +50,7 @@ test.describe("config-fetch scenario", () => {
 
 		await page.getByRole("button", { name: /load post|fetch/i }).click();
 
-		await expect(page.locator("[data-wp-interactive]")).toContainText(
+		await expect(page.locator(".wp-block-skillsmith-testing-block")).toContainText(
 			"Mocked Greeting Title",
 		);
 

@@ -1,5 +1,5 @@
 /**
- * The human-readable shape we persist into per-agent `report.yaml`
+ * The human-readable shape we persist into per-agent `report.json`
  * under the `review` key. Pass collapses to `{ pass: true }`; fail
  * keeps only the rubrics / acceptance items that failed, with the
  * judge's notes inline. The full raw judge output is no longer kept
@@ -20,7 +20,7 @@ export type AgentVerdict =
 /**
  * Collapse the raw judge verdict (a `{ rubrics, acceptance }` object,
  * a `{ skipped }`, or a `{ error }`) into the simplified shape stored
- * in `report.yaml`. Used both by the per-agent writer and by the
+ * in `report.json`. Used both by the per-agent writer and by the
  * progress tracker when classifying the live judge result.
  */
 export function collapseReview(raw: unknown): AgentVerdict {

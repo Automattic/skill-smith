@@ -1,6 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parse as parseYaml } from "yaml";
 import { paint, shouldUseColor } from "../util/ansi";
 import { type Cell, classifyVerdict } from "./verdict";
 
@@ -39,7 +38,7 @@ interface DisplayRow {
 }
 
 /**
- * Render the summary from `${runDirectory}/report.yaml` — the merged
+ * Render the summary from `${runDirectory}/report.json` — the merged
  * matrix across every iteration the pipeline ran — write the plain-text
  * mirror to `${runDirectory}/summary.txt`, and return the console lines
  * + exit code so the caller can decide when to print. Exit code is 0
@@ -52,7 +51,7 @@ interface DisplayRow {
  */
 export function prepareSummary(params: PrintSummaryParams): PreparedSummary {
 	const { runDirectory } = params;
-	const reportPath = join(runDirectory, "report.yaml");
+	const reportPath = join(runDirectory, "report.json");
 	if (!existsSync(reportPath)) {
 		const missingLines = [
 			`No run report at ${reportPath}.`,
@@ -84,7 +83,7 @@ export function emitSummary(prepared: PreparedSummary): number {
 }
 
 function loadRows(reportPath: string): Row[] {
-	const parsed = (parseYaml(readFileSync(reportPath, "utf8")) ?? {}) as Record<
+	const parsed = (JSON.parse(readFileSync(reportPath, "utf8")) ?? {}) as Record<
 		string,
 		unknown
 	>;

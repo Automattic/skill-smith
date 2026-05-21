@@ -45,7 +45,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 add_action(
 	'init',
 	static function () {
-		$blocks_dir = __DIR__ . '/src/blocks';
+		// Prefer the wp-scripts build output (which ships view.asset.php
+		// declaring script-module dependencies like @wordpress/interactivity-router);
+		// fall back to raw src/ for plugins that don't need a build.
+		$blocks_dir = __DIR__ . '/build/blocks';
+		if ( ! is_dir( $blocks_dir ) ) {
+			$blocks_dir = __DIR__ . '/src/blocks';
+		}
 		if ( ! is_dir( $blocks_dir ) ) {
 			return;
 		}
@@ -64,6 +70,7 @@ function agentsMd(slug: string): string {
 
 A WordPress plugin scaffold lives at \`${slug}/\`. Implement the requested work inside this scaffold — do not create a new plugin or rename the existing one.
 A block named \`${BLOCK_NAME}\` lives at \`${slug}/src/blocks/testing-block/\` and is registered in \`${slug}/index.php\`. Implement the block as needed for the task, but do not change the block name or registration mechanism.
+The root element rendered by \`render.php\` must apply \`<?php echo get_block_wrapper_attributes(); ?>\` so WordPress emits the standard block class (\`wp-block-skillsmith-testing-block\`) and any block-supports attributes on the wrapper. Adding your own \`class="..."\` attribute alongside the helper is fine; replacing the helper with a hand-written class is not.
 `;
 }
 
@@ -75,6 +82,8 @@ function blockJson(): string {
 			name: BLOCK_NAME,
 			title: "Testing Block",
 			category: "widgets",
+			// Add this manually until we improve WordPress skills.
+			render: "file:./render.php",
 		},
 		null,
 		2,
@@ -167,6 +176,10 @@ export default defineConfig({
 
 			mkdirSync(blockDir, { recursive: true });
 			writeFileSync(join(pluginDir, "index.php"), pluginIndexPhp(slug));
+			writeFileSync(
+				join(pluginDir, "package.json"),
+				`${JSON.stringify({ name: slug, version: "0.1.0", private: true }, null, 2)}\n`,
+			);
 			writeFileSync(join(blockDir, "block.json"), blockJson());
 			writeFileSync(join(agentWorkspace, "AGENTS.md"), agentsMd(slug));
 		},
@@ -207,6 +220,27 @@ export default defineConfig({
 						if (!pluginEntry.name.startsWith("plugin-")) continue;
 						pluginPaths.push(join(workspaceDir, pluginEntry.name));
 					}
+				}
+			}
+
+			// Build each plugin with wp-scripts so view.asset.php is emitted
+			// next to view.js, declaring script-module dependencies.
+			const wpScriptsBin = join(
+				PROJECT_ROOT,
+				"node_modules",
+				".bin",
+				"wp-scripts",
+			);
+			for (const pluginPath of pluginPaths) {
+				if (!existsSync(join(pluginPath, "src", "blocks"))) continue;
+				try {
+					execFileSync(wpScriptsBin, ["build"], {
+						stdio: "inherit",
+						cwd: pluginPath,
+						env: { ...process.env, WP_EXPERIMENTAL_MODULES: "1" },
+					});
+				} catch (err) {
+					console.error(`wp-scripts build failed for ${pluginPath}:`, err);
 				}
 			}
 

@@ -72,9 +72,9 @@ export interface ScenarioRunRecord {
  *      was a subset — after one extra full sweep.
  *
  * Layout: `${runDirectory}/iteration-N/<scenario>/<agent>/...`. Each
- * iteration writes its own `report.yaml`, `summary.txt`, `run.log`.
- * The top-level `${runDirectory}/report.yaml` is the merged matrix
- * across iterations; `${runDirectory}/run.yaml` is the iteration
+ * iteration writes its own `report.json`, `summary.txt`, `run.log`.
+ * The top-level `${runDirectory}/report.json` is the merged matrix
+ * across iterations; `${runDirectory}/run.json` is the iteration
  * roster.
  */
 export async function runPipeline(params: PipelineParams): Promise<number> {

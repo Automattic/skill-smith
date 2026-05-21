@@ -62,11 +62,11 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
       4. **`afterTestAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
       5. **`beforeJudgeAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
       6. **Judge agent.** Receives `scenario`, the rubrics it references, and `agentWorkspace`; produces a review verdict.
-      7. **Agent report.** The harness writes `report.yaml` to the agent directory: a `testing` block with the testing agent's wall-clock `duration` (ms) and, when the provider reports it, `tokenUsage` (`inputTokens` — gross prompt size including the cache-read portion; `cachedInputTokens` — the subset that was served from the prompt cache; `outputTokens`; `totalTokens` = `inputTokens + outputTokens`); plus a `review` block — `{ pass: true }` on pass, otherwise the failing rubrics / acceptance items with the judge's notes inline.
+      7. **Agent report.** The harness writes `report.json` to the agent directory: a `testing` block with the testing agent's wall-clock `duration` (ms) and, when the provider reports it, `tokenUsage` (`inputTokens` — gross prompt size including the cache-read portion; `cachedInputTokens` — the subset that was served from the prompt cache; `outputTokens`; `totalTokens` = `inputTokens + outputTokens`); plus a `review` block — `{ pass: true }` on pass, otherwise the failing rubrics / acceptance items with the judge's notes inline.
       8. **`afterJudgeAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
-   4. **Scenario report.** The harness aggregates every agent's `report.yaml` into the scenario's `report.yaml`.
+   4. **Scenario report.** The harness aggregates every agent's `report.json` into the scenario's `report.json`.
    5. **`afterScenario({ config, runId, scenario })`**.
-5. **Iteration report.** The harness aggregates every scenario's `report.yaml` into `iteration-N/report.yaml` and writes the merged matrix across iterations to `${runDirectory}/report.yaml` plus an iteration roster to `${runDirectory}/run.yaml`.
+5. **Iteration report.** The harness aggregates every scenario's `report.json` into `iteration-N/report.json` and writes the merged matrix across iterations to `${runDirectory}/report.json` plus an iteration roster to `${runDirectory}/run.json`.
 6. **`afterAll({ config, runId, scenarios, iterations })`**.
 
 ### Hook examples
@@ -89,15 +89,15 @@ When a run produces failures, the harness can loop: edit the failing skill, re-r
 
 ### Lifecycle
 
-Every run lives under `${paths.base}/<runId>/`. Each iteration owns its own subdirectory; the top-level `report.yaml` is the merged matrix across iterations, and `run.yaml` lists the iterations themselves.
+Every run lives under `${paths.base}/<runId>/`. Each iteration owns its own subdirectory; the top-level `report.json` is the merged matrix across iterations, and `run.json` lists the iterations themselves.
 
 ```
 .skillsmith/20260512-123456/
-├── run.yaml                       # iteration roster + final pass verdict
-├── report.yaml                    # merged (scenario × agent) matrix
+├── run.json                       # iteration roster + final pass verdict
+├── report.json                    # merged (scenario × agent) matrix
 ├── summary.txt                    # plain-text mirror of the console summary
 ├── iteration-1/
-│   ├── report.yaml                # what ran this iteration (failures detailed)
+│   ├── report.json                # what ran this iteration (failures detailed)
 │   ├── run.log
 │   ├── proposal.md                # proposer output (loop mode, not yet passing)
 │   ├── proposal.reviewed.md       # reviewer output (when reviewer is configured)
@@ -125,22 +125,29 @@ The proposer and reviewer run with read-only tooling. Only the executor can writ
 
 Reports are deliberately compact. The per-agent `review` block collapses to `{ pass: true }` on pass; on failure it lists only the rubrics and acceptance items that failed, with the judge's notes inline:
 
-```yaml
-testing:
-  duration: 12345
-  tokenUsage:
-    inputTokens: 1024
-    cachedInputTokens: 512
-    outputTokens: 128
-    totalTokens: 1152
-review:
-  pass: false
-  failures:
-    - kind: rubric
-      id: avoids-dom-manipulation
-      notes: "Component uses document.querySelector inside render."
-    - kind: acceptance
-      id: uses fetch
+```json
+{
+  "testing": {
+    "duration": 12345,
+    "tokenUsage": {
+      "inputTokens": 1024,
+      "cachedInputTokens": 512,
+      "outputTokens": 128,
+      "totalTokens": 1152
+    }
+  },
+  "review": {
+    "pass": false,
+    "failures": [
+      {
+        "kind": "rubric",
+        "id": "avoids-dom-manipulation",
+        "notes": "Component uses document.querySelector inside render."
+      },
+      { "kind": "acceptance", "id": "uses fetch" }
+    ]
+  }
+}
 ```
 
 ### Configuration

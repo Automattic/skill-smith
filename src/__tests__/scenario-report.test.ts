@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { parse as parseYaml } from "yaml";
 import { aggregateScenarioReport } from "../reports/scenario-report";
 
 test("aggregateScenarioReport creates the directory when missing (skipped scenario)", () => {
@@ -22,10 +21,10 @@ test("aggregateScenarioReport creates the directory when missing (skipped scenar
 		scenarioError: "scenario.yaml malformed",
 	});
 
-	const reportPath = join(scenarioDirectory, "report.yaml");
-	assert.ok(existsSync(reportPath), "report.yaml should be written");
+	const reportPath = join(scenarioDirectory, "report.json");
+	assert.ok(existsSync(reportPath), "report.json should be written");
 
-	const parsed = parseYaml(readFileSync(reportPath, "utf8")) as Record<
+	const parsed = JSON.parse(readFileSync(reportPath, "utf8")) as Record<
 		string,
 		unknown
 	>;

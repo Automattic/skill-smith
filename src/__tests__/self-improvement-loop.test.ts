@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { parse as parseYaml } from "yaml";
 import { run } from "../runner";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -51,11 +56,13 @@ test("loop mode fails iteration 1, applies the executor edit, and passes iterati
 	assert.equal(runIds.length, 1, `exactly one runId; got ${runIds.join(", ")}`);
 	const runDir = join(baseDir, runIds[0] ?? "");
 
-	const runSummary = parseYaml(readFileSync(join(runDir, "run.yaml"), "utf8")) as {
+	const runSummary = JSON.parse(
+		readFileSync(join(runDir, "run.json"), "utf8"),
+	) as {
 		pass?: boolean;
 		iterations?: Array<{ number?: number; pass?: boolean }>;
 	};
-	assert.equal(runSummary.pass, true, "run.yaml records an overall pass");
+	assert.equal(runSummary.pass, true, "run.json records an overall pass");
 	assert.equal(runSummary.iterations?.length, 2, "the loop ran two iterations");
 	assert.equal(
 		runSummary.iterations?.[0]?.pass,
@@ -71,18 +78,24 @@ test("loop mode fails iteration 1, applies the executor edit, and passes iterati
 	// The improvement cycle ran between the two iterations: proposer,
 	// reviewer, and executor each left an artifact.
 	const iter1 = join(runDir, "iteration-1");
-	assert.ok(existsSync(join(iter1, "proposal.md")), "proposer wrote proposal.md");
+	assert.ok(
+		existsSync(join(iter1, "proposal.md")),
+		"proposer wrote proposal.md",
+	);
 	assert.ok(
 		existsSync(join(iter1, "proposal.reviewed.md")),
 		"reviewer wrote proposal.reviewed.md",
 	);
-	assert.ok(existsSync(join(iter1, "skills.diff")), "executor captured skills.diff");
+	assert.ok(
+		existsSync(join(iter1, "skills.diff")),
+		"executor captured skills.diff",
+	);
 
 	// The merged matrix is all-pass.
-	const mergedReport = parseYaml(
-		readFileSync(join(runDir, "report.yaml"), "utf8"),
+	const mergedReport = JSON.parse(
+		readFileSync(join(runDir, "report.json"), "utf8"),
 	) as { pass?: boolean };
-	assert.equal(mergedReport.pass, true, "merged report.yaml is all-pass");
+	assert.equal(mergedReport.pass, true, "merged report.json is all-pass");
 
 	// The working tree was restored to its marker-free state.
 	assert.equal(
