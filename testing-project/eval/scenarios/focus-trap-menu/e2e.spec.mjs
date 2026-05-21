@@ -29,51 +29,72 @@ test.describe("focus-trap-menu scenario", () => {
 
 	// Scope to the testing-block so we don't pick up other navigation
 	// blocks on the page (e.g. core/navigation) that may also render links
-	// labelled "Home" / "About" / "Contact".
-	const drawer = (page) =>
-		page.locator('[data-wp-interactive="skillsmith/testing-block"]');
+	// labelled "Home" / "About" / "Contact". We use the WP-emitted block
+	// class (always derived from the fixed block name) rather than the
+	// agent's chosen `data-wp-interactive` namespace, which is variable.
+	const block = (page) => page.locator(".wp-block-skillsmith-testing-block");
+	// `el.hidden` on the closest ancestor of the home link in the block
+	// reflects the iAPI `data-wp-bind--hidden` wiring directly — and is
+	// not silently defeated by user CSS like `display: flex` on the
+	// drawer, the way Playwright's visibility-based `toBeHidden()` would
+	// be. The scenario tests iAPI wiring; visual styling is not in scope.
+	const isDrawerHidden = (page) =>
+		page.evaluate(() => {
+			const root = document.querySelector(".wp-block-skillsmith-testing-block");
+			const link = root?.querySelector('a[href="#home"]');
+			if (!link) return null;
+			for (let el = link.parentElement; el && el !== root.parentElement; el = el.parentElement) {
+				if (el.hidden) return true;
+			}
+			return false;
+		});
 
 	test("drawer is closed initially with aria-expanded='false'", async ({
 		page,
 	}) => {
-		const hamburger = drawer(page).getByRole("button", { name: /menu/i });
+		const hamburger = block(page).getByRole("button", { name: /menu/i });
 		await expect(hamburger).toHaveAttribute("aria-expanded", "false");
-		await expect(drawer(page).getByRole("link", { name: /^home$/i })).toBeHidden();
+		expect(await isDrawerHidden(page)).toBe(true);
 	});
 
 	test("clicking the hamburger opens the drawer and exposes the links", async ({
 		page,
 	}) => {
-		const hamburger = drawer(page).getByRole("button", { name: /menu/i });
+		const hamburger = block(page).getByRole("button", { name: /menu/i });
 		await hamburger.click();
 
 		await expect(hamburger).toHaveAttribute("aria-expanded", "true");
-		await expect(drawer(page).getByRole("link", { name: /^home$/i })).toBeVisible();
-		await expect(drawer(page).getByRole("link", { name: /^about$/i })).toBeVisible();
-		await expect(drawer(page).getByRole("link", { name: /^contact$/i })).toBeVisible();
+		await expect
+			.poll(() => isDrawerHidden(page), { timeout: 5000 })
+			.toBe(false);
+		await expect(block(page).getByRole("link", { name: /^home$/i })).toBeVisible();
+		await expect(block(page).getByRole("link", { name: /^about$/i })).toBeVisible();
+		await expect(block(page).getByRole("link", { name: /^contact$/i })).toBeVisible();
 	});
 
 	test("Escape closes the drawer and returns focus to the hamburger", async ({
 		page,
 	}) => {
-		const hamburger = drawer(page).getByRole("button", { name: /menu/i });
+		const hamburger = block(page).getByRole("button", { name: /menu/i });
 		await hamburger.click();
 		await expect(hamburger).toHaveAttribute("aria-expanded", "true");
 
 		await page.keyboard.press("Escape");
 
 		await expect(hamburger).toHaveAttribute("aria-expanded", "false");
-		await expect(drawer(page).getByRole("link", { name: /^home$/i })).toBeHidden();
+		await expect
+			.poll(() => isDrawerHidden(page), { timeout: 5000 })
+			.toBe(true);
 		await expect(hamburger).toBeFocused();
 	});
 
 	test("Tab focus is trapped within the three drawer links", async ({
 		page,
 	}) => {
-		await drawer(page).getByRole("button", { name: /menu/i }).click();
+		await block(page).getByRole("button", { name: /menu/i }).click();
 
-		const home = drawer(page).getByRole("link", { name: /^home$/i });
-		const contact = drawer(page).getByRole("link", { name: /^contact$/i });
+		const home = block(page).getByRole("link", { name: /^home$/i });
+		const contact = block(page).getByRole("link", { name: /^contact$/i });
 
 		// Forward wrap: Tab on Contact -> Home
 		await contact.focus();

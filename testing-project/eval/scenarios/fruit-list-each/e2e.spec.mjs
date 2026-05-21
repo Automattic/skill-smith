@@ -28,7 +28,7 @@ test.describe("fruit-list-each scenario", () => {
 	});
 
 	test("renders the seeded fruits server-side", async ({ page }) => {
-		const items = page.locator('[data-wp-interactive="skillsmith/testing-block"] li');
+		const items = page.locator(".wp-block-skillsmith-testing-block li");
 		await expect(items).toHaveCount(3);
 		await expect(items.nth(0)).toContainText("Apple");
 		await expect(items.nth(1)).toContainText("Banana");
@@ -36,7 +36,7 @@ test.describe("fruit-list-each scenario", () => {
 	});
 
 	test("Add Mango appends a new <li> at the end", async ({ page }) => {
-		const items = page.locator('[data-wp-interactive="skillsmith/testing-block"] li');
+		const items = page.locator(".wp-block-skillsmith-testing-block li");
 		await page.getByRole("button", { name: /add mango/i }).click();
 
 		await expect(items).toHaveCount(4);
@@ -44,7 +44,7 @@ test.describe("fruit-list-each scenario", () => {
 	});
 
 	test("Add Mango clicked twice appends two Mangos", async ({ page }) => {
-		const items = page.locator('[data-wp-interactive="skillsmith/testing-block"] li');
+		const items = page.locator(".wp-block-skillsmith-testing-block li");
 		const addBtn = page.getByRole("button", { name: /add mango/i });
 
 		await addBtn.click();

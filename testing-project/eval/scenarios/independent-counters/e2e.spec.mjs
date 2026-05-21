@@ -32,7 +32,7 @@ test.describe("independent-counters scenario", () => {
 	});
 
 	test("renders two instances each starting at 0", async ({ page }) => {
-		const wrappers = page.locator('[data-wp-interactive="skillsmith/testing-block"]');
+		const wrappers = page.locator(".wp-block-skillsmith-testing-block");
 		await expect(wrappers).toHaveCount(2);
 
 		const counters = wrappers.locator("[data-wp-text]");
@@ -43,7 +43,7 @@ test.describe("independent-counters scenario", () => {
 	test("incrementing one instance does not affect the other", async ({
 		page,
 	}) => {
-		const wrappers = page.locator('[data-wp-interactive="skillsmith/testing-block"]');
+		const wrappers = page.locator(".wp-block-skillsmith-testing-block");
 		const counters = wrappers.locator("[data-wp-text]");
 		const buttons = wrappers.getByRole("button", { name: /increment/i });
 
