@@ -30,12 +30,9 @@ export interface RunJudgeAgentParams {
  *
  * Returns the review object — `{ rubrics, acceptance }` on success, or
  * an error-shaped payload on the failure paths. The judge emits a
- * single JSON object (no YAML); the parser then runs `normalizeReview`
- * (which lifts known shape drifts such as `acceptance` nested under
- * `rubrics`) and `validateReview` (which surfaces remaining misshape
- * as a `judge output malformed: …` error). The caller
- * (`agent-loop.ts`) is the single writer of the per-agent
- * `report.json`, embedding this under the `review` key.
+ * single JSON object (no YAML). The caller (`agent-loop.ts`) is the
+ * single writer of the per-agent `report.json`, embedding this under
+ * the `review` key.
  */
 export async function runJudgeAgent(
 	params: RunJudgeAgentParams,
@@ -102,18 +99,8 @@ export async function runJudgeAgent(
 		};
 	}
 
-	const normalized = normalizeReview(parsed);
-	const validation = validateReview(normalized);
-	if (validation !== undefined) {
-		log.info(`${scope}: ${validation}`);
-		return {
-			error: validation,
-			raw: result.finalText,
-		};
-	}
-
 	log.info(`${scope}: judge verdict written`);
-	return normalized;
+	return parsed;
 }
 
 function buildJudgeSystemPrompt(
@@ -170,83 +157,6 @@ function parseJudgeJson(finalText: string): object | undefined {
 	}
 	if (parsed === null || typeof parsed !== "object") return undefined;
 	return parsed;
-}
-
-/**
- * Producer-side belt-and-suspenders salvage of known judge-output
- * shape drifts. Specifically: if `acceptance` is missing or empty at
- * the top level but appears nested under `rubrics` as an array, lift
- * it to the top level and delete the nested key. This is the salvage
- * for the historic `shared-state` regression where the judge
- * indented `acceptance:` one level too deep in YAML.
- *
- * Any future shape drift the producer learns to handle should be
- * added here, not to `classifyVerdict` in `src/reports/verdict.ts`.
- */
-function normalizeReview(parsed: object): object {
-	const v = parsed as Record<string, unknown>;
-	const rubrics = v.rubrics;
-	const topLevelAcceptance = v.acceptance;
-	const nestedAcceptanceMissing =
-		topLevelAcceptance === undefined ||
-		(Array.isArray(topLevelAcceptance) && topLevelAcceptance.length === 0);
-	if (
-		nestedAcceptanceMissing &&
-		rubrics !== null &&
-		typeof rubrics === "object" &&
-		!Array.isArray(rubrics)
-	) {
-		const r = rubrics as Record<string, unknown>;
-		if (Array.isArray(r.acceptance)) {
-			v.acceptance = r.acceptance;
-			delete r.acceptance;
-		}
-	}
-	return v;
-}
-
-/**
- * Producer-side shape validator. Returns an error diagnostic string
- * when the parsed/normalized judge output doesn't match the expected
- * contract; returns `undefined` when the shape is well-formed. The
- * caller turns the diagnostic into an `{ error, raw }` payload so the
- * FAIL row carries a useful message instead of masquerading as a
- * content failure.
- */
-function validateReview(parsed: object): string | undefined {
-	const v = parsed as Record<string, unknown>;
-
-	// `skipped` / `error` payloads are well-formed alternative shapes;
-	// they don't carry rubrics/acceptance and shouldn't be validated as such.
-	if (typeof v.skipped === "string") return undefined;
-	if (typeof v.error === "string") return undefined;
-
-	const rubrics = v.rubrics;
-	if (rubrics === null) {
-		return "judge output malformed: rubrics is null";
-	}
-	if (rubrics !== undefined) {
-		if (Array.isArray(rubrics) || typeof rubrics !== "object") {
-			return "judge output malformed: rubrics must be a record";
-		}
-	}
-
-	const acceptance = v.acceptance;
-	if (acceptance !== undefined && !Array.isArray(acceptance)) {
-		return "judge output malformed: acceptance must be an array";
-	}
-	if (Array.isArray(acceptance)) {
-		for (const a of acceptance) {
-			if (a === null || typeof a !== "object") {
-				return "judge output malformed: acceptance entry missing pass";
-			}
-			if (!("pass" in (a as Record<string, unknown>))) {
-				return "judge output malformed: acceptance entry missing pass";
-			}
-		}
-	}
-
-	return undefined;
 }
 
 function buildUserMessage(

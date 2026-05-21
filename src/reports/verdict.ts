@@ -26,66 +26,22 @@ export function classifyVerdict(verdictRaw: unknown): Cell {
 
 	const rubrics = v.rubrics as
 		| Record<string, { pass?: unknown }>
-		| unknown[]
-		| null
 		| undefined;
 	const acceptance = v.acceptance as
 		| Array<{ pass?: unknown; item?: unknown }>
-		| Record<string, unknown>
 		| undefined;
-
-	// Defensive guards for shape drifts the producer-side normalizer in
-	// `judge-agent.ts` didn't (or couldn't) lift. These reach this code
-	// path when (a) a hand-written test fixture is handed straight to
-	// `classifyVerdict`, (b) a future shape drift slips past
-	// `validateReview`, or (c) someone replays a historical/external
-	// artifact through the classifier.
-	if (
-		rubrics !== null &&
-		typeof rubrics === "object" &&
-		!Array.isArray(rubrics) &&
-		Array.isArray((rubrics as Record<string, unknown>).acceptance) &&
-		acceptance === undefined
-	) {
-		return {
-			kind: "FAIL",
-			failures: ["judge output malformed: acceptance nested under rubrics"],
-		};
-	}
-	if (Array.isArray(rubrics)) {
-		return {
-			kind: "FAIL",
-			failures: ["judge output malformed: rubrics is an array"],
-		};
-	}
-	if (rubrics === null) {
-		return {
-			kind: "FAIL",
-			failures: ["judge output malformed: rubrics is null"],
-		};
-	}
-	if (acceptance !== undefined && !Array.isArray(acceptance)) {
-		return {
-			kind: "FAIL",
-			failures: ["judge output malformed: acceptance is not an array"],
-		};
-	}
 
 	const failures: string[] = [];
 
 	if (rubrics) {
-		for (const [id, r] of Object.entries(rubrics as Record<string, unknown>)) {
-			if (r === null || typeof r !== "object" || Array.isArray(r)) {
-				failures.push(`rubric ${id}: malformed entry`);
-				continue;
-			}
-			if ((r as { pass?: unknown }).pass !== true) {
+		for (const [id, r] of Object.entries(rubrics)) {
+			if (r?.pass !== true) {
 				failures.push(`rubric ${id}`);
 			}
 		}
 	}
 	if (acceptance) {
-		for (const a of acceptance as Array<{ pass?: unknown; item?: unknown }>) {
+		for (const a of acceptance) {
 			if (a?.pass !== true) {
 				const item = typeof a?.item === "string" ? a.item : "(unknown)";
 				failures.push(`acceptance ${item}`);
