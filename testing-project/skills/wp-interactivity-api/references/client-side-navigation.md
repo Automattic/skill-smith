@@ -79,19 +79,7 @@ add_action( 'wp_enqueue_scripts', function () {
 
 During client-side navigation, the router needs to know which script modules should be loaded on the new page. It identifies them by looking for a `data-wp-router-options` attribute on the `<script>` tag with `loadOnClientNavigation` set to `true`. Without this attribute, the router will not load the script module during client-side navigation, and the block's interactivity will not work on the new page.
 
-For **blocks** that depend on the router (i.e. they use `actions.navigate()` for in-place page swaps), you must opt in explicitly with the object form of `supports.interactivity` and set `clientNavigation: true`:
-
-```json
-{
-	"supports": {
-		"interactivity": {
-			"clientNavigation": true
-		}
-	}
-}
-```
-
-The boolean shorthand:
+For **blocks** that depend on the router (i.e. they use `actions.navigate()` for in-place page swaps), declare interactivity support so the view script module is registered for router-driven loading. The simplest correct form is the boolean shorthand:
 
 ```json
 {
@@ -101,7 +89,20 @@ The boolean shorthand:
 }
 ```
 
-enables Interactivity API directives for the block but does **not** register it for client-side navigation, so its view script module won't load on router-driven page swaps. Use the boolean form only for blocks that don't drive or live inside router regions.
+This enables Interactivity API directives for the block *and* marks its view module as router-compatible. The equivalent object form is:
+
+```json
+{
+	"supports": {
+		"interactivity": {
+			"interactive": true,
+			"clientNavigation": true
+		}
+	}
+}
+```
+
+Use the explicit object form only when you need to split these flags apart for a non-driving block. Note that the bare object form `{ "interactivity": { "clientNavigation": true } }` (without `"interactive": true`) does *not* register the block's view module for router-driven loading — it is only used to mark non-interactive blocks (no view script module of their own) as compatible with router navigation.
 
 For **classic themes** and other script modules registered outside of `block.json`, the attribute is not added automatically. You must register your script module for client-side navigation explicitly using `add_client_navigation_support_to_script_module()`:
 
@@ -215,6 +216,20 @@ store( 'myPlugin', {
 <div class="callout callout-info">
 The <code>withSyncEvent()</code> wrapper is required for actions that need to call synchronous event methods like <code>event.preventDefault()</code>. See the <a href="https://developer.wordpress.org/block-editor/reference-guides/interactivity-api/directives-and-store/#withsyncevent">withSyncEvent() documentation</a> for details.
 </div>
+
+When the action reads from `event` after a `yield`, prefer `event.target` (preserved across yields) over `event.currentTarget` (set to `null` by the browser once event propagation completes — i.e. as soon as the generator first suspends). If you need the listening element specifically, either capture it synchronously before the first `yield`:
+
+```js
+navigateTo: withSyncEvent( function* ( event ) {
+	event.preventDefault();
+	const href = event.currentTarget.href; // synchronous: still valid here
+
+	const { actions } = yield import( '@wordpress/interactivity-router' );
+	yield actions.navigate( href );
+} ),
+```
+
+or read it from `getElement().ref` (which the runtime keeps available across yields).
 
 ### Implementing prefetching
 
