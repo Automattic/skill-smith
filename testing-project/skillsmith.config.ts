@@ -3,11 +3,13 @@ import {
 	existsSync,
 	mkdirSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { RunScenario, VerificationFailure } from "skillsmith";
 import { defineConfig } from "skillsmith";
 
 const PROJECT_ROOT = dirname(fileURLToPath(import.meta.url));
@@ -90,6 +92,204 @@ function blockJson(): string {
 	)}\n`;
 }
 
+/**
+ * Build every plugin produced in `iterationDirectory`, boot wp-env, run
+ * the e2e specs for the scenarios that ran this iteration, then tear it
+ * all down. Returns a `VerificationFailure` for every (scenario, agent)
+ * whose spec failed. Throws if the run could not produce a report at
+ * all — the harness treats that as a coarse iteration failure.
+ *
+ * Playwright projects are named after the testing-agent ids (see
+ * playwright.config.ts), so a failing spec's `projectName` maps back to
+ * the agent, and its file path maps back to the scenario directory.
+ */
+function runE2eVerification(
+	iterationDirectory: string,
+	scenarios: RunScenario[],
+): VerificationFailure[] {
+	const dirToName = new Map(
+		scenarios.map((s) => [s.dirName, s.scenario.name]),
+	);
+
+	// Each iteration writes a fresh set of workspaces under
+	// `iteration-N/<scenario>/<agent>/workspace`. Collect every plugin
+	// to load and remember which scenario directories actually ran.
+	const pluginPaths: string[] = [];
+	const ranDirNames = new Set<string>();
+	for (const scenarioEntry of readdirSync(iterationDirectory, {
+		withFileTypes: true,
+	})) {
+		if (!scenarioEntry.isDirectory()) continue;
+		const scenarioDir = join(iterationDirectory, scenarioEntry.name);
+		for (const agentEntry of readdirSync(scenarioDir, { withFileTypes: true })) {
+			if (!agentEntry.isDirectory()) continue;
+			const workspaceDir = join(scenarioDir, agentEntry.name, "workspace");
+			if (!existsSync(workspaceDir)) continue;
+			for (const pluginEntry of readdirSync(workspaceDir, {
+				withFileTypes: true,
+			})) {
+				if (!pluginEntry.isDirectory()) continue;
+				if (!pluginEntry.name.startsWith("plugin-")) continue;
+				pluginPaths.push(join(workspaceDir, pluginEntry.name));
+				ranDirNames.add(scenarioEntry.name);
+			}
+		}
+	}
+
+	if (pluginPaths.length === 0) return [];
+
+	const e2eSpecs = [...ranDirNames]
+		.map((dirName) => join("eval", "scenarios", dirName, "e2e.spec.mjs"))
+		.filter((spec) => existsSync(join(PROJECT_ROOT, spec)));
+	if (e2eSpecs.length === 0) return [];
+
+	// Build each plugin with wp-scripts so view.asset.php is emitted next
+	// to view.js, declaring script-module dependencies.
+	const wpScriptsBin = join(PROJECT_ROOT, "node_modules", ".bin", "wp-scripts");
+	for (const pluginPath of pluginPaths) {
+		if (!existsSync(join(pluginPath, "src", "blocks"))) continue;
+		try {
+			execFileSync(wpScriptsBin, ["build"], {
+				stdio: "inherit",
+				cwd: pluginPath,
+				env: { ...process.env, WP_EXPERIMENTAL_MODULES: "1" },
+			});
+		} catch (err) {
+			console.error(`wp-scripts build failed for ${pluginPath}:`, err);
+		}
+	}
+
+	// `.wp-env.json` is gitignored and owned by this hook: it lives only
+	// for the duration of the run and is removed afterwards.
+	const wpEnvConfigPath = join(PROJECT_ROOT, ".wp-env.json");
+	const reportPath = join(iterationDirectory, "tests-report.json");
+	writeFileSync(
+		wpEnvConfigPath,
+		`${JSON.stringify(
+			{
+				plugins: pluginPaths,
+				port: WP_ENV_PORT,
+				testsEnvironment: false,
+				// wp-env activates every listed plugin on start; `afterStart`
+				// fires after that, so deactivating everything here gives each
+				// spec a clean slate to activate exactly the plugin it exercises.
+				lifecycleScripts: {
+					afterStart: "npx wp-env run cli wp plugin deactivate --all",
+				},
+			},
+			null,
+			2,
+		)}\n`,
+	);
+
+	const wpEnv = {
+		...process.env,
+		WP_ENV_PORT: String(WP_ENV_PORT),
+		WP_BASE_URL: `http://localhost:${WP_ENV_PORT}`,
+	};
+	try {
+		execSync("npm run env:start", {
+			stdio: "inherit",
+			cwd: PROJECT_ROOT,
+			env: wpEnv,
+		});
+		try {
+			execFileSync("npm", ["run", "test:e2e", "--", ...e2eSpecs], {
+				stdio: "inherit",
+				cwd: PROJECT_ROOT,
+				env: { ...wpEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath },
+			});
+		} catch {
+			// Playwright exits non-zero when specs fail. That is exactly the
+			// signal we are after — swallow it and read the JSON report.
+		}
+	} finally {
+		try {
+			execSync("npm run env:stop", {
+				stdio: "inherit",
+				cwd: PROJECT_ROOT,
+				env: wpEnv,
+			});
+		} catch (err) {
+			console.error("wp-env stop failed:", err);
+		}
+		rmSync(wpEnvConfigPath, { force: true });
+	}
+
+	if (!existsSync(reportPath)) {
+		throw new Error(`e2e run produced no report at ${reportPath}`);
+	}
+	return parsePlaywrightReport(reportPath, dirToName);
+}
+
+interface PwTest {
+	projectName?: string;
+	status?: string;
+}
+interface PwSpec {
+	title?: string;
+	file?: string;
+	tests?: PwTest[];
+}
+interface PwSuite {
+	file?: string;
+	specs?: PwSpec[];
+	suites?: PwSuite[];
+}
+
+/**
+ * Walk a Playwright JSON report and turn every failing spec into a
+ * `VerificationFailure`. `status: "unexpected"` is Playwright's term
+ * for a test that failed without being marked as expected-to-fail.
+ */
+function parsePlaywrightReport(
+	reportPath: string,
+	dirToName: Map<string, string>,
+): VerificationFailure[] {
+	let parsed: { suites?: PwSuite[] };
+	try {
+		parsed = JSON.parse(readFileSync(reportPath, "utf8"));
+	} catch (err) {
+		throw new Error(
+			`could not parse Playwright report: ${err instanceof Error ? err.message : String(err)}`,
+		);
+	}
+
+	const failures: VerificationFailure[] = [];
+	const seen = new Set<string>();
+	const visit = (suite: PwSuite): void => {
+		for (const spec of suite.specs ?? []) {
+			const dirName = scenarioDirOf(spec.file ?? suite.file ?? "");
+			const scenario = dirName ? dirToName.get(dirName) : undefined;
+			if (scenario === undefined) continue;
+			for (const t of spec.tests ?? []) {
+				if (t.status !== "unexpected") continue;
+				const agent = t.projectName;
+				const key = `${scenario}::${agent ?? ""}`;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				const failure: VerificationFailure = {
+					scenario,
+					details: `e2e failed: ${spec.title ?? "spec"}`,
+				};
+				if (agent !== undefined) failure.agent = agent;
+				failures.push(failure);
+			}
+		}
+		for (const child of suite.suites ?? []) visit(child);
+	};
+	for (const suite of parsed.suites ?? []) visit(suite);
+	return failures;
+}
+
+/** Extract the scenario directory name from a spec file path. */
+function scenarioDirOf(file: string): string | undefined {
+	const match = file.split(/[\\/]/);
+	const idx = match.indexOf("scenarios");
+	if (idx >= 0 && idx + 1 < match.length) return match[idx + 1];
+	return undefined;
+}
+
 export default defineConfig({
 	agents: {
 		testing: [
@@ -133,36 +333,27 @@ export default defineConfig({
 				effort: "xhigh",
 			},
 		],
+		// Single agent that edits the failing skills between iterations in
+		// loop mode. It edits SKILL.md files in place — no proposal,
+		// reviewer, or git.
+		improver: {
+			id: "improver",
+			provider: "claude-code",
+			model: "claude-opus-4-6",
+		},
 	},
 
-	// Self-improvement is opt-in. With this block in place a run with
-	// `--mode loop` will, after each failing iteration, ask the proposer
-	// to draft edits to the relevant SKILL.md files, optionally have the
-	// reviewer revise them, and let the executor apply them — then
-	// re-run the failing scenarios. `--mode test-only` (the default)
-	// ignores the block entirely.
+	// Self-improvement is opt-in. With `agents.improver` set, a run with
+	// `--mode loop` will, after each failing iteration, let the improver
+	// edit the relevant SKILL.md files and re-run the failing scenarios.
+	// `--mode test-only` (the default) ignores it entirely. Point
+	// `paths.improverPrompt` at a file to replace the built-in improver
+	// instructions with a project-specific strategy.
 	selfImprovement: {
 		mode: "test-only",
 		maxIterations: 3,
 		evaluationMode: "failed-scenarios",
-		agents: {
-			proposer: {
-				id: "proposer",
-				provider: "claude-code",
-				model: "claude-opus-4-6",
-			},
-			reviewer: {
-				id: "reviewer",
-				provider: "codex",
-				model: "gpt-5.5",
-				effort: "high",
-			},
-			executor: {
-				id: "executor",
-				provider: "claude-code",
-				model: "claude-sonnet-4-6",
-			},
-		},
+		// paths: { improverPrompt: "./eval/improvement/improver.md" },
 	},
 
 	hooks: {
@@ -184,115 +375,14 @@ export default defineConfig({
 			writeFileSync(join(agentWorkspace, "AGENTS.md"), agentsMd(slug));
 		},
 
-		afterAll: ({ runId, config, scenarios, iterations }) => {
-			const runDirectory = join(config.paths.base, runId);
-			const reportPath = join(runDirectory, "tests-report.json");
-			const e2eSpecs = scenarios.map(({ dirName }) =>
-				join("eval", "scenarios", dirName, "e2e.spec.mjs"),
-			);
-			// `.wp-env.json` is gitignored and owned by this hook: it lives
-			// only for the duration of the run and is removed afterwards.
-			const wpEnvConfigPath = join(PROJECT_ROOT, ".wp-env.json");
-
-			// In loop mode every iteration writes a fresh set of workspaces
-			// below `iteration-N/<scenario>/<agent>/workspace`. The e2e
-			// pass should grade the latest snapshot, so the hook walks the
-			// most recent iteration's directory.
-			const lastIteration = iterations.at(-1);
-			const iterationDirectory = lastIteration?.directory ?? runDirectory;
-
-			const pluginPaths: string[] = [];
-			for (const scenarioEntry of readdirSync(iterationDirectory, {
-				withFileTypes: true,
-			})) {
-				if (!scenarioEntry.isDirectory()) continue;
-				const scenarioDir = join(iterationDirectory, scenarioEntry.name);
-				for (const agentEntry of readdirSync(scenarioDir, {
-					withFileTypes: true,
-				})) {
-					if (!agentEntry.isDirectory()) continue;
-					const workspaceDir = join(scenarioDir, agentEntry.name, "workspace");
-					if (!existsSync(workspaceDir)) continue;
-					for (const pluginEntry of readdirSync(workspaceDir, {
-						withFileTypes: true,
-					})) {
-						if (!pluginEntry.isDirectory()) continue;
-						if (!pluginEntry.name.startsWith("plugin-")) continue;
-						pluginPaths.push(join(workspaceDir, pluginEntry.name));
-					}
-				}
-			}
-
-			// Build each plugin with wp-scripts so view.asset.php is emitted
-			// next to view.js, declaring script-module dependencies.
-			const wpScriptsBin = join(
-				PROJECT_ROOT,
-				"node_modules",
-				".bin",
-				"wp-scripts",
-			);
-			for (const pluginPath of pluginPaths) {
-				if (!existsSync(join(pluginPath, "src", "blocks"))) continue;
-				try {
-					execFileSync(wpScriptsBin, ["build"], {
-						stdio: "inherit",
-						cwd: pluginPath,
-						env: { ...process.env, WP_EXPERIMENTAL_MODULES: "1" },
-					});
-				} catch (err) {
-					console.error(`wp-scripts build failed for ${pluginPath}:`, err);
-				}
-			}
-
-			writeFileSync(
-				wpEnvConfigPath,
-				`${JSON.stringify(
-					{
-						plugins: pluginPaths,
-						port: WP_ENV_PORT,
-						testsEnvironment: false,
-						// wp-env always runs `wp plugin activate <basename>` for
-						// every entry in `plugins` during start; `afterStart`
-						// fires after that, so deactivating everything here
-						// gives e2e tests a clean slate to activate exactly the
-						// plugin they're exercising.
-						lifecycleScripts: {
-							afterStart: "npx wp-env run cli wp plugin deactivate --all",
-						},
-					},
-					null,
-					2,
-				)}\n`,
-			);
-
-			const wpEnv = {
-				...process.env,
-				WP_ENV_PORT: String(WP_ENV_PORT),
-				WP_BASE_URL: `http://localhost:${WP_ENV_PORT}`,
-			};
-			try {
-				execSync("npm run env:start", {
-					stdio: "inherit",
-					cwd: PROJECT_ROOT,
-					env: wpEnv,
-				});
-				execFileSync("npm", ["run", "test:e2e", "--", ...e2eSpecs], {
-					stdio: "inherit",
-					cwd: PROJECT_ROOT,
-					env: { ...wpEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath },
-				});
-			} finally {
-				try {
-					execSync("npm run env:stop", {
-						stdio: "inherit",
-						cwd: PROJECT_ROOT,
-						env: wpEnv,
-					});
-				} catch (err) {
-					console.error("wp-env stop failed:", err);
-				}
-				rmSync(wpEnvConfigPath, { force: true });
-			}
+		// Run the e2e suite against the artifacts this iteration produced,
+		// after the judges have graded them but before the improver runs.
+		// A spec failure marks that exact (scenario, agent) pair failed —
+		// even if the judge passed it — so the improver learns the code
+		// looked right but broke in a real runtime, and the loop iterates.
+		verifyIteration: ({ scenarios, iterationDirectory }) => {
+			const failures = runE2eVerification(iterationDirectory, scenarios);
+			return failures.length > 0 ? { failures } : true;
 		},
 	},
 });

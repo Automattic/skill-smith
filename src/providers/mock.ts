@@ -12,7 +12,7 @@ import type { InvokeParams, InvokeResult, Provider } from "./types";
  * Sentinels that opt a fixture into the deterministic self-improvement
  * loop behaviour exercised by `self-improvement-loop.test.ts`. A skill
  * carrying `MOCK_GATE` is "fixed" once it also carries `MOCK_MARKER`;
- * the mock executor is what appends the marker between iterations.
+ * the mock improver is what appends the marker between iterations.
  * Fixtures without `MOCK_GATE` keep the original always-pass behaviour
  * relied on by the smoke and agent-loop tests.
  */
@@ -55,12 +55,13 @@ export const mockProvider: Provider = {
 };
 
 function invokeTesting(params: InvokeParams): InvokeResult {
-	// Executor sub-agent: its cwd is the skills root. Apply the proposal
-	// by appending the success marker to every SKILL.md it finds.
-	if (params.systemPrompt.includes("executor sub-agent")) {
+	// Improver agent: its cwd is the skills root. Edit the skills
+	// directly by appending the success marker to every SKILL.md it
+	// finds — no proposal, no reviewer, no executor.
+	if (params.systemPrompt.includes("improver agent")) {
 		const edited = applyMarkerToSkills(params.cwd);
 		return {
-			finalText: `executor applied marker to ${edited} skill(s)`,
+			finalText: `improver applied marker to ${edited} skill(s)`,
 			toolUseCount: edited,
 		};
 	}
@@ -93,19 +94,6 @@ function invokeTesting(params: InvokeParams): InvokeResult {
 }
 
 function invokeJudge(params: InvokeParams): InvokeResult {
-	// The proposer and reviewer both run with role=judge; distinguish
-	// them by their system prompts so the gated judge logic below only
-	// applies to the real grading judge.
-	if (params.systemPrompt.includes("proposer sub-agent")) {
-		return {
-			finalText: `# Proposal\n\nAppend the marker ${MARKER} to the failing SKILL.md.\n`,
-			toolUseCount: 0,
-		};
-	}
-	if (params.systemPrompt.includes("reviewer sub-agent")) {
-		return { finalText: "ack: true\n", toolUseCount: 0 };
-	}
-
 	// Gated judge: the testing agent's workspace files are inlined into
 	// the user prompt. Fail until the skill edit propagates a pass.
 	if (params.prompt.includes("GATE_FAIL")) {

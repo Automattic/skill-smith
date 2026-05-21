@@ -22,11 +22,11 @@ MOCK_GATE
 
 This skill is graded by the mock provider in the self-improvement loop
 fixture. It starts without the success marker, so the first iteration
-fails. The mock executor appends the marker between iterations, after
+fails. The mock improver appends the marker between iterations, after
 which grading passes.
 `;
 
-test("loop mode fails iteration 1, applies the executor edit, and passes iteration 2", async () => {
+test("loop mode fails iteration 1, applies the improver edit, and passes iteration 2", async () => {
 	const baseDir = join(projectRoot, ".skillsmith");
 	rmSync(baseDir, { recursive: true, force: true });
 	// Reset the skill to its marker-free state so iteration 1 fails even
@@ -49,7 +49,7 @@ test("loop mode fails iteration 1, applies the executor edit, and passes iterati
 	assert.equal(exitCode, 0, "loop should converge to all-pass and exit 0");
 	assert.ok(
 		skillAfterRun.includes(MARKER),
-		"executor appended the success marker to the skill during the run",
+		"improver appended the success marker to the skill during the run",
 	);
 
 	const runIds = readdirSync(baseDir).filter((n) => /^\d{8}-\d{6}$/.test(n));
@@ -72,23 +72,23 @@ test("loop mode fails iteration 1, applies the executor edit, and passes iterati
 	assert.equal(
 		runSummary.iterations?.[1]?.pass,
 		true,
-		"iteration 2 passed after the executor applied the marker",
+		"iteration 2 passed after the improver applied the marker",
 	);
 
-	// The improvement cycle ran between the two iterations: proposer,
-	// reviewer, and executor each left an artifact.
+	// The improver ran between the two iterations and left its
+	// transcript — there is no proposer/reviewer/executor split anymore.
 	const iter1 = join(runDir, "iteration-1");
 	assert.ok(
-		existsSync(join(iter1, "proposal.md")),
-		"proposer wrote proposal.md",
+		existsSync(join(iter1, "improvement.md")),
+		"improver wrote improvement.md",
 	);
 	assert.ok(
-		existsSync(join(iter1, "proposal.reviewed.md")),
-		"reviewer wrote proposal.reviewed.md",
+		!existsSync(join(iter1, "proposal.md")),
+		"no proposal.md — the multi-agent cycle is gone",
 	);
 	assert.ok(
-		existsSync(join(iter1, "skills.diff")),
-		"executor captured skills.diff",
+		!existsSync(join(iter1, "skills.diff")),
+		"no skills.diff — the improver does not depend on git",
 	);
 
 	// The merged matrix is all-pass.

@@ -23,7 +23,6 @@ test("resolveSelfImprovement returns harness defaults when nothing is set", () =
 	assert.equal(resolved.maxIterations, 3);
 	assert.equal(resolved.evaluationMode, "failed-scenarios");
 	assert.equal(resolved.finalPass, false);
-	assert.deepEqual(resolved.agents, {});
 	assert.deepEqual(resolved.paths, {});
 });
 
@@ -75,19 +74,17 @@ test("maxIterations is clamped to at least 1", () => {
 test("validation accepts a fully-specified selfImprovement block", () => {
 	const errors = collectConfigErrors({
 		...baseConfig,
+		agents: {
+			...baseConfig.agents,
+			improver: { id: "i", provider: "mock", model: "m" },
+		},
 		selfImprovement: {
 			mode: "loop",
 			maxIterations: 3,
 			evaluationMode: "failed-scenarios",
 			finalPass: true,
-			agents: {
-				proposer: { id: "p", provider: "mock", model: "m" },
-				reviewer: { id: "r", provider: "mock", model: "m" },
-				executor: { id: "e", provider: "mock", model: "m" },
-			},
 			paths: {
-				proposerGuidelines: "./guides/proposer.md",
-				executorGuidelines: "./guides/executor.md",
+				improverPrompt: "./guides/improver.md",
 			},
 		},
 	});
@@ -133,17 +130,31 @@ test("validation flags an invalid evaluation mode", () => {
 	);
 });
 
-test("validation flags malformed self-improvement agent entries", () => {
+test("validation flags a malformed improver agent entry", () => {
+	const errors = collectConfigErrors({
+		...baseConfig,
+		agents: {
+			...baseConfig.agents,
+			improver: { id: "", provider: "mock", model: "m" },
+		},
+	});
+	assert.ok(
+		errors.some((e) => e.includes("agents.improver.id")),
+		`expected an improver.id error, got ${JSON.stringify(errors)}`,
+	);
+});
+
+test("validation flags a non-string improverPrompt", () => {
 	const errors = collectConfigErrors({
 		...baseConfig,
 		selfImprovement: {
-			agents: {
-				proposer: { id: "", provider: "mock", model: "m" },
+			paths: {
+				improverPrompt: 42 as unknown as string,
 			},
 		},
 	});
 	assert.ok(
-		errors.some((e) => e.includes("selfImprovement.agents.proposer.id")),
-		`expected a proposer.id error, got ${JSON.stringify(errors)}`,
+		errors.some((e) => e.includes("improverPrompt")),
+		`expected an improverPrompt error, got ${JSON.stringify(errors)}`,
 	);
 });

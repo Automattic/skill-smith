@@ -18,39 +18,41 @@ export type SelfImprovementMode = "test-only" | "loop";
  */
 export type EvaluationMode = "failed-pairs" | "failed-scenarios" | "all";
 
-export interface SelfImprovementAgents {
-	proposer?: AgentDefinition;
-	reviewer?: AgentDefinition;
-	executor?: AgentDefinition;
-}
-
 export interface SelfImprovementPaths {
-	/** Project-specific guidelines appended to the proposer's system prompt. */
-	proposerGuidelines?: string;
-	/** Project-specific guidelines appended to the executor's system prompt. */
-	executorGuidelines?: string;
+	/**
+	 * Path to a custom prompt file. When set, its contents replace the
+	 * built-in improver instructions, so a project can drive a more
+	 * elaborate edit strategy without changing the harness.
+	 */
+	improverPrompt?: string;
 }
 
 /**
  * Self-improvement loop settings. `mode: "test-only"` (default) keeps
  * the one-iteration Skill Tester behaviour. `mode: "loop"` runs up to
- * `maxIterations` iterations, applying a proposer/(reviewer)/executor
- * edit between each one, and stops early when all scenarios pass.
- * CLI flags (`--mode`, `--iterations`, `--evaluation`, `--final-pass`)
- * override these per-invocation.
+ * `maxIterations` iterations, letting a single improver agent
+ * (`agents.improver`) edit the failing skills between each one, and
+ * stops early when all scenarios pass. CLI flags (`--mode`,
+ * `--iterations`, `--evaluation`, `--final-pass`) override these
+ * per-invocation.
  */
 export interface SelfImprovementConfig {
 	mode?: SelfImprovementMode;
 	maxIterations?: number;
 	evaluationMode?: EvaluationMode;
 	finalPass?: boolean;
-	agents?: SelfImprovementAgents;
 	paths?: SelfImprovementPaths;
 }
 
 export interface AgentsConfig {
 	testing: AgentDefinition[];
 	judge: AgentDefinition[];
+	/**
+	 * Single agent that edits the failing skills between iterations in
+	 * loop mode. Optional — without it, loop mode evaluates but never
+	 * edits, so it behaves like a repeated test run.
+	 */
+	improver?: AgentDefinition;
 }
 
 /**
@@ -134,19 +136,58 @@ export interface IterationCompleteHookContext extends IterationHookContext {
 	pass: boolean;
 }
 
-export interface ProposalHookContext extends IterationCompleteHookContext {
-	proposalPath: string;
+/**
+ * A single (scenario, agent?) verdict a verification hook can report.
+ * Omitting `agent` fails the whole scenario; naming one fails just
+ * that (scenario, agent) pair. `details` is surfaced to the improver
+ * so it learns *why* the artifact failed beyond what the judge saw.
+ */
+export interface VerificationFailure {
+	scenario: string;
+	agent?: string;
+	details?: string;
 }
 
-export interface ReviewHookContext extends ProposalHookContext {
-	reviewedProposalPath?: string;
+/**
+ * What a verification hook may return. The harness applies the result
+ * on top of the judges' verdicts for the iteration:
+ *
+ *   - `failures` — exactly these scenarios / pairs are marked failed.
+ *   - `pass` — overall verdict. Defaults to `false` when `failures` is
+ *     non-empty, `true` otherwise.
+ *   - `details` — a general note used when `pass` is false but no
+ *     specific failures were named (the coarse "fail everything that
+ *     ran this iteration" path).
+ */
+export interface VerificationResult {
+	pass?: boolean;
+	failures?: VerificationFailure[];
+	details?: string;
 }
 
-export interface ExecuteHookContext extends ProposalHookContext {
-	skillsDiffPath?: string;
+/**
+ * Shorthand returns a verification hook may use instead of a full
+ * `VerificationResult`: `true` passes the iteration, `false` fails
+ * every scenario that ran. A hook may also return nothing (handled at
+ * the `VerifyHookFn` boundary), which is treated as a pass.
+ */
+export type VerificationReturn = VerificationResult | boolean;
+
+export interface ImproveHookContext extends IterationCompleteHookContext {
+	/** Path to the improver agent's transcript for this iteration. */
+	improvementPath: string;
 }
 
 export type HookFn<Ctx> = (ctx: Ctx) => void | Promise<void>;
+
+/**
+ * A verification hook fires after the judges have graded an iteration
+ * but before the improver runs. Unlike the fire-and-forget hooks, its
+ * return value feeds back into the iteration verdict.
+ */
+export type VerifyHookFn = (
+	ctx: IterationCompleteHookContext,
+) => VerificationReturn | void | Promise<VerificationReturn> | Promise<void>;
 
 export interface Hooks {
 	beforeAll?: HookFn<RunContext>;
@@ -161,16 +202,16 @@ export interface Hooks {
 	beforeIteration?: HookFn<IterationHookContext>;
 	/** Fires once per iteration, after the iteration report is written. */
 	afterIteration?: HookFn<IterationCompleteHookContext>;
-	/** Fires before the proposer sub-agent runs (loop mode only). */
-	beforeProposal?: HookFn<IterationCompleteHookContext>;
-	/** Fires after the proposer wrote `proposal.md` (loop mode only). */
-	afterProposal?: HookFn<ProposalHookContext>;
-	/** Fires before the reviewer sub-agent runs (loop mode only). */
-	beforeReview?: HookFn<ProposalHookContext>;
-	/** Fires after the reviewer wrote `proposal.reviewed.md` (loop mode only). */
-	afterReview?: HookFn<ReviewHookContext>;
-	/** Fires before the executor sub-agent runs (loop mode only). */
-	beforeExecute?: HookFn<ProposalHookContext>;
-	/** Fires after the executor finished and `skills.diff` was captured. */
-	afterExecute?: HookFn<ExecuteHookContext>;
+	/**
+	 * Fires after the judges have graded the iteration but before the
+	 * improver runs. Its return value can mark scenarios (or specific
+	 * (scenario, agent) pairs) failed even when the judge passed them —
+	 * e.g. to fail an iteration whose artifacts pass review but break a
+	 * real end-to-end test. Runs every iteration, in every mode.
+	 */
+	verifyIteration?: VerifyHookFn;
+	/** Fires before the improver agent runs (loop mode only). */
+	beforeImprove?: HookFn<IterationCompleteHookContext>;
+	/** Fires after the improver wrote its transcript (loop mode only). */
+	afterImprove?: HookFn<ImproveHookContext>;
 }

@@ -38,6 +38,9 @@ export function collectConfigErrors(config: SkillsmithConfig): string[] {
 			if (typeof entry?.id === "string") seenIds.add(entry.id);
 		});
 	}
+	if (config.agents.improver !== undefined) {
+		validateAgentEntry(config.agents.improver, "agents.improver", errors);
+	}
 	validateSelfImprovement(config, errors);
 	return errors;
 }
@@ -100,31 +103,15 @@ function validateSelfImprovement(
 		errors.push("selfImprovement.finalPass must be a boolean");
 	}
 
-	const agents = block.agents;
-	if (agents !== undefined) {
-		if (agents === null || typeof agents !== "object") {
-			errors.push("selfImprovement.agents must be an object");
-		} else {
-			for (const role of ["proposer", "reviewer", "executor"] as const) {
-				const entry = agents[role];
-				if (entry !== undefined) {
-					validateAgentEntry(entry, `selfImprovement.agents.${role}`, errors);
-				}
-			}
-		}
-	}
-
 	const paths = block.paths;
 	if (paths !== undefined) {
 		if (paths === null || typeof paths !== "object") {
 			errors.push("selfImprovement.paths must be an object");
-		} else {
-			for (const key of ["proposerGuidelines", "executorGuidelines"] as const) {
-				const value = paths[key];
-				if (value !== undefined && typeof value !== "string") {
-					errors.push(`selfImprovement.paths.${key} must be a string`);
-				}
-			}
+		} else if (
+			paths.improverPrompt !== undefined &&
+			typeof paths.improverPrompt !== "string"
+		) {
+			errors.push("selfImprovement.paths.improverPrompt must be a string");
 		}
 	}
 }

@@ -18,7 +18,7 @@ Prose review cannot catch this. We need a test loop.
 
 **Skill Tester.** Each test case is a **prompt** — the kind of request a user or agent would send. The pipeline sends the prompt to an LLM loaded with the skill, captures the answer, and validates it by executing it in a **real runtime**. The output is a pass/fail matrix per **(skill × model × test case)**.
 
-**Self-Improvement Harness.** When tests fail, an agent reads the failure trace, proposes edits to the skill files, re-runs the tests, and iterates (capped) until the suite passes or it gives up. It produces a branch + PR with the diff and the full evidence trail.
+**Self-Improvement Harness.** When tests fail, a single improver agent reads the failure trace, edits the skill files in place, re-runs the tests, and iterates (capped) until the suite passes or it gives up. It leaves the edits in the working tree alongside the full evidence trail, ready to review and open as a PR.
 
 ## How the Skill Tester works
 
@@ -73,9 +73,9 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
 
 Projects opt into the hooks they need. Two examples from the WordPress reference project:
 
-**`beforeTestAgent` — scaffold the artifact the agent will edit.** Generates a plugin skeleton inside `agentWorkspace` with a deterministic slug (`plugin-${scenario.name}-${agentId}`) so it can be activated later by `afterAll`.
+**`beforeTestAgent` — scaffold the artifact the agent will edit.** Generates a plugin skeleton inside `agentWorkspace` with a deterministic slug (`plugin-${scenario.name}-${agentId}`) so the e2e specs can activate it later.
 
-**`afterAll` — run e2e tests against every artifact produced in the run.** Writes a `.wp-env.json` listing every plugin produced in this run, then boots `wp-env`. wp-env auto-activates every listed plugin on start, so the hook sets `lifecycleScripts.afterStart` to `wp plugin deactivate --all` — leaving each spec a clean slate. It then invokes Playwright only for the selected scenario specs from `scenarios`; each spec runs across the configured testing-agent projects, activates its own plugin, sets up its fixtures (e.g. a post containing the block under test), and tears them down. Finally it stops `wp-env`, removes the generated `.wp-env.json`, and writes the aggregated results to `<runDirectory>/tests-report.json`.
+**`verifyIteration` — run e2e tests against the artifacts this iteration produced.** Walks the iteration directory for the plugins built this iteration, writes a `.wp-env.json` listing them, then boots `wp-env`. wp-env auto-activates every listed plugin on start, so the hook sets `lifecycleScripts.afterStart` to `wp plugin deactivate --all` — leaving each spec a clean slate. It then invokes Playwright for the scenario specs that ran; each spec runs across the configured testing-agent projects, activates its own plugin, sets up its fixtures (e.g. a post containing the block under test), and tears them down. Finally it stops `wp-env`, removes the generated `.wp-env.json`, and maps each failing spec back to its `(scenario, agent)` pair — returned as `failures` so a green judge but red e2e still fails the iteration. (For more on the loop this feeds, see [How the Self-Improvement works](#how-the-self-improvement-works).)
 
 ### Rubrics and the judge
 
@@ -85,7 +85,27 @@ A **rubric** is prose reference material the judge LLM consults — describing s
 
 ## How the Self-Improvement works
 
-When a run produces failures, the harness can loop: edit the failing skill, re-run the affected scenarios, and stop when the suite passes or the iteration budget is exhausted. Loop mode is opt-in — the default behaviour is the one-shot Skill Tester described above.
+When a run produces failures, the harness can loop: a single **improver** agent edits the failing skill, the affected scenarios re-run, and the loop stops when the suite passes or the iteration budget is exhausted. Loop mode is opt-in — the default behaviour is the one-shot Skill Tester described above.
+
+The scenario-evaluation half of each iteration (testing agents → judges) is exactly the Skill Tester [described above](#how-the-skill-tester-works); the diagram below collapses it into one node and details what the loop adds around it.
+
+```mermaid
+flowchart TD
+    start([Run starts]) --> iter["Iteration N"]
+    iter --> eval["Evaluate scenarios<br/>(testing agents + judges)<br/><i>see Skill Tester</i>"]
+    eval --> verify{"verifyIteration hook<br/>e.g. run e2e tests"}
+    verify -- pass --> allpass{"All scenarios pass?"}
+    verify -- fail --> mark["Mark failed scenarios / pairs<br/>+ attach details"]
+    mark --> allpass
+    allpass -- yes --> done([PASS - open PR for review])
+    allpass -- no --> budget{"Iterations left?<br/>(loop mode + agents.improver set)"}
+    budget -- no --> fail([FAIL - report + evidence])
+    budget -- yes --> improve["Improver agent edits<br/>SKILL.md files in place<br/>(no proposal, no git)"]
+    improve --> select["Select scenarios to re-run<br/>(by evaluationMode;<br/>verification failures re-run full matrix)"]
+    select --> iter
+```
+
+> The same diagram lives at [`assets/self-improvement-loop.mermaid`](assets/self-improvement-loop.mermaid).
 
 ### Lifecycle
 
@@ -99,27 +119,35 @@ Every run lives under `${paths.base}/<runId>/`. Each iteration owns its own subd
 ├── iteration-1/
 │   ├── report.json                # what ran this iteration (failures detailed)
 │   ├── run.log
-│   ├── proposal.md                # proposer output (loop mode, not yet passing)
-│   ├── proposal.reviewed.md       # reviewer output (when reviewer is configured)
-│   ├── skills.diff                # `git diff` of the skills dir after executor runs
+│   ├── improvement.md             # improver transcript (loop mode, not yet passing)
 │   └── <scenario>/<agent>/...     # workspaces and per-agent reports
 ├── iteration-2/
 │   └── ...
 ```
 
 1. **Iteration 1** runs every scenario (same as Skill Tester).
-2. After each iteration, if the merged matrix is not yet passing and `selfImprovement.mode === "loop"`, the **improvement cycle** runs:
-   1. **Proposer.** Reads the failure summary plus the text of every skill referenced by a failing scenario, and the optional proposer guidelines. Writes a markdown proposal to `iteration-N/proposal.md`.
-   2. **Reviewer** *(optional)*. Reads the proposal plus the failure context. Either ACKs (proposal passes through unchanged) or returns a revised version in `iteration-N/proposal.reviewed.md`.
-   3. **Executor.** Applies the final proposal to files under `paths.skills`. Runs with `Read/Write/Edit/Glob/Grep/Bash` tools, jailed to the skills directory. The harness then captures `git diff` to `iteration-N/skills.diff`.
-3. **Iteration N+1** runs a subset of scenarios chosen by `selfImprovement.evaluationMode`:
+2. **Verification gate.** After the judges grade the iteration, the optional `verifyIteration` hook fires (see below). Its return value can fail scenarios — or specific `(scenario, agent)` pairs — that the judges passed, folding those failures into the iteration report.
+3. If the merged matrix is not yet passing, `selfImprovement.mode === "loop"`, and `agents.improver` is configured, the **improver** runs: it reads the failure summary (judge verdicts plus any verification details) and the text of every skill referenced by a failing scenario, then edits the files under `paths.skills` directly. It runs with `Read/Write/Edit/Glob/Grep/Bash`, jailed to the skills directory, and writes its transcript to `iteration-N/improvement.md`. There is no separate proposal or review step.
+4. **Iteration N+1** runs a subset of scenarios chosen by `selfImprovement.evaluationMode`:
    - `failed-pairs` — only (scenario, agent) pairs that failed last iteration.
    - `failed-scenarios` *(default)* — every agent of every failing scenario.
    - `all` — the full matrix.
-   Scenarios that were not re-evaluated keep their previous verdict in the merged matrix.
-4. The loop exits early on all-pass. If `finalPass: true` and the last iteration ran a subset, the harness runs one extra full sweep at the end so the final report reflects the current state of every (scenario, agent) pair.
+   A scenario-level verification failure (no specific agent named) re-runs that scenario's full agent matrix. Scenarios that were not re-evaluated keep their previous verdict in the merged matrix.
+5. The loop exits early on all-pass. If `finalPass: true` and the last iteration ran a subset, the harness runs one extra full sweep at the end so the final report reflects the current state of every (scenario, agent) pair.
 
-The proposer and reviewer run with read-only tooling. Only the executor can write — and only inside `paths.skills`. The harness never commits or pushes; the diff lives in the working tree for human review.
+The improver is the only agent that writes, and only inside `paths.skills`. The harness never commits, pushes, or captures a diff — your edits live in the working tree for human review. Set `selfImprovement.paths.improverPrompt` to a file to replace the built-in improver instructions with a project-specific edit strategy.
+
+### The verification hook
+
+The judges grade the *artifact a testing agent produced* against the rubrics. That is not always the same question as "does it actually work?" A block can read perfectly and still break when a real browser loads it.
+
+`verifyIteration` closes that gap. It fires once per iteration, after the judges and before the improver, and its **return value feeds back into the verdict**:
+
+- return `true` (or nothing) — the iteration passes the gate untouched.
+- return `false` — fail every scenario that ran this iteration (coarse).
+- return `{ failures: [{ scenario, agent?, details? }] }` — fail exactly those scenarios, or `(scenario, agent)` pairs when `agent` is named. `details` is surfaced to the improver so it learns *why* the artifact broke beyond what the judge saw.
+
+The harness only provides the mechanism; deciding which scenarios failed is the hook's job. The reference WordPress project uses it to build each plugin, boot `wp-env`, run the Playwright e2e specs for the scenarios that ran this iteration, and map each failing spec back to its `(scenario, agent)` pair — so a green judge but red e2e still fails the iteration and tells the improver to fix the underlying skill.
 
 ### Per-iteration reports
 
@@ -158,26 +186,29 @@ export default defineConfig({
   agents: {
     testing: [...],
     judge: [...],
+    // The single agent that edits skills between iterations in loop mode.
+    improver: { id: "improver", provider: "claude-code", model: "claude-opus-4-7" },
   },
   selfImprovement: {
     mode: "loop",                       // "test-only" (default) | "loop"
     maxIterations: 3,                   // default 3
     evaluationMode: "failed-scenarios", // "failed-pairs" | "failed-scenarios" | "all"
     finalPass: false,
-    agents: {
-      proposer: { id: "proposer", provider: "claude-code", model: "claude-opus-4-7" },
-      reviewer: { id: "reviewer", provider: "anthropic-api", model: "claude-sonnet-4-6" },
-      executor: { id: "executor", provider: "claude-code", model: "claude-sonnet-4-6" },
-    },
     paths: {
-      proposerGuidelines: "./eval/improvement/proposer.md",
-      executorGuidelines: "./eval/improvement/executor.md",
+      // Optional: a file whose contents replace the built-in improver prompt.
+      improverPrompt: "./eval/improvement/improver.md",
+    },
+  },
+  hooks: {
+    // Optional: fail iterations whose artifacts pass review but break for real.
+    verifyIteration: ({ iteration, iterationDirectory, scenarios }) => {
+      // ...run e2e tests, return failures...
     },
   },
 });
 ```
 
-When a guidelines file is not configured, the harness uses minimal built-in defaults: "keep changes as minimal as possible" for the proposer, "apply the proposal exactly; do not commit" for the executor.
+`agents.improver` is the only agent the loop adds; without it, loop mode evaluates and verifies but never edits. When `paths.improverPrompt` is not set, the harness uses a minimal built-in instruction ("edit the failing skills in place, minimally, no git").
 
 ### CLI flags
 
@@ -189,13 +220,12 @@ skillsmith --mode loop --iterations 5 --evaluation failed-pairs --final-pass
 
 ### Hooks
 
-The base hooks (`beforeAll`, `beforeScenario`, ...) still fire. Loop mode adds eight more:
+The base hooks (`beforeAll`, `beforeScenario`, ...) still fire. Loop mode adds these:
 
 | Hook | Fires |
 | --- | --- |
 | `beforeIteration` / `afterIteration` | around each iteration |
-| `beforeProposal` / `afterProposal` | around the proposer call |
-| `beforeReview` / `afterReview` | around the reviewer call (when configured) |
-| `beforeExecute` / `afterExecute` | around the executor call |
+| `verifyIteration` | after the judges grade, before the improver — its return value can fail scenarios/pairs (see [The verification hook](#the-verification-hook)) |
+| `beforeImprove` / `afterImprove` | around the improver call |
 
-Each receives the iteration number, the iteration directory, and (where applicable) `proposalPath`, `reviewedProposalPath`, and `skillsDiffPath`.
+Each receives the iteration number, the iteration directory, and (for `afterImprove`) `improvementPath`. `verifyIteration` is the only hook whose return value the harness consumes; the rest are fire-and-forget.

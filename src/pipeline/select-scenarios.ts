@@ -56,7 +56,12 @@ export function selectScenarios(
 	for (const s of filtered) {
 		if (s.error !== undefined) continue;
 		const set = failingAgentsByScenario.get(s.scenario.name);
-		if (set !== undefined) agentFilter[s.scenario.name] = [...set];
+		// An empty set means "scenario failed but no specific agent did"
+		// (e.g. a scenario-level verification failure). Leave it out of
+		// the filter so the scenario re-runs its full agent matrix.
+		if (set !== undefined && set.size > 0) {
+			agentFilter[s.scenario.name] = [...set];
+		}
 	}
 	return { scenarios: filtered, agentFilter };
 }
@@ -66,8 +71,10 @@ function collectFailingAgents(
 ): Map<string, Set<string>> {
 	const out = new Map<string, Set<string>>();
 	for (const [name, body] of Object.entries(scenarios)) {
-		if (!("agents" in body)) {
-			// Scenario-level error → re-evaluate every agent next iteration.
+		if (!("agents" in body) || body.error !== undefined) {
+			// Scenario-level error (enumeration failure or a verification
+			// gate that failed the whole scenario) → re-evaluate every
+			// agent next iteration.
 			out.set(name, new Set());
 			continue;
 		}

@@ -1,6 +1,5 @@
 import type {
 	EvaluationMode,
-	SelfImprovementAgents,
 	SelfImprovementMode,
 	SelfImprovementPaths,
 	SkillsmithConfig,
@@ -11,7 +10,6 @@ export interface ResolvedSelfImprovement {
 	maxIterations: number;
 	evaluationMode: EvaluationMode;
 	finalPass: boolean;
-	agents: SelfImprovementAgents;
 	paths: SelfImprovementPaths;
 }
 
@@ -38,6 +36,8 @@ const DEFAULTS: Pick<
  *
  * `maxIterations` is clamped to a minimum of 1 here so the rest of the
  * pipeline can treat the value as a loop bound without re-validating.
+ * The improver agent itself lives in `config.agents.improver`, not in
+ * this block.
  */
 export function resolveSelfImprovement(
 	config: SkillsmithConfig,
@@ -52,7 +52,6 @@ export function resolveSelfImprovement(
 		evaluationMode:
 			overrides.evaluationMode ?? cfg.evaluationMode ?? DEFAULTS.evaluationMode,
 		finalPass: overrides.finalPass ?? cfg.finalPass ?? DEFAULTS.finalPass,
-		agents: cfg.agents ?? {},
 		paths: cfg.paths ?? {},
 	};
 }

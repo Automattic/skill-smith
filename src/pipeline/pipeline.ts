@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { loadConfig } from "../config/load";
 import { PreconditionError } from "../config/resolve-cwd";
 import {
@@ -14,8 +14,8 @@ import type {
 	ScenarioContext,
 	SkillsmithConfig,
 } from "../config/types";
-import { runImprovementCycle } from "../improvement/cycle";
-import { isGitWorkTree } from "../improvement/git";
+import { runImprovement } from "../improvement/improver";
+import { applyVerification, runVerifyHook } from "../improvement/verify";
 import { ProgressTracker } from "../progress";
 import {
 	aggregateIterationReport,
@@ -64,9 +64,8 @@ export interface ScenarioRunRecord {
  *
  *   1. Iteration 1 runs every scenario.
  *   2. If `selfImprovement.mode === "loop"` and the run is not yet
- *      passing, the improvement cycle runs (proposer → reviewer →
- *      executor) and the next iteration starts with a subset chosen
- *      by `evaluationMode`.
+ *      passing, the improver agent edits the failing skills and the
+ *      next iteration starts with a subset chosen by `evaluationMode`.
  *   3. Stop when the merged matrix is all-pass, when `maxIterations`
  *      is reached, or — when `finalPass=true` and the last iteration
  *      was a subset — after one extra full sweep.
@@ -86,12 +85,6 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		config,
 		params.selfImprovement,
 	);
-	if (selfImprovement.mode === "loop" && !isGitWorkTree(projectRoot)) {
-		throw new UserFacingError(
-			`Self-improvement loop mode requires a git repository: ${projectRoot} is not inside a git work tree.\n` +
-				"The loop captures skill edits as a diff via `git diff`. Run `git init` (and commit the skills) or run with `--mode test-only`.",
-		);
-	}
 	const allScenarios = filterScenarios(
 		enumerateScenarios(config.paths, projectRoot),
 		params.scenarios,
@@ -196,8 +189,12 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 			if (mergedPass) break;
 
-			if (i < maxIterations && selfImprovement.mode === "loop") {
-				await runImprovementCycle({
+			if (
+				i < maxIterations &&
+				selfImprovement.mode === "loop" &&
+				config.agents.improver !== undefined
+			) {
+				await runImprovement({
 					projectRoot,
 					runId,
 					runDirectory,
@@ -205,12 +202,18 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 					scenarios: runScenarios,
 					config,
 					selfImprovement,
+					agent: config.agents.improver,
 					iteration: i,
 					iterationDirectory: outcome.iterationDirectory,
 					iterationReport: outcome.report,
 					allScenarios,
 					log: outcome.log,
 				});
+				outcome.log.dump(outcome.iterationDirectory);
+			} else if (i < maxIterations && selfImprovement.mode === "loop") {
+				outcome.log.info(
+					"improvement: skipped — agents.improver is not configured",
+				);
 				outcome.log.dump(outcome.iterationDirectory);
 			}
 		}
@@ -395,6 +398,25 @@ async function runOneIteration(
 		{ ...iterationCtx, pass: report.pass },
 		log,
 	);
+
+	// Verification gate: run after the judges have graded the iteration
+	// but before the improver. Its return value can fail scenarios the
+	// judges passed (e.g. an e2e failure), and those failures flow into
+	// the report so the matrix, exit code, re-selection, and the
+	// improver's context all reflect them.
+	const verification = await runVerifyHook(
+		args.config.hooks?.verifyIteration,
+		{ ...iterationCtx, pass: report.pass },
+		`iteration:${args.iteration}`,
+		log,
+	);
+	const ranScenarioNames = args.selection.map((s) => s.scenario.name);
+	if (applyVerification(report, verification, ranScenarioNames, log)) {
+		writeFileSync(
+			join(iterationDirectory, "report.json"),
+			`${JSON.stringify(report, null, 2)}\n`,
+		);
+	}
 
 	log.dump(iterationDirectory);
 

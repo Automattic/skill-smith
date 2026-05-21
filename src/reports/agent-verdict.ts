@@ -3,7 +3,7 @@
  * under the `review` key. Pass collapses to `{ pass: true }`; fail
  * keeps only the rubrics / acceptance items that failed, with the
  * judge's notes inline. The full raw judge output is no longer kept
- * verbatim — the goal is a report a human (or a proposer agent) can
+ * verbatim — the goal is a report a human (or the improver agent) can
  * scan without wading through every passing line.
  */
 export interface AgentFailure {
