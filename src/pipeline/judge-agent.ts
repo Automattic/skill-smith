@@ -121,6 +121,7 @@ function buildJudgeSystemPrompt(
 		...scenario.acceptance.map((item) => `- ${item}`),
 	].join("\n");
 
+	const rubricIdList = scenario.rubrics.map((id) => `  - ${id}`).join("\n");
 	const jsonInstruction = [
 		"# Output format",
 		"You are grading an implementation against the rubrics above. Do not consult any skill documentation.",
@@ -134,6 +135,9 @@ function buildJudgeSystemPrompt(
 		"    ]",
 		"  }",
 		"`rubrics` is a record keyed by rubric id; `acceptance` is an array. They MUST be siblings at the top level — never nest `acceptance` inside `rubrics`.",
+		"`rubrics` MUST contain exactly one entry per rubric file provided above, keyed by the file's id (the value after `# Rubric:`). Do NOT invent extra keys by splitting a rubric file along its `##` headings or bullet points; fold all sub-section findings for a rubric into that single entry's `notes`. `pass` is true only if every requirement in the rubric file is satisfied.",
+		"The keys of `rubrics` MUST be exactly:",
+		rubricIdList,
 		'`notes` and `item` are JSON strings: escape literal newlines as \\n, double quotes as \\", and backslashes as \\\\. There is no YAML-style `|` block scalar in JSON.',
 		"Strict JSON only: no trailing commas, no comments, no single-quoted strings.",
 		"Do not output any prose or Markdown fences — only the JSON object.",
