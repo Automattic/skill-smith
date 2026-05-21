@@ -4,7 +4,7 @@ import type { InvokeParams, InvokeResult, Provider } from "./types";
 
 /**
  * Deterministic provider used by tests and dry runs. Drops a sentinel
- * file in the workspace for the testing role; returns a passing YAML
+ * file in the workspace for the testing role; returns a passing JSON
  * verdict for the judge role.
  */
 export const mockProvider: Provider = {
@@ -35,16 +35,10 @@ export const mockProvider: Provider = {
 				},
 			};
 		}
-		const yaml = [
-			"rubrics:",
-			"  r1:",
-			"    pass: true",
-			"    notes: mock",
-			"acceptance:",
-			'  - item: "mock acceptance"',
-			"    pass: true",
-			"    notes: mock",
-		].join("\n");
-		return { finalText: yaml, toolUseCount: 0 };
+		const body = JSON.stringify({
+			rubrics: { r1: { pass: true, notes: "mock" } },
+			acceptance: [{ item: "mock acceptance", pass: true, notes: "mock" }],
+		});
+		return { finalText: body, toolUseCount: 0 };
 	},
 };

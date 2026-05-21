@@ -3,7 +3,6 @@ import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { parse as parseYaml } from "yaml";
 import { run } from "../runner";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -31,16 +30,16 @@ test("smoke run with mock provider produces full reports for every (scenario, ag
 	assert.equal(runIds.length, 1, `exactly one runId; got ${runIds.join(", ")}`);
 	const runDir = join(baseDir, runIds[0] ?? "");
 
-	assert.ok(existsSync(join(runDir, "report.yaml")), "run report exists");
+	assert.ok(existsSync(join(runDir, "report.json")), "run report exists");
 	assert.ok(existsSync(join(runDir, "run.log")), "run log exists");
 	assert.ok(
-		existsSync(join(runDir, "hello-scenario", "report.yaml")),
+		existsSync(join(runDir, "hello-scenario", "report.json")),
 		"scenario report exists",
 	);
 	for (const id of ["haiku", "sonnet"]) {
-		const reportPath = join(runDir, "hello-scenario", id, "report.yaml");
-		assert.ok(existsSync(reportPath), `report.yaml exists for ${id}`);
-		const agentReport = parseYaml(readFileSync(reportPath, "utf8")) as Record<
+		const reportPath = join(runDir, "hello-scenario", id, "report.json");
+		assert.ok(existsSync(reportPath), `report.json exists for ${id}`);
+		const agentReport = JSON.parse(readFileSync(reportPath, "utf8")) as Record<
 			string,
 			unknown
 		>;
@@ -66,16 +65,16 @@ test("smoke run with mock provider produces full reports for every (scenario, ag
 	}
 
 	// Metrics propagate up through the scenario and run reports.
-	const scenarioReport = parseYaml(
-		readFileSync(join(runDir, "hello-scenario", "report.yaml"), "utf8"),
+	const scenarioReport = JSON.parse(
+		readFileSync(join(runDir, "hello-scenario", "report.json"), "utf8"),
 	) as { agents?: Record<string, { testing?: { duration?: unknown } }> };
 	assert.equal(
 		typeof scenarioReport.agents?.haiku?.testing?.duration,
 		"number",
 		"scenario report embeds the agent testing block",
 	);
-	const runReport = parseYaml(
-		readFileSync(join(runDir, "report.yaml"), "utf8"),
+	const runReport = JSON.parse(
+		readFileSync(join(runDir, "report.json"), "utf8"),
 	) as {
 		scenarios?: Record<
 			string,

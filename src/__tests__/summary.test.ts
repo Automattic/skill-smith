@@ -9,7 +9,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { stringify as stringifyYaml } from "yaml";
 import { emitSummary, prepareSummary } from "../reports/summary";
 
 function withReport(scenarios: Record<string, unknown>): {
@@ -18,8 +17,8 @@ function withReport(scenarios: Record<string, unknown>): {
 	const runDirectory = mkdtempSync(join(tmpdir(), "skillsmith-summary-"));
 	mkdirSync(runDirectory, { recursive: true });
 	writeFileSync(
-		join(runDirectory, "report.yaml"),
-		stringifyYaml({ runId: "20260101-000000", scenarios }),
+		join(runDirectory, "report.json"),
+		JSON.stringify({ runId: "20260101-000000", scenarios }, null, 2),
 	);
 	return { runDirectory };
 }

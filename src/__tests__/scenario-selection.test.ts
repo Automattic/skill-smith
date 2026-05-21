@@ -5,7 +5,6 @@ import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { parse as parseYaml } from "yaml";
 import { run } from "../runner";
 
 const execFileAsync = promisify(execFile);
@@ -95,8 +94,8 @@ function latestRunDir(): string {
 }
 
 function reportScenarioNames(): string[] {
-	const report = parseYaml(
-		readFileSync(join(latestRunDir(), "report.yaml"), "utf8"),
+	const report = JSON.parse(
+		readFileSync(join(latestRunDir(), "report.json"), "utf8"),
 	) as { scenarios: Record<string, unknown> };
 	return Object.keys(report.scenarios).sort();
 }

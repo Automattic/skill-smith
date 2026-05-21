@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { parse as parseYaml } from "yaml";
 import { getProvider } from "../providers/registry";
 
 const E2E_ENABLED = process.env.CODEX_E2E === "1";
@@ -42,7 +41,7 @@ test("codex provider end-to-end (judge role)", {
 	const result = await provider.invoke({
 		agent: { id: "codex-e2e-judge", provider: "codex", model: "gpt-5.5" },
 		systemPrompt:
-			"Return a YAML document with a single top-level key `verdict` whose value is `pass`. Output only YAML.",
+			'Return a JSON object with a single top-level key `verdict` whose value is `"pass"`. Output only JSON.',
 		prompt: "Grade this trivial submission.",
 		cwd,
 		role: "judge",
@@ -50,10 +49,10 @@ test("codex provider end-to-end (judge role)", {
 	assert.equal(result.error, undefined);
 	const trimmed = result.finalText.trim();
 	const fence = trimmed.match(/^```(?:[a-zA-Z]+)?\n([\s\S]*?)\n```$/);
-	const yamlText = fence?.[1] ?? trimmed;
-	const parsed = parseYaml(yamlText);
+	const jsonText = fence?.[1] ?? trimmed;
+	const parsed = JSON.parse(jsonText);
 	assert.ok(
 		parsed !== null && typeof parsed === "object",
-		"judge output should parse as a YAML object",
+		"judge output should parse as a JSON object",
 	);
 });

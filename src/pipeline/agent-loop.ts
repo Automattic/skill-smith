@@ -1,6 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { stringify as stringifyYaml } from "yaml";
 import type {
 	AgentContext,
 	AgentDefinition,
@@ -36,7 +35,7 @@ export interface TestingAgentResult {
 }
 
 /**
- * The `testing` block persisted into the per-agent `report.yaml`.
+ * The `testing` block persisted into the per-agent `report.json`.
  * `duration` is wall-clock milliseconds for the testing-agent
  * invocation; `tokenUsage` is omitted when the provider reported no
  * usage (e.g. the testing agent errored before returning any).
@@ -246,7 +245,7 @@ function classifyReview(review: unknown): {
 }
 
 /**
- * Single writer of the per-agent `report.yaml`. Pairs the `testing`
+ * Single writer of the per-agent `report.json`. Pairs the `testing`
  * block (always present) with whatever the judge step produced under
  * `review`.
  */
@@ -257,7 +256,7 @@ function writeAgentReport(
 ): void {
 	mkdirSync(agentDirectory, { recursive: true });
 	writeFileSync(
-		join(agentDirectory, "report.yaml"),
-		stringifyYaml({ testing, review }),
+		join(agentDirectory, "report.json"),
+		`${JSON.stringify({ testing, review }, null, 2)}\n`,
 	);
 }

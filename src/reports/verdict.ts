@@ -1,5 +1,5 @@
 /**
- * Classify a judge verdict (parsed YAML from the per-agent `review`
+ * Classify a judge verdict (parsed JSON from the per-agent `review`
  * block) into a pass/fail/skipped Cell with every failing rubric or
  * acceptance item.
  *
@@ -33,7 +33,9 @@ export function classifyVerdict(verdictRaw: unknown): Cell {
 
 	if (rubrics) {
 		for (const [id, r] of Object.entries(rubrics)) {
-			if (r?.pass !== true) failures.push(`rubric ${id}`);
+			if (r?.pass !== true) {
+				failures.push(`rubric ${id}`);
+			}
 		}
 	}
 	if (acceptance) {
