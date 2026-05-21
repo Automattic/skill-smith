@@ -55,6 +55,17 @@ const { actions } = yield import( '@wordpress/interactivity-router' );
 yield actions.navigate( url );
 ```
 
+For `wp-scripts` to pick up `view.js` as an entry point — emitting it (plus its `view.asset.php` dependency manifest) into the build directory — `block.json` must declare it as `viewScriptModule`. Without this field, `wp-scripts` does not build `view.js`, so nothing is enqueued at runtime and the directives never hydrate:
+
+```json
+{
+	"supports": { "interactivity": true },
+	"viewScriptModule": "file:./view.js"
+}
+```
+
+Use `viewScriptModule` (the script-module field), not the older `viewScript` (which registers a classic script, incompatible with the Interactivity API's module system). For a block, do NOT also call `wp_register_script_module()` / `wp_enqueue_script_module()` manually from `render.php` — that is the classic-theme path covered below, and pairing it with a block scaffold typically points at a `view.js` that `wp-scripts` never built.
+
 For **classic themes**, instead of relying on a block's `block.json`, you register and enqueue your script module manually in PHP, listing `@wordpress/interactivity-router` as a dynamic dependency. You also add the Interactivity API directives directly in your theme's template files and process them with `wp_interactivity_process_directives()`, as explained in the [Server-side rendering](/docs/reference-guides/interactivity-api/core-concepts/server-side-rendering.md#processing-directives-in-classic-themes) guide.
 
 ```php
@@ -79,13 +90,12 @@ add_action( 'wp_enqueue_scripts', function () {
 
 During client-side navigation, the router needs to know which script modules should be loaded on the new page. It identifies them by looking for a `data-wp-router-options` attribute on the `<script>` tag with `loadOnClientNavigation` set to `true`. Without this attribute, the router will not load the script module during client-side navigation, and the block's interactivity will not work on the new page.
 
-For **blocks** that depend on the router (i.e. they use `actions.navigate()` for in-place page swaps), declare interactivity support so the view script module is registered for router-driven loading. The simplest correct form is the boolean shorthand:
+For **blocks** that depend on the router (i.e. they use `actions.navigate()` for in-place page swaps), declare interactivity support so the view script module is registered for router-driven loading. This sits alongside the `viewScriptModule` declaration covered above — `viewScriptModule` is what builds and registers the module in the first place; `supports.interactivity` is what tags it with `loadOnClientNavigation: true`. The simplest correct form is the boolean shorthand:
 
 ```json
 {
-	"supports": {
-		"interactivity": true
-	}
+	"supports": { "interactivity": true },
+	"viewScriptModule": "file:./view.js"
 }
 ```
 

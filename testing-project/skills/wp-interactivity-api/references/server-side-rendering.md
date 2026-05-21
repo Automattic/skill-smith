@@ -18,15 +18,16 @@ The following are the necessary steps to ensure that the directives are correctl
 
 -   **1. Mark the block as interactive**
 
-    First, to enable the server processing of the interactive block's directives, you must add `supports.interactivity` to the `block.json`:
+    First, to enable the server processing of the interactive block's directives, you must add `supports.interactivity` to the `block.json`. If the block ships a `view.js`, also declare it as `viewScriptModule` so `wp-scripts` builds it and WordPress registers it as a script module:
 
     ```json
     {
-    	"supports": {
-    		"interactivity": true
-    	}
+    	"supports": { "interactivity": true },
+    	"viewScriptModule": "file:./view.js"
     }
     ```
+
+    `supports.interactivity` enables Server Directive Processing for the block; `viewScriptModule` is the field that actually turns `view.js` into a built, enqueued module. Without it, `wp-scripts` does not treat `view.js` as an entry point — the file is not emitted into the build directory and no client-side store/directives are wired up at runtime. Use `viewScriptModule` (the script-module field), not the legacy `viewScript` (a classic script, incompatible with the Interactivity API's module system).
 
 -   **2. Initialize the global state or local context**
 
