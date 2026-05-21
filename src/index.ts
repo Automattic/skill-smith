@@ -1,6 +1,7 @@
 export { DEFAULT_PATHS } from "./config/defaults";
 export { defineConfig } from "./config/define-config";
 export type {
+	AfterAllScenariosHookFn,
 	AgentContext,
 	AgentDefinition,
 	AgentsConfig,
@@ -22,7 +23,6 @@ export type {
 	VerificationFailure,
 	VerificationResult,
 	VerificationReturn,
-	VerifyHookFn,
 } from "./config/types";
 export type { Provider, ProviderId } from "./providers/types";
 export type { RunOptions } from "./runner";

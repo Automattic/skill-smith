@@ -1,7 +1,7 @@
 import type {
+	AfterAllScenariosHookFn,
 	IterationCompleteHookContext,
 	VerificationFailure,
-	VerifyHookFn,
 } from "../config/types";
 import type { IterationReport } from "../reports/iteration-report";
 import type { RunLog } from "../util/run-log";
@@ -41,32 +41,32 @@ export function normalizeVerification(ret: unknown): NormalizedVerification {
 					f !== null && typeof f === "object" && typeof f.scenario === "string",
 			)
 		: [];
-	const pass =
-		typeof obj.pass === "boolean" ? obj.pass : failures.length === 0;
+	const pass = typeof obj.pass === "boolean" ? obj.pass : failures.length === 0;
 	const out: NormalizedVerification = { pass, failures };
 	if (typeof obj.details === "string") out.details = obj.details;
 	return out;
 }
 
 /**
- * Invoke the project's `verifyIteration` hook and normalize its return.
- * Unlike `tryHook`, the return value matters here; a throwing hook is
- * treated as a failed verification (so a broken gate fails safe).
+ * Invoke the project's `afterAllScenarios` hook and normalize its
+ * return. Unlike `tryHook`, the return value matters here; a throwing
+ * hook is treated as a failed verification (so a broken gate fails
+ * safe).
  */
-export async function runVerifyHook(
-	fn: VerifyHookFn | undefined,
+export async function runAfterAllScenarios(
+	fn: AfterAllScenariosHookFn | undefined,
 	ctx: IterationCompleteHookContext,
 	scope: string,
 	log: RunLog,
 ): Promise<NormalizedVerification> {
 	if (fn === undefined) {
-		log.hook("verifyIteration", scope, "noop");
+		log.hook("afterAllScenarios", scope, "noop");
 		return { pass: true, failures: [] };
 	}
 	try {
 		const norm = normalizeVerification(await fn(ctx));
 		log.hook(
-			"verifyIteration",
+			"afterAllScenarios",
 			scope,
 			"invoked",
 			`pass=${norm.pass} failures=${norm.failures.length}`,
@@ -74,8 +74,12 @@ export async function runVerifyHook(
 		return norm;
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
-		log.hook("verifyIteration", scope, "error", msg);
-		return { pass: false, failures: [], details: `verification hook threw: ${msg}` };
+		log.hook("afterAllScenarios", scope, "error", msg);
+		return {
+			pass: false,
+			failures: [],
+			details: `verification hook threw: ${msg}`,
+		};
 	}
 }
 
@@ -103,7 +107,7 @@ export function applyVerification(
 			const body = report.scenarios[failure.scenario];
 			if (body === undefined || !("agents" in body)) {
 				log.info(
-					`verifyIteration: failure for unknown/errored scenario "${failure.scenario}" — ignored`,
+					`afterAllScenarios: failure for unknown/errored scenario "${failure.scenario}" — ignored`,
 				);
 				continue;
 			}

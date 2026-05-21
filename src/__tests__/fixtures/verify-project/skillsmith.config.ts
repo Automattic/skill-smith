@@ -1,7 +1,7 @@
 import { defineConfig } from "../../../index";
 
 // Fixture for the verification gate. The judges always pass (the mock
-// provider's default), but `verifyIteration` fails the first iteration
+// provider's default), but `afterAllScenarios` fails the first iteration
 // — standing in for an e2e suite that breaks even though the artifact
 // passed review. Iteration 2 verifies clean, so the loop converges.
 export default defineConfig({
@@ -19,7 +19,7 @@ export default defineConfig({
 		evaluationMode: "failed-scenarios",
 	},
 	hooks: {
-		verifyIteration: ({ iteration }) => {
+		afterAllScenarios: ({ iteration }) => {
 			if (iteration === 1) {
 				return {
 					failures: [

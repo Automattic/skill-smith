@@ -15,7 +15,7 @@ import type {
 	SkillsmithConfig,
 } from "../config/types";
 import { runImprovement } from "../improvement/improver";
-import { applyVerification, runVerifyHook } from "../improvement/verify";
+import { applyVerification, runAfterAllScenarios } from "../improvement/verify";
 import { ProgressTracker } from "../progress";
 import {
 	aggregateIterationReport,
@@ -187,35 +187,36 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 			mergedPass = writeRunReport(runDirectory, runId, mergedScenarios);
 			renderRunSummary();
 
-			if (mergedPass) break;
-
-			if (
-				i < maxIterations &&
-				selfImprovement.mode === "loop" &&
-				config.agents.improver !== undefined
-			) {
-				await runImprovement({
-					projectRoot,
-					runId,
-					runDirectory,
-					iterations,
-					scenarios: runScenarios,
-					config,
-					selfImprovement,
-					agent: config.agents.improver,
-					iteration: i,
-					iterationDirectory: outcome.iterationDirectory,
-					iterationReport: outcome.report,
-					allScenarios,
-					log: outcome.log,
-				});
-				outcome.log.dump(outcome.iterationDirectory);
-			} else if (i < maxIterations && selfImprovement.mode === "loop") {
-				outcome.log.info(
-					"improvement: skipped — agents.improver is not configured",
-				);
-				outcome.log.dump(outcome.iterationDirectory);
+			// The improver is part of the iteration: it runs after the
+			// scenario sweep was graded and verified, when the run is not
+			// yet passing and there is budget left.
+			if (!mergedPass && i < maxIterations && selfImprovement.mode === "loop") {
+				if (config.agents.improver !== undefined) {
+					await runImprovement({
+						projectRoot,
+						runId,
+						runDirectory,
+						iterations,
+						scenarios: runScenarios,
+						config,
+						selfImprovement,
+						agent: config.agents.improver,
+						iteration: i,
+						iterationDirectory: outcome.iterationDirectory,
+						iterationReport: outcome.report,
+						allScenarios,
+						log: outcome.log,
+					});
+				} else {
+					outcome.log.info(
+						"improvement: skipped — agents.improver is not configured",
+					);
+				}
 			}
+
+			await fireAfterIteration(config, runCtx, outcome, i);
+
+			if (mergedPass) break;
 		}
 
 		if (
@@ -249,6 +250,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 			);
 			mergedPass = writeRunReport(runDirectory, runId, mergedScenarios);
 			renderRunSummary();
+			await fireAfterIteration(config, runCtx, outcome, i);
 		}
 
 		prepared = prepareSummary({ runDirectory, runId });
@@ -350,6 +352,13 @@ async function runOneIteration(
 		iterationCtx,
 		log,
 	);
+	await tryHook(
+		"beforeAllScenarios",
+		`iteration:${args.iteration}`,
+		args.config.hooks?.beforeAllScenarios,
+		iterationCtx,
+		log,
+	);
 
 	log.section(`scenarios (iteration ${args.iteration})`);
 	for (const s of args.selection) {
@@ -391,21 +400,13 @@ async function runOneIteration(
 		directory: iterationDirectory,
 	});
 
-	await tryHook(
-		"afterIteration",
-		`iteration:${args.iteration}`,
-		args.config.hooks?.afterIteration,
-		{ ...iterationCtx, pass: report.pass },
-		log,
-	);
-
-	// Verification gate: run after the judges have graded the iteration
-	// but before the improver. Its return value can fail scenarios the
+	// afterAllScenarios closes the scenario sweep. It is the one hook
+	// whose return value the harness consumes: it can fail scenarios the
 	// judges passed (e.g. an e2e failure), and those failures flow into
 	// the report so the matrix, exit code, re-selection, and the
 	// improver's context all reflect them.
-	const verification = await runVerifyHook(
-		args.config.hooks?.verifyIteration,
+	const verification = await runAfterAllScenarios(
+		args.config.hooks?.afterAllScenarios,
 		{ ...iterationCtx, pass: report.pass },
 		`iteration:${args.iteration}`,
 		log,
@@ -421,6 +422,32 @@ async function runOneIteration(
 	log.dump(iterationDirectory);
 
 	return { report, iterationDirectory, log };
+}
+
+/**
+ * Fire `afterIteration` at the very end of an iteration — after the
+ * improver has run, so the hook sees the post-improve world — then
+ * persist the iteration log.
+ */
+async function fireAfterIteration(
+	config: SkillsmithConfig,
+	runCtx: RunContext,
+	outcome: IterationOutcome,
+	iteration: number,
+): Promise<void> {
+	await tryHook(
+		"afterIteration",
+		`iteration:${iteration}`,
+		config.hooks?.afterIteration,
+		{
+			...runCtx,
+			iteration,
+			iterationDirectory: outcome.iterationDirectory,
+			pass: outcome.report.pass,
+		},
+		outcome.log,
+	);
+	outcome.log.dump(outcome.iterationDirectory);
 }
 
 function filterScenarios(

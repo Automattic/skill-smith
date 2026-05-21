@@ -107,9 +107,7 @@ function runE2eVerification(
 	iterationDirectory: string,
 	scenarios: RunScenario[],
 ): VerificationFailure[] {
-	const dirToName = new Map(
-		scenarios.map((s) => [s.dirName, s.scenario.name]),
-	);
+	const dirToName = new Map(scenarios.map((s) => [s.dirName, s.scenario.name]));
 
 	// Each iteration writes a fresh set of workspaces under
 	// `iteration-N/<scenario>/<agent>/workspace`. Collect every plugin
@@ -121,7 +119,9 @@ function runE2eVerification(
 	})) {
 		if (!scenarioEntry.isDirectory()) continue;
 		const scenarioDir = join(iterationDirectory, scenarioEntry.name);
-		for (const agentEntry of readdirSync(scenarioDir, { withFileTypes: true })) {
+		for (const agentEntry of readdirSync(scenarioDir, {
+			withFileTypes: true,
+		})) {
 			if (!agentEntry.isDirectory()) continue;
 			const workspaceDir = join(scenarioDir, agentEntry.name, "workspace");
 			if (!existsSync(workspaceDir)) continue;
@@ -380,7 +380,7 @@ export default defineConfig({
 		// A spec failure marks that exact (scenario, agent) pair failed —
 		// even if the judge passed it — so the improver learns the code
 		// looked right but broke in a real runtime, and the loop iterates.
-		verifyIteration: ({ scenarios, iterationDirectory }) => {
+		afterAllScenarios: ({ scenarios, iterationDirectory }) => {
 			const failures = runE2eVerification(iterationDirectory, scenarios);
 			return failures.length > 0 ? { failures } : true;
 		},

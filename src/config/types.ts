@@ -149,8 +149,8 @@ export interface VerificationFailure {
 }
 
 /**
- * What a verification hook may return. The harness applies the result
- * on top of the judges' verdicts for the iteration:
+ * What the `afterAllScenarios` hook may return. The harness applies the
+ * result on top of the judges' verdicts for the iteration:
  *
  *   - `failures` — exactly these scenarios / pairs are marked failed.
  *   - `pass` — overall verdict. Defaults to `false` when `failures` is
@@ -166,10 +166,10 @@ export interface VerificationResult {
 }
 
 /**
- * Shorthand returns a verification hook may use instead of a full
+ * Shorthand `afterAllScenarios` may return instead of a full
  * `VerificationResult`: `true` passes the iteration, `false` fails
  * every scenario that ran. A hook may also return nothing (handled at
- * the `VerifyHookFn` boundary), which is treated as a pass.
+ * the `AfterAllScenariosHookFn` boundary), which is treated as a pass.
  */
 export type VerificationReturn = VerificationResult | boolean;
 
@@ -181,14 +181,33 @@ export interface ImproveHookContext extends IterationCompleteHookContext {
 export type HookFn<Ctx> = (ctx: Ctx) => void | Promise<void>;
 
 /**
- * A verification hook fires after the judges have graded an iteration
- * but before the improver runs. Unlike the fire-and-forget hooks, its
- * return value feeds back into the iteration verdict.
+ * `afterAllScenarios` is the one hook whose return value the harness
+ * consumes — every other hook is fire-and-forget. It fires after the
+ * judges have graded the scenario sweep, and its verdict folds back
+ * into the iteration report (see `Hooks.afterAllScenarios`).
  */
-export type VerifyHookFn = (
+export type AfterAllScenariosHookFn = (
 	ctx: IterationCompleteHookContext,
 ) => VerificationReturn | void | Promise<VerificationReturn> | Promise<void>;
 
+/**
+ * Project hooks, listed in the order they fire within a run:
+ *
+ * ```
+ * beforeAll
+ *   beforeIteration
+ *     beforeAllScenarios
+ *       beforeScenario · beforeTestAgent · afterTestAgent
+ *       beforeJudgeAgent · afterJudgeAgent · afterScenario
+ *     afterAllScenarios        <- returns the iteration verdict
+ *     beforeImprove · afterImprove   (loop mode, when not yet passing)
+ *   afterIteration             <- fires after the improver, ending the iteration
+ * afterAll
+ * ```
+ *
+ * Every hook is fire-and-forget except `afterAllScenarios`, whose
+ * return value the harness reads.
+ */
 export interface Hooks {
 	beforeAll?: HookFn<RunContext>;
 	beforeScenario?: HookFn<ScenarioContext>;
@@ -200,16 +219,22 @@ export interface Hooks {
 	afterAll?: HookFn<RunContext>;
 	/** Fires once per iteration, before any scenario runs. */
 	beforeIteration?: HookFn<IterationHookContext>;
-	/** Fires once per iteration, after the iteration report is written. */
-	afterIteration?: HookFn<IterationCompleteHookContext>;
 	/**
-	 * Fires after the judges have graded the iteration but before the
-	 * improver runs. Its return value can mark scenarios (or specific
+	 * Fires once per iteration, at the very end — after the improver has
+	 * run, so the skills it edited are already on disk.
+	 */
+	afterIteration?: HookFn<IterationCompleteHookContext>;
+	/** Fires once per iteration, just before the scenario sweep begins. */
+	beforeAllScenarios?: HookFn<IterationHookContext>;
+	/**
+	 * Fires after the judges have graded the scenario sweep but before
+	 * the improver runs. Its return value can mark scenarios (or specific
 	 * (scenario, agent) pairs) failed even when the judge passed them —
 	 * e.g. to fail an iteration whose artifacts pass review but break a
-	 * real end-to-end test. Runs every iteration, in every mode.
+	 * real end-to-end test. This is the only hook whose return value the
+	 * harness consumes. Runs every iteration, in every mode.
 	 */
-	verifyIteration?: VerifyHookFn;
+	afterAllScenarios?: AfterAllScenariosHookFn;
 	/** Fires before the improver agent runs (loop mode only). */
 	beforeImprove?: HookFn<IterationCompleteHookContext>;
 	/** Fires after the improver wrote its transcript (loop mode only). */

@@ -138,7 +138,7 @@ test("applyVerification with no named failures fails everything that ran", () =>
 	}
 });
 
-test("verifyIteration hook fails a judge-passing iteration and the loop recovers", async () => {
+test("afterAllScenarios hook fails a judge-passing iteration and the loop recovers", async () => {
 	const projectRoot = join(here, "fixtures", "verify-project");
 	const baseDir = join(projectRoot, ".skillsmith");
 	const skillPath = join(projectRoot, "skills", "foo", "SKILL.md");

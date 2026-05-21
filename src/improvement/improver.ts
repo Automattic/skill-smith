@@ -133,7 +133,9 @@ export async function runImprovement(
 		context.skillsBlob || "(no skill text available)",
 	].join("\n");
 
-	log.info(`improver starting: provider=${agent.provider} model=${agent.model} cwd=${skillsDir}`);
+	log.info(
+		`improver starting: provider=${agent.provider} model=${agent.model} cwd=${skillsDir}`,
+	);
 
 	const provider = getProvider(agent.provider);
 	const result = await provider.invoke({
