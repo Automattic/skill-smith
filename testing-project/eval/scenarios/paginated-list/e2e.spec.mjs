@@ -86,10 +86,11 @@ test.describe("paginated-list scenario", () => {
 		// target page, parse it, and swap in the new region content;
 		// without a prior `prefetch` (we never hover in this test),
 		// that whole pipeline runs cold on a wp-env instance that can
-		// be slow to respond. 10s leaves comfortable headroom while
-		// still flagging a genuinely stuck navigation.
+		// be slow on the first request after env startup. The 30s
+		// ceiling absorbs that cold-start latency while still flagging
+		// a genuinely stuck navigation.
 		const region = page.locator("[data-wp-router-region]");
-		await expect(region).toContainText("Test post 1", { timeout: 10_000 });
+		await expect(region).toContainText("Test post 1", { timeout: 30_000 });
 		await expect(region).not.toContainText("Test post 5");
 
 		// URL must reflect ?pg=2 either via pushState (router) or a

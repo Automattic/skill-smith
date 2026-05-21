@@ -40,6 +40,15 @@ The following are the necessary steps to ensure that the directives are correctl
     ));
     ```
 
+    Seed empty/initial values the same way — do not skip the call just because the value starts blank:
+
+    ```php
+    // The `joke` property is empty until a fetch resolves on the client.
+    wp_interactivity_state( 'myJokePlugin', array(
+      'joke' => '',
+    ));
+    ```
+
     If you are using local context, the initial values are defined with the `data-wp-context` directive itself, either by:
 
     -   Adding it directly to the HTML.
