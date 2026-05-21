@@ -32,9 +32,9 @@ acceptance:
   - The "Menu" button's `aria-expanded` is wired with `data-wp-bind--aria-expanded` referencing the same boolean (no hand-written attribute writes)
   - The drawer's visibility is driven reactively from the same boolean via a directive such as `data-wp-bind--hidden` (or an equivalent `data-wp-bind--*` / `data-wp-class--*`), not via `classList.*`, `style.*`, or `hidden` writes from JS
   - The server-rendered HTML reflects the initial closed state (drawer hidden, `aria-expanded="false"`) so it is correct before hydration
-  - Tab / Shift+Tab handling on the first and last drawer links is wired with `data-wp-on--keydown` to named store actions; the focus trap is implemented by intercepting those boundary keydowns (not by mutating `tabindex` on every focusable element on the page)
+  - Tab / Shift+Tab keyboard handling is wired through Interactivity API directives (any of `data-wp-on--keydown` on the boundary links, or a drawer-/document-level `data-wp-on--keydown` / `data-wp-on-document--keydown` that detects the active element), not via a manual `addEventListener` in `view.js` and not by mutating `tabindex` on every focusable element on the page
   - Escape handling is wired with `data-wp-on--keydown` (on the drawer, or via `data-wp-on-document--keydown` / `data-wp-on-window--keydown`) to a named store action that closes the drawer
-  - Focus restoration to the "Menu" button on close uses a reference to the hamburger element captured when the drawer opens (e.g. via `getElement()` stored on the store/context), not an ad-hoc `document.querySelector` lookup at close time
+  - Focus is returned to the "Menu" button when the drawer closes, and the action's logic for locating that button is scoped to the block instance (e.g. via `getElement().ref` or a reference captured when the drawer opened) rather than relying on a global / document-wide `document.querySelector` lookup that could match unrelated buttons on the page
   - The three drawer links are real anchors (`<a href="#home">`, `<a href="#about">`, `<a href="#contact">`) rendered server-side, not built or injected by `view.js`
 
 rubrics:
