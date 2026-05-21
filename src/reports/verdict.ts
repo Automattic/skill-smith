@@ -24,9 +24,7 @@ export function classifyVerdict(verdictRaw: unknown): Cell {
 		return { kind: "FAIL", failures: [v.error] };
 	}
 
-	const rubrics = v.rubrics as
-		| Record<string, { pass?: unknown }>
-		| undefined;
+	const rubrics = v.rubrics as Record<string, { pass?: unknown }> | undefined;
 	const acceptance = v.acceptance as
 		| Array<{ pass?: unknown; item?: unknown }>
 		| undefined;
