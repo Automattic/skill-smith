@@ -82,6 +82,8 @@ function blockJson(): string {
 			name: BLOCK_NAME,
 			title: "Testing Block",
 			category: "widgets",
+			// Add this manually until we improve WordPress skills.
+			render: "file:./render.php",
 		},
 		null,
 		2,
