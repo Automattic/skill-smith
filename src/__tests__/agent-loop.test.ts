@@ -3,7 +3,6 @@ import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { parse as parseYaml } from "yaml";
 import { run } from "../runner";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -33,10 +32,10 @@ test("judge phase is skipped when the testing agent reports an error", async () 
 		runDir,
 		"hello-scenario",
 		"mock-fail-testing",
-		"report.yaml",
+		"report.json",
 	);
 	assert.ok(existsSync(failReportPath));
-	const failReport = parseYaml(readFileSync(failReportPath, "utf8")) as {
+	const failReport = JSON.parse(readFileSync(failReportPath, "utf8")) as {
 		review?: { skipped?: string };
 	};
 	assert.match(
@@ -56,8 +55,8 @@ test("judge phase is skipped when the testing agent reports an error", async () 
 	assert.ok(existsSync(failWorkspace));
 
 	// The other agent's full pipeline still runs as normal.
-	const okReportPath = join(runDir, "hello-scenario", "ok", "report.yaml");
-	const okReport = parseYaml(readFileSync(okReportPath, "utf8")) as {
+	const okReportPath = join(runDir, "hello-scenario", "ok", "report.json");
+	const okReport = JSON.parse(readFileSync(okReportPath, "utf8")) as {
 		review?: { rubrics?: unknown };
 	};
 	assert.ok(
