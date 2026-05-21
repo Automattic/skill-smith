@@ -126,7 +126,6 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	let prevReport: IterationReport | undefined;
 	let lastWasSubset = false;
 	let firedBeforeAll = false;
-	let lastIterationDirectory = runDirectory;
 	const iterationPasses: boolean[] = [];
 
 	const renderRunSummary = (): void => {
@@ -177,7 +176,6 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 			});
 			firedBeforeAll = true;
 			prevReport = outcome.report;
-			lastIterationDirectory = outcome.iterationDirectory;
 			iterationPasses.push(outcome.report.pass);
 
 			mergedScenarios = mergeIntoRunningReport(
@@ -242,7 +240,6 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 				fireBeforeAll: false,
 				selfImprovement,
 			});
-			lastIterationDirectory = outcome.iterationDirectory;
 			iterationPasses.push(outcome.report.pass);
 			mergedScenarios = mergeIntoRunningReport(
 				mergedScenarios,
@@ -255,6 +252,9 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 		prepared = prepareSummary({ runDirectory, runId });
 	} finally {
+		// The afterAll hook is run-scoped, so its log lives at the run root
+		// (`${runDirectory}/run.log`) — not inside an iteration folder,
+		// where it would clobber that iteration's own run.log.
 		const afterAllLog = new RunLog({ mirrorStderr: verbose ?? false });
 		await tryHook(
 			"afterAll",
@@ -263,7 +263,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 			runCtx,
 			afterAllLog,
 		);
-		afterAllLog.dump(lastIterationDirectory);
+		afterAllLog.dump(runDirectory);
 		tracker.finish();
 	}
 
