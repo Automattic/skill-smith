@@ -5,14 +5,14 @@ The store holds `state`, `actions`, `callbacks`, and (optionally) `config`. Dire
 ```js
 import { store, getContext } from '@wordpress/interactivity';
 
-const { state, actions } = store( 'myPlugin', {
+const { state, actions } = store( 'my-plugin/my-block', {
   state: { /* ... */ },
   actions: { /* ... */ },
   callbacks: { /* ... */ },
 } );
 ```
 
-All calls to `store()` with the same namespace return the **same** object — store parts are merged. You can split a store across files, call `store('myPlugin')` to get back the shared instance, or destructure `state`/`actions` from any call.
+All calls to `store()` with the same namespace return the **same** object — store parts are merged. You can split a store across files, call `store('my-plugin/my-block')` to get back the shared instance, or destructure `state`/`actions` from any call.
 
 ## State: global vs local context vs derived
 
@@ -51,6 +51,7 @@ const { state } = store( 'myPlugin', {
 Per-instance state, scoped to a subtree of the DOM. Use it for:
 
 - Per-instance UI state (`isOpen`, expanded flag, focused tab, instance-local counter).
+- Per-instance async results, such as a fetched joke/message/list that should update only the block whose button was clicked.
 - Anything that must be independent across multiple instances of the same block on a page.
 
 This is the default for UI state. Reach for global state only when sharing is actually required.
@@ -63,7 +64,7 @@ This is the default for UI state. Reach for global state only when sharing is ac
 ```js
 import { getContext } from '@wordpress/interactivity';
 
-store( 'myPlugin', {
+store( 'my-plugin/toggle-block', {
   actions: {
     toggle() {
       const context = getContext();
@@ -83,9 +84,9 @@ Contexts nest; child contexts inherit and can override parent values:
 </div>
 ```
 
-### Derived state — getters on `state`
+### Derived state — getters on `state` + server seed
 
-Computed values. Defined as getters; never stored. Recompute automatically whenever the state/context they read changes.
+Computed values defined in two halves: a getter on the client store (recomputes automatically when the state/context it reads changes) **and** a server seed in `wp_interactivity_state()` so SDP can render directives that reference it. Treat both halves as part of the definition; defining only the JS half leaves the initial HTML wrong until hydration.
 
 ```js
 const { state } = store( 'myCounterPlugin', {
@@ -107,7 +108,7 @@ const { state } = store( 'myCounterPlugin', {
 
 Derived state can read from `state`, `getContext()`, or both. From the consumer's side it looks identical to plain state — directives reference `state.double` the same way.
 
-**Initialize derived state on the server too.** Otherwise SDP can't compute its value, and the initial HTML will be wrong until JS hydrates (visible flash / layout shift). See `server-rendering.md` for the static and dynamic patterns (`wp_interactivity_state()` with a value or a closure).
+Seed the server half in `wp_interactivity_state()`: a static value when it's known up-front, or a PHP closure (calling `wp_interactivity_state()` / `wp_interactivity_get_context()`) for dynamic / per-iteration values. See `server-rendering.md` for the patterns.
 
 ### Mutation rules
 
@@ -215,6 +216,21 @@ actions: {
 Without `withSyncEvent`, calls to those sync APIs trigger a deprecation warning today, and will silently fail in a future release.
 
 After a `yield`, `event.target` is preserved; `event.currentTarget` is `null` once event propagation completes. To read the listening element after a yield, capture it synchronously before the first `yield`, or use `getElement().ref`.
+
+For per-instance fetches, capture context before the first `yield` and mutate that context after the response resolves:
+
+```js
+store( 'my-plugin/joke-block', {
+  actions: {
+    *fetchJoke() {
+      const context = getContext();
+      const response = yield fetch( 'https://example.com/joke' );
+      const data = yield response.json();
+      context.joke = data.joke;
+    },
+  },
+} );
+```
 
 ## Callbacks
 

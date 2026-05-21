@@ -39,11 +39,11 @@ wp_interactivity_state( 'myFruitPlugin', array(
 ) );
 ```
 
-Always call it even for empty initial values — don't skip the call just because the value starts blank:
+Always call it even for empty initial values that are genuinely global — don't skip the call just because the value starts blank:
 
 ```php
-wp_interactivity_state( 'myJokePlugin', array(
-  'joke' => '', // Filled in later by a client fetch.
+wp_interactivity_state( 'my-search-plugin/results', array(
+  'sharedQuery' => '', // Filled in later by a site-wide search control.
 ) );
 ```
 
