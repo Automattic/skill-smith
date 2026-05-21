@@ -256,19 +256,13 @@ You should use local context when:
 -   You want to encapsulate data that's only relevant to a specific interactive block and its children.
 -   You need to implement features that are isolated to a specific part of your UI.
 
+In practice, **per-instance UI state — a toggle's `isOpen`, a single block's counter, a drawer's expanded flag — belongs in local context**, not in global state. Putting per-instance UI in `wp_interactivity_state()` makes every block instance on the page share the same value and toggle together, which is almost never what you want. Reach for `wp_interactivity_state()` only when the data is genuinely shared across all instances (a site-wide cart count, a shared filter, a value read from another block's namespace).
+
 ### Working with local context
 
 -   **Initializing the local context**
 
-    The local context is initialized directly within the HTML structure using the `data-wp-context` directive. This directive accepts a JSON string that defines the initial values for that piece of context.
-
-    ```html
-    <div data-wp-context='{ "counter": 0 }'>
-    	<!-- Child elements will have access to `context.counter` -->
-    </div>
-    ```
-
-    You can also initialize the local context on the server using the `wp_interactivity_data_wp_context` PHP helper, which ensures proper escaping and formatting of the stringified values:
+    When you render from PHP (which is the case for any dynamic block with a `render.php`), seed local context with the `wp_interactivity_data_wp_context()` helper. It builds the `data-wp-context` attribute from a PHP array, with proper escaping and JSON encoding:
 
     ```php
     <?php
@@ -277,6 +271,16 @@ You should use local context when:
 
     <div <?php echo wp_interactivity_data_wp_context( $context ); ?>>
       <!-- Child elements will have access to `context.counter` -->
+    </div>
+    ```
+
+    Hand-writing the JSON inside `data-wp-context='{ ... }'` from PHP — for example `data-wp-context='{ "counter": 0 }'` — is a code smell: it skips the helper's escaping and makes the markup drift from the seeded server data.
+
+    The raw HTML form is still valid when the context value is genuinely static and the markup is hand-written (e.g. demo snippets, classic-theme templates with no PHP interpolation):
+
+    ```html
+    <div data-wp-context='{ "counter": 0 }'>
+    	<!-- Child elements will have access to `context.counter` -->
     </div>
     ```
 
@@ -357,10 +361,11 @@ You should use local context when:
 In this example, there is a single interactive block that shows a counter and can increment it. By using local context, each instance of this block will have its own independent counter, even if multiple blocks are added to the page.
 
 ```php
+<?php $context = array( 'counter' => 0 ); ?>
 <div
   data-wp-interactive="myCounterPlugin"
   <?php echo get_block_wrapper_attributes(); ?>
-  data-wp-context='{ "counter": 0 }'
+  <?php echo wp_interactivity_data_wp_context( $context ); ?>
 >
   <p>Counter: <span data-wp-text="context.counter"></span></p>
   <button data-wp-on--click="actions.increment">Increment</button>

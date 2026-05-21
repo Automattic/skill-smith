@@ -101,16 +101,19 @@ The `wp-interactive` directive "activates" the interactivity for the DOM element
 
 It provides a **local** state available to a specific HTML node and its children.
 
-The `wp-context` directive accepts a stringified JSON as a value.
+The `wp-context` directive accepts a stringified JSON as a value. When you render from PHP, do not hand-encode that JSON; build a PHP array and print it with `wp_interactivity_data_wp_context()` so the attribute is escaped correctly:
 
 ```php
 // render.php
-<div data-wp-context='{ "post": { "id": <?php echo $post->ID; ?> } }' >
+<?php $context = array( 'post' => array( 'id' => $post->ID ) ); ?>
+<div <?php echo wp_interactivity_data_wp_context( $context ); ?>>
   <button data-wp-on--click="actions.logId" >
     Click Me!
   </button>
 </div>
 ```
+
+Hand-writing `data-wp-context='{ ... }'` in PHP is a code smell: it skips the helper that escapes values and lets PHP-side data drift away from the seeded server state.
 
 <details>
   <summary><em>See store used with the directive above</em></summary>
@@ -735,6 +738,31 @@ And then, the string value `"state.isPlaying"` is used to assign the result of t
 
 These values assigned to directives are **references** to a particular property in the store. They are wired to the directives automatically so that each directive “knows” what store element refers to, without any additional configuration.
 
+Directive expressions are intentionally restricted: each one is a single reference to a property, action, or callback — optionally prefixed with `!` for a boolean negation, and optionally namespaced as `namespace::reference`. Anything else — arithmetic (`state.counter * 2`), comparisons (`context.currentPage <= 1`), function calls (`state.items.length`), template literals, ternaries — must be moved into a derived getter in the store and referenced by name from the directive:
+
+```js
+// view.js
+const { state } = store( 'myPlugin', {
+	state: {
+		// Derived getters can read from `state` and/or `getContext()`.
+		get isFirstPage() {
+			return getContext().currentPage <= 1;
+		},
+		get isLastPage() {
+			const { currentPage, totalPages } = getContext();
+			return currentPage >= totalPages;
+		},
+	},
+} );
+```
+
+```html
+<a data-wp-bind--hidden="state.isFirstPage" href="?pg=…">Previous</a>
+<a data-wp-bind--hidden="state.isLastPage"  href="?pg=…">Next</a>
+```
+
+This matters for more than style: the PHP Server Directive Processor only evaluates simple references — `state.foo`, `context.bar`, `!state.foo`, `namespace::state.baz`. It does NOT execute JavaScript expressions like `context.currentPage <= 1`. If you inline the logic into the directive, `data-wp-bind--hidden` is only applied after the client hydrates, so the initial server-rendered HTML is wrong (the element is visible before JS runs). With a derived getter, you can seed its initial value server-side with `wp_interactivity_state()` (see [Initializing the derived state in the server](server-side-rendering.md#initializing-the-derived-state-in-the-server)), so SDP correctly adds/removes the `hidden` attribute in the HTML that ships to the browser.
+
 Note that, by default, references point to properties in the current namespace, which is the one specified by the closest ancestor with a `data-wp-interactive` attribute. If you need to access a property from a different namespace, you can explicitly set the namespace where the property accessed is defined. The syntax is `namespace::reference`, replacing `namespace` with the appropriate value.
 
 The example below is getting `state.isPlaying` from `otherPlugin` instead of `myPlugin`:
@@ -1127,6 +1155,24 @@ It returns an object with two keys:
 ##### ref
 
 `ref` is the reference to the DOM element as an [HTMLElement](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement). It is equivalent to `useRef` in Preact or React, so it can be `null` when `ref` has not been attached to the actual DOM element yet, i.e., when it is being hydrated or mounted.
+
+`ref` always points to **the element that carries the directive that invoked the action / callback** — not the block wrapper, and not the click target. The same `actions.foo` produces a different `ref` depending on which element the directive was attached to:
+
+```html
+<!-- ref will be <div data-wp-interactive>, the wrapper. -->
+<div data-wp-interactive="myPlugin" data-wp-on-document--keydown="actions.handleKey">
+  <button data-wp-on--click="actions.openMenu">Menu</button>
+
+  <!-- ref will be this <div>, NOT the wrapper or the button. -->
+  <div data-wp-on-document--keydown="actions.handleKey" hidden>
+    <a href="#one">One</a>
+  </div>
+</div>
+```
+
+When a document- or window-level handler needs to query both the trigger element (e.g. the "Menu" button) and another section (e.g. a drawer that is its sibling), attach the `data-wp-on-document--*` / `data-wp-on-window--*` directive to the element that contains them both — typically the wrapper that already carries `data-wp-interactive`. That way `getElement().ref` is the wrapper, and `ref.querySelector('…')` can reach every descendant.
+
+Inside `data-wp-on--*` handlers wrapped with `withSyncEvent`, `event.target` (preserved across `yield`s) is usually a better way to get the clicked element than `getElement().ref`, which points at the listener's element regardless of where the click landed.
 
 ##### attributes
 

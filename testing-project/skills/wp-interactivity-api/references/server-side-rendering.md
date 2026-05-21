@@ -40,6 +40,15 @@ The following are the necessary steps to ensure that the directives are correctl
     ));
     ```
 
+    Seed empty/initial values the same way — do not skip the call just because the value starts blank:
+
+    ```php
+    // The `joke` property is empty until a fetch resolves on the client.
+    wp_interactivity_state( 'myJokePlugin', array(
+      'joke' => '',
+    ));
+    ```
+
     If you are using local context, the initial values are defined with the `data-wp-context` directive itself, either by:
 
     -   Adding it directly to the HTML.
@@ -94,6 +103,34 @@ The following are the necessary steps to ensure that the directives are correctl
     ```
 
 That's it! Once you've set up your interactive block with `supports.interactivity`, initialized your global state or local context, and added the directives to the HTML markup, the Interactivity API will take care of the rest. There's no additional code required from the developer to process these directives on the server side.
+
+### Do not hand-duplicate values that directives populate
+
+When a directive's job is to write a value into the markup, the markup should leave that target unset. Server Directive Processing fills it in from the seeded state/context, so hand-duplicating the value is redundant and risks the markup drifting out of sync with the seeded data.
+
+-   For `data-wp-text`, leave the element's text content empty:
+
+    ```html
+    <!-- Right: text content is empty; the server fills it in -->
+    <span data-wp-text="state.counter"></span>
+
+    <!-- Wrong: hand-duplicated value can drift from the seeded state -->
+    <span data-wp-text="state.counter">5</span>
+    ```
+
+-   For `data-wp-bind--<attr>`, omit the corresponding HTML attribute:
+
+    ```html
+    <!-- Right -->
+    <a data-wp-bind--href="state.url">Open</a>
+
+    <!-- Wrong -->
+    <a href="https://example.com" data-wp-bind--href="state.url">Open</a>
+    ```
+
+-   For `data-wp-class--<name>` and `data-wp-style--<prop>`, don't pre-add the toggled class or inline style; the directive adds/removes it based on the seeded value.
+
+-   For `data-wp-each`, render the `<template>` only — don't also output the seeded list items by hand; the directive emits the initial `data-wp-each-child` items server-side.
 
 Behind the scenes, WordPress uses the `wp_interactivity_process_directives` function to find and process the directives in the HTML markup of your block. This function uses the HTML API to make the necessary changes to the markup, based on the found directives and the initial global state and/or local context.
 
