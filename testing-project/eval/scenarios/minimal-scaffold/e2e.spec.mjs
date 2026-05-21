@@ -34,9 +34,9 @@ test.describe("minimal-scaffold scenario", () => {
 
 		await page.goto(`/?p=${post.id}`);
 
-		await expect(page.locator("[data-wp-interactive]")).toContainText(
-			"Hello from iAPI",
-		);
+		await expect(
+			page.locator('[data-wp-interactive="skillsmith/testing-block"]'),
+		).toContainText("Hello from iAPI");
 
 		// Hydration is async — poll for the marker.
 		await expect
@@ -51,7 +51,9 @@ test.describe("minimal-scaffold scenario", () => {
 	}) => {
 		await page.goto(`/?p=${post.id}`);
 
-		const wrapper = page.locator("[data-wp-interactive]").first();
+		const wrapper = page
+			.locator('[data-wp-interactive="skillsmith/testing-block"]')
+			.first();
 		await expect(wrapper).toBeVisible();
 		const namespace = await wrapper.getAttribute("data-wp-interactive");
 		expect(namespace).toBeTruthy();

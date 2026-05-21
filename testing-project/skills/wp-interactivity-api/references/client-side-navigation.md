@@ -79,15 +79,7 @@ add_action( 'wp_enqueue_scripts', function () {
 
 During client-side navigation, the router needs to know which script modules should be loaded on the new page. It identifies them by looking for a `data-wp-router-options` attribute on the `<script>` tag with `loadOnClientNavigation` set to `true`. Without this attribute, the router will not load the script module during client-side navigation, and the block's interactivity will not work on the new page.
 
-For **blocks**, this attribute is added automatically when the block declares interactivity support in its `block.json`. Either of these configurations will work:
-
-```json
-{
-	"supports": {
-		"interactivity": true
-	}
-}
-```
+For **blocks** that depend on the router (i.e. they use `actions.navigate()` for in-place page swaps), you must opt in explicitly with the object form of `supports.interactivity` and set `clientNavigation: true`:
 
 ```json
 {
@@ -99,7 +91,17 @@ For **blocks**, this attribute is added automatically when the block declares in
 }
 ```
 
-If your block's `block.json` already includes one of these, no additional setup is needed — WordPress handles the rest.
+The boolean shorthand:
+
+```json
+{
+	"supports": {
+		"interactivity": true
+	}
+}
+```
+
+enables Interactivity API directives for the block but does **not** register it for client-side navigation, so its view script module won't load on router-driven page swaps. Use the boolean form only for blocks that don't drive or live inside router regions.
 
 For **classic themes** and other script modules registered outside of `block.json`, the attribute is not added automatically. You must register your script module for client-side navigation explicitly using `add_client_navigation_support_to_script_module()`:
 
@@ -145,7 +147,7 @@ Router regions can be placed anywhere on the page. Their behavior depends on whe
     	data-wp-router-region="myPlugin/content"
     >
     	<!-- Interactive boundary + navigable region -->
-    	<p data-wp-text="state.message">Hello</p>
+    	<p data-wp-text="state.message"></p>
     </div>
     ```
 

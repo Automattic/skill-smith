@@ -27,47 +27,53 @@ test.describe("focus-trap-menu scenario", () => {
 		await requestUtils.deleteAllPosts();
 	});
 
+	// Scope to the testing-block so we don't pick up other navigation
+	// blocks on the page (e.g. core/navigation) that may also render links
+	// labelled "Home" / "About" / "Contact".
+	const drawer = (page) =>
+		page.locator('[data-wp-interactive="skillsmith/testing-block"]');
+
 	test("drawer is closed initially with aria-expanded='false'", async ({
 		page,
 	}) => {
-		const hamburger = page.getByRole("button", { name: /menu/i });
+		const hamburger = drawer(page).getByRole("button", { name: /menu/i });
 		await expect(hamburger).toHaveAttribute("aria-expanded", "false");
-		await expect(page.getByRole("link", { name: /^home$/i })).toBeHidden();
+		await expect(drawer(page).getByRole("link", { name: /^home$/i })).toBeHidden();
 	});
 
 	test("clicking the hamburger opens the drawer and exposes the links", async ({
 		page,
 	}) => {
-		const hamburger = page.getByRole("button", { name: /menu/i });
+		const hamburger = drawer(page).getByRole("button", { name: /menu/i });
 		await hamburger.click();
 
 		await expect(hamburger).toHaveAttribute("aria-expanded", "true");
-		await expect(page.getByRole("link", { name: /^home$/i })).toBeVisible();
-		await expect(page.getByRole("link", { name: /^about$/i })).toBeVisible();
-		await expect(page.getByRole("link", { name: /^contact$/i })).toBeVisible();
+		await expect(drawer(page).getByRole("link", { name: /^home$/i })).toBeVisible();
+		await expect(drawer(page).getByRole("link", { name: /^about$/i })).toBeVisible();
+		await expect(drawer(page).getByRole("link", { name: /^contact$/i })).toBeVisible();
 	});
 
 	test("Escape closes the drawer and returns focus to the hamburger", async ({
 		page,
 	}) => {
-		const hamburger = page.getByRole("button", { name: /menu/i });
+		const hamburger = drawer(page).getByRole("button", { name: /menu/i });
 		await hamburger.click();
 		await expect(hamburger).toHaveAttribute("aria-expanded", "true");
 
 		await page.keyboard.press("Escape");
 
 		await expect(hamburger).toHaveAttribute("aria-expanded", "false");
-		await expect(page.getByRole("link", { name: /^home$/i })).toBeHidden();
+		await expect(drawer(page).getByRole("link", { name: /^home$/i })).toBeHidden();
 		await expect(hamburger).toBeFocused();
 	});
 
 	test("Tab focus is trapped within the three drawer links", async ({
 		page,
 	}) => {
-		await page.getByRole("button", { name: /menu/i }).click();
+		await drawer(page).getByRole("button", { name: /menu/i }).click();
 
-		const home = page.getByRole("link", { name: /^home$/i });
-		const contact = page.getByRole("link", { name: /^contact$/i });
+		const home = drawer(page).getByRole("link", { name: /^home$/i });
+		const contact = drawer(page).getByRole("link", { name: /^contact$/i });
 
 		// Forward wrap: Tab on Contact -> Home
 		await contact.focus();
