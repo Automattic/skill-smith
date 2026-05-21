@@ -81,8 +81,15 @@ test.describe("paginated-list scenario", () => {
 		// the most diagnostic signal — if the router never fires, the
 		// content stays on page 1 and this assertion fails clearly,
 		// instead of `waitForURL` timing out opaquely.
+		//
+		// The router has to dynamically import its module, fetch the
+		// target page, parse it, and swap in the new region content;
+		// without a prior `prefetch` (we never hover in this test),
+		// that whole pipeline runs cold on a wp-env instance that can
+		// be slow to respond. 10s leaves comfortable headroom while
+		// still flagging a genuinely stuck navigation.
 		const region = page.locator("[data-wp-router-region]");
-		await expect(region).toContainText("Test post 1");
+		await expect(region).toContainText("Test post 1", { timeout: 10_000 });
 		await expect(region).not.toContainText("Test post 5");
 
 		// URL must reflect ?pg=2 either via pushState (router) or a

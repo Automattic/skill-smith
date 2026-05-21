@@ -101,16 +101,19 @@ The `wp-interactive` directive "activates" the interactivity for the DOM element
 
 It provides a **local** state available to a specific HTML node and its children.
 
-The `wp-context` directive accepts a stringified JSON as a value.
+The `wp-context` directive accepts a stringified JSON as a value. When you render from PHP, do not hand-encode that JSON; build a PHP array and print it with `wp_interactivity_data_wp_context()` so the attribute is escaped correctly:
 
 ```php
 // render.php
-<div data-wp-context='{ "post": { "id": <?php echo $post->ID; ?> } }' >
+<?php $context = array( 'post' => array( 'id' => $post->ID ) ); ?>
+<div <?php echo wp_interactivity_data_wp_context( $context ); ?>>
   <button data-wp-on--click="actions.logId" >
     Click Me!
   </button>
 </div>
 ```
+
+Hand-writing `data-wp-context='{ ... }'` in PHP is a code smell: it skips the helper that escapes values and lets PHP-side data drift away from the seeded server state.
 
 <details>
   <summary><em>See store used with the directive above</em></summary>
