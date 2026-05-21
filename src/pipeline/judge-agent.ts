@@ -146,7 +146,7 @@ function buildJudgeSystemPrompt(
 		'      { "item": "<string>", "pass": <bool>, "notes": "<string>" }',
 		"    ]",
 		"  }",
-		'`rubrics` is a record keyed by rubric id; `acceptance` is an array. They MUST be siblings at the top level — never nest `acceptance` inside `rubrics`.',
+		"`rubrics` is a record keyed by rubric id; `acceptance` is an array. They MUST be siblings at the top level — never nest `acceptance` inside `rubrics`.",
 		'`notes` and `item` are JSON strings: escape literal newlines as \\n, double quotes as \\", and backslashes as \\\\. There is no YAML-style `|` block scalar in JSON.',
 		"Strict JSON only: no trailing commas, no comments, no single-quoted strings.",
 		"Do not output any prose or Markdown fences — only the JSON object.",

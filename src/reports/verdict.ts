@@ -44,9 +44,7 @@ export function classifyVerdict(verdictRaw: unknown): Cell {
 		rubrics !== null &&
 		typeof rubrics === "object" &&
 		!Array.isArray(rubrics) &&
-		Array.isArray(
-			(rubrics as Record<string, unknown>).acceptance,
-		) &&
+		Array.isArray((rubrics as Record<string, unknown>).acceptance) &&
 		acceptance === undefined
 	) {
 		return {
@@ -76,9 +74,7 @@ export function classifyVerdict(verdictRaw: unknown): Cell {
 	const failures: string[] = [];
 
 	if (rubrics) {
-		for (const [id, r] of Object.entries(
-			rubrics as Record<string, unknown>,
-		)) {
+		for (const [id, r] of Object.entries(rubrics as Record<string, unknown>)) {
 			if (r === null || typeof r !== "object" || Array.isArray(r)) {
 				failures.push(`rubric ${id}: malformed entry`);
 				continue;
