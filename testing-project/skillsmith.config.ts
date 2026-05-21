@@ -107,13 +107,19 @@ function runE2eVerification(
 	iterationDirectory: string,
 	scenarios: RunScenario[],
 ): VerificationFailure[] {
+	// The iteration subdirectories are named after `scenario.name`, while
+	// the spec files live under `eval/scenarios/<dirName>/`. Playwright's
+	// JSON report carries the dirName (from the spec path), so we need
+	// both directions: name→dir to locate specs, dir→name to attribute
+	// failures back to the report's scenario keys.
+	const nameToDir = new Map(scenarios.map((s) => [s.scenario.name, s.dirName]));
 	const dirToName = new Map(scenarios.map((s) => [s.dirName, s.scenario.name]));
 
 	// Each iteration writes a fresh set of workspaces under
-	// `iteration-N/<scenario>/<agent>/workspace`. Collect every plugin
-	// to load and remember which scenario directories actually ran.
+	// `iteration-N/<scenario.name>/<agent>/workspace`. Collect every
+	// plugin to load and remember which scenarios actually ran.
 	const pluginPaths: string[] = [];
-	const ranDirNames = new Set<string>();
+	const ranScenarioNames = new Set<string>();
 	for (const scenarioEntry of readdirSync(iterationDirectory, {
 		withFileTypes: true,
 	})) {
@@ -131,14 +137,16 @@ function runE2eVerification(
 				if (!pluginEntry.isDirectory()) continue;
 				if (!pluginEntry.name.startsWith("plugin-")) continue;
 				pluginPaths.push(join(workspaceDir, pluginEntry.name));
-				ranDirNames.add(scenarioEntry.name);
+				ranScenarioNames.add(scenarioEntry.name);
 			}
 		}
 	}
 
 	if (pluginPaths.length === 0) return [];
 
-	const e2eSpecs = [...ranDirNames]
+	const e2eSpecs = [...ranScenarioNames]
+		.map((name) => nameToDir.get(name))
+		.filter((dirName): dirName is string => dirName !== undefined)
 		.map((dirName) => join("eval", "scenarios", dirName, "e2e.spec.mjs"))
 		.filter((spec) => existsSync(join(PROJECT_ROOT, spec)));
 	if (e2eSpecs.length === 0) return [];
