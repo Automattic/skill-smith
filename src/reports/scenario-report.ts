@@ -6,7 +6,6 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { isDirectorySafe } from "../util/fs";
 
 export interface AggregateScenarioReportParams {
@@ -20,8 +19,8 @@ interface AgentVerdict {
 }
 
 /**
- * Aggregate `${scenarioDirectory}/<agent>/report.yaml` into
- * `${scenarioDirectory}/report.yaml`. Missing report →
+ * Aggregate `${scenarioDirectory}/<agent>/report.json` into
+ * `${scenarioDirectory}/report.json`. Missing report →
  * `error: "missing agent report"` for that agent. Each agent report
  * carries a `testing` block and a `review` block verbatim.
  */
@@ -36,14 +35,14 @@ export function aggregateScenarioReport(
 		for (const entry of readdirSync(scenarioDirectory)) {
 			const full = join(scenarioDirectory, entry);
 			if (!isDirectorySafe(full)) continue;
-			const reportPath = join(full, "report.yaml");
+			const reportPath = join(full, "report.json");
 			if (!existsSync(reportPath)) {
 				agents[entry] = { error: "missing agent report" };
 				continue;
 			}
 			let parsed: unknown;
 			try {
-				parsed = parseYaml(readFileSync(reportPath, "utf8"));
+				parsed = JSON.parse(readFileSync(reportPath, "utf8"));
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				agents[entry] = { error: `agent report unparseable: ${msg}` };
@@ -62,6 +61,6 @@ export function aggregateScenarioReport(
 	if (scenarioError !== undefined) body.error = scenarioError;
 
 	mkdirSync(scenarioDirectory, { recursive: true });
-	const target = join(scenarioDirectory, "report.yaml");
-	writeFileSync(target, stringifyYaml(body));
+	const target = join(scenarioDirectory, "report.json");
+	writeFileSync(target, `${JSON.stringify(body, null, 2)}\n`);
 }
