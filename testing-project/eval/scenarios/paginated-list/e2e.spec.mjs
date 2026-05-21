@@ -54,10 +54,19 @@ test.describe("paginated-list scenario", () => {
 		// Test post 1 is the oldest — should not be on page 1.
 		await expect(region).not.toContainText("Test post 1");
 
-		// Previous link should not be available on page 1.
-		await expect(page.getByRole("link", { name: /^previous$/i })).toHaveCount(
-			0,
-		);
+		// Previous link should not be available on page 1. The link may be
+		// either omitted server-side, or rendered with `data-wp-bind--hidden`
+		// bound to a derived getter that the Server Directive Processor
+		// turns into the `hidden` attribute server-side; both pull the link
+		// out of the accessibility tree so `getByRole('link')` does not
+		// match it. (Inline expressions like `context.pg <= 1` do NOT work
+		// because SDP doesn't evaluate them, leaving the link in the
+		// accessibility tree on the initial render.)
+		await expect(
+			page
+				.locator(".wp-block-skillsmith-testing-block")
+				.getByRole("link", { name: /^previous$/i }),
+		).toHaveCount(0);
 	});
 
 	test("Next link navigates client-side to page 2 without a full reload", async ({
