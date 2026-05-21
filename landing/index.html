@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Skillsmith — Test and improve AI skills with real evidence</title>
+	<meta
+		name="description"
+		content="Skillsmith is a skill testing and self-improvement harness for AI agents."
+	/>
+	<meta name="theme-color" content="#070812" />
+	<link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+	<a class="skip-link" href="#main">Skip to content</a>
+
+	<header class="site-header">
+		<div class="container nav">
+			<a class="logo" href="#top" aria-label="Skillsmith home">
+				<span class="logo-mark" aria-hidden="true">✓</span>
+				<span>Skillsmith</span>
+			</a>
+
+			<nav class="nav-links" aria-label="Primary navigation">
+				<a href="#how">How it works</a>
+				<a href="#proof">Proof</a>
+				<a href="#use">Use it</a>
+				<a class="button dark" href="https://github.com/Automattic/skillsmith">GitHub</a>
+			</nav>
+		</div>
+	</header>
+
+	<main id="main">
+		<section id="top" class="hero">
+			<div class="container hero-grid">
+				<div>
+					<div class="badge">
+						<span class="badge-dot" aria-hidden="true"></span>
+						End-to-end skill evaluation for AI agents
+					</div>
+
+					<h1>
+						Stop reviewing skills by vibe.
+						<span>Start testing them.</span>
+					</h1>
+
+					<p class="hero-copy">
+						Skillsmith runs real prompts against real models, validates the result in a real runtime,
+						and turns failures into targeted skill improvements with an evidence trail humans can review.
+					</p>
+
+					<div class="hero-actions">
+						<a class="button primary" href="https://github.com/Automattic/skillsmith">
+							View on GitHub →
+						</a>
+						<a class="button" href="#proof">See the case study</a>
+					</div>
+
+					<p class="hero-note">
+						Built for teams maintaining reusable AI skills, prompts, and reference material.
+					</p>
+				</div>
+
+				<div class="visual" aria-label="Skillsmith run preview">
+					<div class="terminal-window">
+						<div class="window-bar" aria-hidden="true">
+							<span></span><span></span><span></span>
+						</div>
+
+						<div class="terminal">
+							<p><span>$</span> skillsmith counter config-fetch</p>
+							<p><span>→</span> loading scenarios, rubrics, and testing agents</p>
+							<p><span>→</span> running prompt × skill × model matrix</p>
+							<p><span>✓</span> <strong class="pass">counter</strong> accepted by judge and runtime</p>
+							<p><span>✓</span> <strong class="pass">config-fetch</strong> accepted by judge and runtime</p>
+							<p><span>→</span> writing report.json and evidence artifacts</p>
+							<p><span>✓</span> suite complete</p>
+						</div>
+					</div>
+
+					<div class="result-card">
+						<strong>Example result matrix</strong>
+
+						<div class="score-row">
+							<span>Raw docs</span>
+							<div class="bar"><i style="width:0%"></i></div>
+							<span class="fail">0/11</span>
+						</div>
+
+						<div class="score-row">
+							<span>Edited docs</span>
+							<div class="bar"><i style="width:9%"></i></div>
+							<span class="warn">1/11</span>
+						</div>
+
+						<div class="score-row">
+							<span>Skill</span>
+							<div class="bar"><i style="width:100%"></i></div>
+							<span class="pass">11/11</span>
+						</div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<section class="section">
+			<div class="container">
+				<div class="section-header">
+					<p class="eyebrow">The problem</p>
+					<h2>Skills are code paths. They deserve tests.</h2>
+					<p>
+						A skill can look clear in prose and still fail when a model actually tries to use it.
+						Skillsmith makes correctness observable by running realistic scenarios and checking outputs
+						against acceptance criteria and executable validation.
+					</p>
+				</div>
+
+				<div class="card-grid">
+					<article class="card">
+						<div class="icon">▣</div>
+						<h3>Prompt-based scenarios</h3>
+						<p>
+							Each scenario is a realistic request an agent might receive, paired with the skill
+							it should use and the acceptance criteria it must satisfy.
+						</p>
+					</article>
+
+					<article class="card">
+						<div class="icon">↔</div>
+						<h3>Model comparison</h3>
+						<p>
+							Run the same skill across configured testing agents to see where behavior holds,
+							where it drifts, and which scenarios regress.
+						</p>
+					</article>
+
+					<article class="card">
+						<div class="icon">✓</div>
+						<h3>Runtime validation</h3>
+						<p>
+							Go beyond “the answer sounds right.” Validate the generated artifact in the environment
+							where it is supposed to work.
+						</p>
+					</article>
+				</div>
+			</div>
+		</section>
+
+		<section id="how" class="section">
+			<div class="container">
+				<div class="section-header">
+					<p class="eyebrow">How it works</p>
+					<h2>A tight feedback loop for skill quality.</h2>
+				</div>
+
+				<div class="flow">
+					<article class="card">
+						<h3>Define scenarios</h3>
+						<p>Write user-like prompts, attach skills, and specify rubrics and acceptance criteria.</p>
+					</article>
+
+					<article class="card">
+						<h3>Run agents</h3>
+						<p>Skillsmith sends each prompt to configured testing agents and captures their outputs.</p>
+					</article>
+
+					<article class="card">
+						<h3>Judge and execute</h3>
+						<p>Outputs are reviewed against rubrics and validated with project-specific runtime hooks.</p>
+					</article>
+
+					<article class="card">
+						<h3>Improve skills</h3>
+						<p>Failure traces can drive a loop that edits the skill and re-runs the suite.</p>
+					</article>
+				</div>
+			</div>
+		</section>
+
+		<section id="proof" class="section">
+			<div class="container">
+				<div class="section-header">
+					<p class="eyebrow">Case study</p>
+					<h2>Turning documentation into a reliable skill.</h2>
+					<p>
+						In one experiment, Interactivity API guidance was reworked from long-form reference docs
+						into a compact, rule-driven skill with scenario-specific reference files.
+					</p>
+				</div>
+
+				<div class="split">
+					<div class="metric-card">
+						<div class="metric-number">11/11</div>
+						<p>
+							scenarios passed across repeated runs when using the structured skill.
+						</p>
+					</div>
+
+					<div>
+						<table class="results-table">
+							<thead>
+								<tr>
+									<th>Approach</th>
+									<th>Reliable passes</th>
+									<th>Average tokens</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td>Raw documentation</td>
+									<td><span class="pill bad">0/11</span></td>
+									<td>5,783,289</td>
+								</tr>
+								<tr>
+									<td>Improved documentation</td>
+									<td><span class="pill warn">1/11</span></td>
+									<td>6,621,557</td>
+								</tr>
+								<tr>
+									<td>Structured skill</td>
+									<td><span class="pill good">11/11</span></td>
+									<td>2,231,571</td>
+								</tr>
+							</tbody>
+						</table>
+
+						<p class="table-note">
+							The skill passed every scenario and used roughly <strong>2.6× fewer tokens</strong>
+							than the documentation-based alternatives. The improvement came from hard rules,
+							copy-pasteable patterns, progressive disclosure, and shorter task-specific references.
+						</p>
+
+						<p class="source-note">
+							Reference:
+							<a href="https://github.com/Automattic/skillsmith/pull/32">experiment PR</a>
+						</p>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<section class="section">
+			<div class="container">
+				<div class="section-header">
+					<p class="eyebrow">What you get</p>
+					<h2>Evidence you can review, repeat, and trust.</h2>
+				</div>
+
+				<div class="card-grid">
+					<article class="card">
+						<h3>Pass/fail matrices</h3>
+						<p>See skill quality by scenario and model instead of relying on subjective prose review.</p>
+					</article>
+
+					<article class="card">
+						<h3>Failure traces</h3>
+						<p>Preserve the prompt, generated artifact, judge result, runtime output, and token usage.</p>
+					</article>
+
+					<article class="card">
+						<h3>Human-reviewable changes</h3>
+						<p>When the improvement loop proposes edits, it produces a diff and evidence trail.</p>
+					</article>
+				</div>
+			</div>
+		</section>
+
+		<section id="use" class="section">
+			<div class="container split">
+				<div class="section-header no-margin">
+					<p class="eyebrow">Use it</p>
+					<h2>Run every scenario, or target the one you are fixing.</h2>
+					<p>
+						Skillsmith is designed around simple scenario directories and project-specific hooks.
+						Run a full suite to catch regressions, or focus on one scenario while iterating.
+					</p>
+				</div>
+
+				<div class="code-block">
+					<div class="code-title">Terminal</div>
+					<pre><code># Run the full suite
+skillsmith
+
+# Run targeted scenarios by directory ID
+skillsmith counter
+skillsmith counter config-fetch</code></pre>
+				</div>
+			</div>
+		</section>
+
+		<section class="cta">
+			<div class="container">
+				<div class="cta-box">
+					<p class="eyebrow">Build better skills</p>
+					<h2>Make improvement measurable.</h2>
+					<p>
+						Use Skillsmith to find regressions, compare skill formats, validate agent outputs,
+						and turn failures into evidence-backed improvements.
+					</p>
+
+					<div class="hero-actions">
+						<a class="button primary" href="https://github.com/Automattic/skillsmith">
+							Open the repository →
+						</a>
+						<a class="button" href="https://github.com/Automattic/skillsmith/pull/32">
+							Read the case study PR
+						</a>
+					</div>
+				</div>
+			</div>
+		</section>
+	</main>
+
+	<footer class="footer">
+		<div class="container footer-inner">
+			<p>© <span id="year"></span> Skillsmith. Evidence-first skill testing.</p>
+			<div class="footer-links">
+				<a href="https://github.com/Automattic/skillsmith">GitHub</a>
+				<a href="#top">Back to top</a>
+			</div>
+		</div>
+	</footer>
+
+	<script>
+		document.getElementById( 'year' ).textContent = new Date().getFullYear();
+	</script>
+</body>
+</html>
