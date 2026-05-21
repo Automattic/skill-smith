@@ -5,33 +5,49 @@ description: "Must use when building any kind of frontend interactivity in WordP
 
 # WordPress Interactivity API
 
-The Interactivity API is WordPress's standard system for client-side behavior in server-rendered markup. It pairs HTML directives (`data-wp-interactive`, `data-wp-bind--*`, `data-wp-on--*`, `data-wp-context`, …) with a reactive store (`state`, `actions`, `callbacks`) so a block stays declarative, renders correctly server-side, and hydrates on the client without rewriting its markup.
+Declarative `data-wp-*` directives on HTML paired with a reactive store (`state`, `actions`, `callbacks`). The server pre-renders final HTML from seeded state/context; the client hydrates without re-rendering. Requires WordPress 6.5+.
 
-It requires **WordPress 6.5+**.
+## Hard rules — every one matters
 
-## Core mental model
+1. **`block.json` MUST declare `"viewScriptModule": "file:./view.js"`.** `supports.interactivity: true` alone does NOT register the view module. Without `viewScriptModule`, `view.js` is never built, nothing hydrates, `actions.navigate()` falls back to a full reload. Do NOT compensate with `wp_register_script_module()` in a block's `render.php`.
+2. **The wrapper element MUST carry `data-wp-interactive="<namespace>"`.** Use the same namespace string in `store()`, `wp_interactivity_state()`, `wp_interactivity_config()`.
+3. **`render.php` MUST start in HTML mode — no leading `<?php` left open over the markup.** Use `<?php … ?>` only for the PHP bits (a `$ctx` assignment above the markup, inline `<?php echo … ?>` for helpers). A bare `<?php` opener followed by `<div …>` makes PHP parse the HTML as code → fatal error, block never renders.
+   - WRONG: `<?php` on line 1, then `<div data-wp-interactive="…">…</div>` with no `?>`.
+   - RIGHT: file begins with `<div data-wp-interactive="…" <?php echo get_block_wrapper_attributes(); ?>>…</div>` (or a `<?php $ctx = […]; ?>` block that closes before the markup).
+4. **Seed every reactive value on the server, including empty starting values.** Anything a directive reads (`state.x`, `context.x`, `state.derived`) must exist before JS runs.
+   - Per-instance values → `wp_interactivity_data_wp_context([...])` on the wrapper.
+   - Cross-instance / SDP-needed values → `wp_interactivity_state('<namespace>', [...])`.
+   - Static config (REST URLs, nonces, flags) → `wp_interactivity_config('<namespace>', [...])`.
+   - An empty paragraph still needs `'joke' => ''`; a placeholder still needs `'title' => '(no post loaded yet)'`.
+5. **Per-instance UI state lives in local context — that is the default.** A counter, a toggle's `isOpen`, a per-instance fetched value — all `wp_interactivity_data_wp_context()` + `getContext()`. Only use `wp_interactivity_state()` when the value is explicitly shared across instances/blocks (see "Local context vs global state" below).
+6. **Derived state is a JS GETTER on `state`, never a stored field, and never assigned to.** The directive ALWAYS binds `state.<derived-name>` — never `context.<derived-name>`, even when the underlying source lives in local context. Seed the derived value on the server with `wp_interactivity_state()` (a closure form when the source is per-instance context) so SDP renders the initial value before hydration. Full pattern in [Derived state — per-instance pattern](#derived-state--per-instance-pattern) below.
+7. **Async actions are generators, not `async`/`await`.** `function* () { yield fetch(...); }`. `getContext()` / `getElement()` work across `yield`s; `async`/`await` breaks scope restoration.
+8. **Wrap with `withSyncEvent()` when the handler synchronously needs `event.preventDefault()` / `stopPropagation()` / `currentTarget`** (e.g. router-navigation click handlers). Full list in [references/store.md](references/store.md).
+9. **Mutate in place.** `state.list.push(x)`, `context.foo = y`. Never `state.list = [...state.list, x]` — breaks reactivity.
+10. **Never hand-duplicate values a directive will populate.** WRONG: `<span data-wp-text="state.count">0</span>`. RIGHT: `<span data-wp-text="state.count"></span>`. Same rule for bound attributes (omit attribute when `data-wp-bind--<attr>` is set), toggled classes/styles (don't pre-add them), and `data-wp-each` (emit only `<template>` — SDP writes the `<li data-wp-each-child>` items).
+11. **Wire all reactive behavior through directives.** `data-wp-text` (not `innerText`), `data-wp-bind--*`, `data-wp-class--*`, `data-wp-on--*` / `data-wp-on-document--*` / `data-wp-on-window--*`. No `addEventListener`, `classList.*`, `style.*`, or `innerHTML` from `view.js`. `.focus()` for focus management is the one allowed DOM write. Directive values are single references (`state.x`, `!context.isOpen`, `ns::state.x`) — move any arithmetic/comparisons/calls into a derived getter.
 
-- **Declarative, not imperative.** Describe what the UI depends on, not how to mutate the DOM. Bind attributes/text/classes/styles with `data-wp-*` directives; mutate `state` or `context` in actions; let the runtime update the DOM.
-- **Server-rendered first, then hydrated.** WordPress's Server Directive Processor (SDP) reads the seeded state/context and applies the directives in PHP, so the HTML that ships to the browser is already in its final form. The client store then takes over without re-rendering.
-- **Use a deliberate namespace.** Pick one plugin-scoped namespace string, preferably the block name or plugin slug path such as `my-plugin/my-block`, and reuse it exactly in `data-wp-interactive`, every `store( '<namespace>' )` call, `wp_interactivity_state()`, `wp_interactivity_config()`, and namespaced directive references. Avoid generic names like `myPlugin`, `testingBlock`, `counter`, or `app`.
-- **State lives in three places, on purpose:**
-  - **Local context** (`wp_interactivity_data_wp_context()` / `data-wp-context`) — per-instance UI state, scoped to a subtree. The default for anything that should be independent across block instances.
-  - **Global state** (`wp_interactivity_state()` / `store().state`) — reserved for data genuinely shared across blocks/instances or values SDP needs to render.
-  - **Derived state** — getters on `state` that compute from other state/context. Never store what you can compute. When you use derived state, remember it has two halves: the JS getter and a server seed in `wp_interactivity_state()` so SDP can substitute it — see `references/server-rendering.md`.
-- **Mutation is direct.** Unlike React/Redux, you mutate `state` and `context` in place (`state.list.push(...)`, `context.isOpen = !context.isOpen`). Don't spread/copy — the proxy-based reactivity needs the same reference.
-- **`getContext()` and `getElement()` are scoped to the current action call.** `getContext()` returns the local context for the closest `data-wp-context` ancestor; `getElement()` returns `{ ref, attributes }` where `ref` is the element that owns the directive that fired this action — not the block wrapper, not the event target. Attach listeners to the element whose subtree you need to query (see pitfalls).
+## Standard skeleton
 
-## Minimal working example
+```json
+// block.json
+{
+  "apiVersion": 3,
+  "name": "my-plugin/my-block",
+  "title": "My Block",
+  "category": "widgets",
+  "supports": { "interactivity": true },
+  "render": "file:./render.php",
+  "viewScriptModule": "file:./view.js"
+}
+```
 
 ```php
-// render.php
-<?php
-$namespace = 'my-plugin/toggle-block';
-$context = array( 'isOpen' => false );
-?>
+// render.php — toggle, seeded context, declarative directives
+<?php $ctx = array( 'isOpen' => false ); ?>
 <div
-  data-wp-interactive="<?php echo esc_attr( $namespace ); ?>"
-  <?php echo wp_interactivity_data_wp_context( $context ); ?>
+  data-wp-interactive="my-plugin/my-block"
+  <?php echo wp_interactivity_data_wp_context( $ctx ); ?>
   <?php echo get_block_wrapper_attributes(); ?>
 >
   <button
@@ -46,7 +62,7 @@ $context = array( 'isOpen' => false );
 // view.js
 import { store, getContext } from '@wordpress/interactivity';
 
-store( 'my-plugin/toggle-block', {
+store( 'my-plugin/my-block', {
   actions: {
     toggle() {
       const context = getContext();
@@ -56,52 +72,191 @@ store( 'my-plugin/toggle-block', {
 } );
 ```
 
-```json
-// block.json
-{
-  "supports": { "interactivity": true },
-  "viewScriptModule": "file:./view.js",
-  "render": "file:./render.php"
-}
+## Local context vs global state
+
+Local context is the default. Reach for global state only when the value is **explicitly shared across instances/blocks** — e.g. "the same counter on every instance on the page", a site-wide filter, a value seeded for `data-wp-each`, or REST URLs / nonces (which usually go in `wp_interactivity_config()`). Anything else — a counter, a toggle, a per-instance fetched result — belongs in local context.
+
+```php
+// Local context (default) — each instance has its own counter.
+<?php $ctx = array( 'counter' => 5 ); ?>
+<div
+  data-wp-interactive="my-plugin/counter"
+  <?php echo wp_interactivity_data_wp_context( $ctx ); ?>
+  <?php echo get_block_wrapper_attributes(); ?>
+>
+  <span data-wp-text="context.counter"></span>
+  <button data-wp-on--click="actions.increment">+</button>
+  <button data-wp-on--click="actions.decrement">-</button>
+</div>
 ```
 
-## When to read references
-
-Reach for these as the task demands; do not load them all up front.
-
-- [references/directives.md](references/directives.md) — full directive reference (`data-wp-bind`, `data-wp-class`, `data-wp-style`, `data-wp-text`, `data-wp-on--*`, `data-wp-on-window--*`, `data-wp-on-document--*`, `data-wp-watch`, `data-wp-init`, `data-wp-run`, `data-wp-key`, `data-wp-each`, `data-wp-context`, `data-wp-interactive`). Read when you need exact syntax or semantics for a directive.
-- [references/store.md](references/store.md) — store API in depth: `store()`, `getContext()`, `getElement()`, `getServerState()`, `getServerContext()`, `getConfig()`, `withScope()`, `withSyncEvent()`, async actions (generators), private stores, namespacing, when to use global state vs context vs derived state. Read for any non-trivial JS logic.
-- [references/server-rendering.md](references/server-rendering.md) — `block.json` setup, `wp_interactivity_state()`, `wp_interactivity_data_wp_context()`, `wp_interactivity_config()`, `wp_interactivity_process_directives()`, server-side derived state (static + closure), classic-theme integration. **Read whenever you write `render.php`** — the seeding rules are easy to get wrong and the failure modes are silent.
-- [references/client-navigation.md](references/client-navigation.md) — `@wordpress/interactivity-router`, router regions, `actions.navigate()` / `actions.prefetch()`, `data-wp-key` for reconciliation, server-state sync across navigations. Read only when the task involves client-side navigation, region replacement, pagination, or in-place page swaps.
-- [references/typescript.md](references/typescript.md) — typing patterns for stores, server state, local context, derived state, async actions, multi-block stores. Read only if the codebase uses TypeScript.
-
-## Common pitfalls
-
-Internalize these before writing code — they cause most of the bugs that slip past a first pass.
-
-- **Directive values are references, not expressions.** A directive's value is a single reference to a store property or callback, optionally prefixed with `!` and optionally namespaced (`otherPlugin::state.foo`). Anything more — arithmetic, comparisons (`<=`, `===`), function calls (`state.items.length`), ternaries, template literals — must move into a derived getter and be referenced by name. The PHP Server Directive Processor only evaluates simple references; if you inline JS-style expressions, the directive does not affect the server-rendered HTML and the page renders incorrectly until hydration. See `references/directives.md` ("Expression form").
-- **`getElement().ref` is the directive's host element, not the wrapper.** When an action must query DOM that isn't a descendant of the listener element — e.g. an Escape handler that closes a drawer and refocuses a sibling "Menu" button, or a Tab handler that enumerates links from one of them — attach the directive (`data-wp-on--*` / `data-wp-on-document--*` / `data-wp-on-window--*`) to the block's wrapper (or another common ancestor) so `ref` covers everything you need. Attaching it to an inner element and then calling `ref.querySelector(...)` silently returns null/empty. The API has no `data-wp-ref` directive — element references come only from `getElement().ref` inside actions/callbacks.
-
-  ```html
-  <!-- Directive on the WRAPPER, so getElement().ref covers the whole subtree. -->
-  <div data-wp-interactive="myPlugin" data-wp-on-document--keydown="actions.onKey">
-    <button class="menu-toggle" data-wp-on--click="actions.open">Menu</button>
-    <div class="drawer" hidden><a href="#one">One</a></div>
-  </div>
-  ```
-
-  ```js
+```js
+store( 'my-plugin/counter', {
   actions: {
-    onKey( event ) {
-      if ( event.key !== 'Escape' ) return;
-      const { ref } = getElement(); // the wrapper — directive lives there
-      ref.querySelector( 'button.menu-toggle' ).focus();
+    increment() { getContext().counter += 1; },
+    decrement() { getContext().counter -= 1; },
+  },
+} );
+```
+
+```php
+// Global state (only when the prompt asks for a single shared value).
+<?php wp_interactivity_state( 'my-plugin/tally', array( 'counter' => 0 ) ); ?>
+<div data-wp-interactive="my-plugin/tally" <?php echo get_block_wrapper_attributes(); ?>>
+  <span data-wp-text="state.counter"></span>
+  <button data-wp-on--click="actions.increment">+</button>
+</div>
+```
+
+```js
+const { state } = store( 'my-plugin/tally', {
+  actions: { increment() { state.counter += 1; } },
+} );
+```
+
+If in doubt, pick local context — dropping two instances of a global-state block onto the same page makes them share a number, which is almost never what the prompt asked for.
+
+## Derived state — per-instance pattern
+
+The source of truth (e.g. `counter`) lives in local context. The derived value (e.g. `double`) is a JS getter on `state` that reads from `getContext()`. The directive binds `state.double` — never `context.double`. The server seeds the derived value with a closure inside `wp_interactivity_state()`, which calls `wp_interactivity_get_context()` for the current instance.
+
+```php
+<?php $ctx = array( 'counter' => 1 ); ?>
+<?php wp_interactivity_state( 'my-plugin/counter', array(
+  'double' => function () {
+    return wp_interactivity_get_context()['counter'] * 2;
+  },
+) ); ?>
+<div
+  data-wp-interactive="my-plugin/counter"
+  <?php echo wp_interactivity_data_wp_context( $ctx ); ?>
+  <?php echo get_block_wrapper_attributes(); ?>
+>
+  <span data-wp-text="context.counter"></span>
+  <span data-wp-text="state.double"></span>
+  <button data-wp-on--click="actions.increment">+</button>
+</div>
+```
+
+```js
+import { store, getContext } from '@wordpress/interactivity';
+
+const { state } = store( 'my-plugin/counter', {
+  state: {
+    get double() {
+      return getContext().counter * 2;
     },
   },
-  ```
-- **A block with a `view.js` needs `viewScriptModule` in `block.json`.** `supports.interactivity: true` alone does NOT register the view module — `wp-scripts` only treats `view.js` as an entry point when `block.json` declares `"viewScriptModule": "file:./view.js"` (the script-module field, not the legacy `viewScript`). Without it, `view.js` is not built into the plugin's output directory, nothing is enqueued, no directives hydrate, and any `actions.navigate()` link silently falls back to a full-page reload. Do NOT compensate by calling `wp_register_script_module()` / `wp_enqueue_script_module()` from `render.php` — that is the classic-theme path and typically points at a `view.js` that `wp-scripts` never emitted.
-- **Per-instance UI state belongs in local context, not global state.** A toggle's `isOpen`, a counter that should be independent across instances, a drawer's expanded flag, or fetched data displayed only inside one block instance must live in `wp_interactivity_data_wp_context()` and be read/mutated through `getContext()`. Putting per-instance UI in `wp_interactivity_state()` makes every block instance share the same value and update together. Reach for `wp_interactivity_state()` only when the data is genuinely shared across all instances (a site-wide cart count, a shared filter, AJAX URLs/nonces) or when seeding a derived getter that SDP needs.
-- **Don't hand-duplicate values a directive will populate.** Leave `data-wp-text` / `data-wp-bind--*` targets empty, don't pre-add classes/styles a directive will toggle, and emit only the `<template>` for `data-wp-each`. SDP fills them in from the seeded state/context.
-- **Async actions are generators, not `async`/`await`.** The runtime must restore scope (`getContext()`, `getElement()`) across awaits. Use `function* () { … yield somePromise; … }`. If the async result belongs to the current block instance, seed it in local context on the server and call `const context = getContext();` inside the generator, then assign `context.result = data.result` after the relevant `yield` resolves. Actions that need synchronous access to the event (`event.preventDefault()`, `event.stopPropagation()`, `event.currentTarget`) must be wrapped in `withSyncEvent()`.
-- **Mutate, don't replace.** `state.list.push(x)` and `context.foo = y` are correct. `state.list = [...state.list, x]` breaks reactivity for consumers that hold the old reference and is the wrong shape for SDP-seeded arrays.
-- **Initialize derived state on the server too.** A getter defined only in `view.js` won't run during SDP, so directives referencing the derived value render empty (or the wrong shape) until JS hydrates. Mirror the value in `wp_interactivity_state()` — a static value when known up-front, or a PHP closure (calling `wp_interactivity_state()` / `wp_interactivity_get_context()`) for per-instance / per-iteration cases. See `references/server-rendering.md`.
+  actions: {
+    increment() {
+      getContext().counter += 1; // mutate the source only
+    },
+  },
+} );
+```
+
+```php
+<!-- WRONG — every one of these breaks the pattern: -->
+
+<!-- 1. Derived value seeded inside context → stale after mutation. -->
+<?php $ctx = array( 'counter' => 1, 'double' => 2 ); ?>
+
+<!-- 2. Directive binds context.double → wrong surface, never updates. -->
+<span data-wp-text="context.double"></span>
+```
+
+```js
+// 3. Assigning to the derived getter inside an action.
+actions: {
+  increment() {
+    state.counter += 1;
+    state.double = state.counter * 2; // defeats the getter
+  },
+},
+```
+
+Source in context. Derived getter on `state`. Directive binds `state.<name>`. Server seed via closure. All four, every time.
+
+## Async fetch — generator, seed the empty value
+
+```php
+<?php $ctx = array( 'joke' => '' ); // seed the empty value ?>
+<div
+  data-wp-interactive="my-plugin/joke"
+  <?php echo wp_interactivity_data_wp_context( $ctx ); ?>
+  <?php echo get_block_wrapper_attributes(); ?>
+>
+  <button data-wp-on--click="actions.fetchJoke">Fetch joke</button>
+  <p data-wp-text="context.joke"></p>
+</div>
+```
+
+```js
+store( 'my-plugin/joke', {
+  actions: {
+    *fetchJoke() {
+      const context = getContext();
+      const res = yield fetch( 'https://example.com/joke' );
+      const data = yield res.json();
+      context.joke = data.joke; // mutate AFTER the yield
+    },
+  },
+} );
+```
+
+For REST + nonce, publish them via `wp_interactivity_config()`, read with `getConfig()`, and send `'X-WP-Nonce': nonce` in the `fetch` headers — full example in [references/store.md](references/store.md).
+
+## List with `data-wp-each`
+
+```php
+<?php wp_interactivity_state( 'my-plugin/fruits', array(
+  'fruits' => array( 'Apple', 'Banana', 'Cherry' ),
+) ); ?>
+<div data-wp-interactive="my-plugin/fruits" <?php echo get_block_wrapper_attributes(); ?>>
+  <ul>
+    <template data-wp-each="state.fruits">
+      <li data-wp-text="context.item"></li>
+    </template>
+  </ul>
+  <button data-wp-on--click="actions.addMango">Add Mango</button>
+</div>
+```
+
+```js
+const { state } = store( 'my-plugin/fruits', {
+  actions: { addMango() { state.fruits.push( 'Mango' ); } },
+} );
+```
+
+SDP emits the initial `<li data-wp-each-child>Apple</li>…` after the `<template>`. Don't write them by hand.
+
+## Init callback (`data-wp-init`)
+
+No PHP setup needed → this `render.php` starts directly with `<div>`; no leading `<?php`.
+
+```php
+<div
+  data-wp-interactive="my-plugin/hello"
+  data-wp-init="callbacks.onReady"
+  <?php echo get_block_wrapper_attributes(); ?>
+>Hello from iAPI</div>
+```
+
+```js
+store( 'my-plugin/hello', {
+  callbacks: { onReady() { console.log( 'iapi-ready' ); } },
+} );
+```
+
+## Common gotchas (see references for full patterns)
+
+- **Document / window listeners go on the same wrapper that carries `data-wp-interactive`.** `getElement().ref` is the element carrying the directive, so a `data-wp-on-document--keydown` on an inner `<nav>` can't reach a sibling toggle button. Full focus-trap example in [references/store.md](references/store.md).
+- **Client-side navigation:** the router region wrapper needs BOTH `data-wp-interactive` AND `data-wp-router-region="<id>"`. The click action is a `withSyncEvent` generator that calls `event.preventDefault()`, dynamically imports `@wordpress/interactivity-router`, and yields `actions.navigate(href)`. Anchors stay real `<a href>` so things work without JS. Build pagination hrefs with `esc_url( add_query_arg( 'pg', $next ) )` — not bare `?pg=<n>`, which replaces the whole query string and drops other vars like `p=<id>` on singular pages. Full pagination example in [references/client-navigation.md](references/client-navigation.md).
+
+## References (load on demand)
+
+- [references/directives.md](references/directives.md) — directive syntax (bind/class/style/text/on/watch/init/run/key/each/context/interactive).
+- [references/store.md](references/store.md) — `store()`, `getContext()`, `getElement()`, `getConfig()`, generators, `withSyncEvent()`, `withScope()`, focus-trap pattern.
+- [references/server-rendering.md](references/server-rendering.md) — `block.json`, `wp_interactivity_state/data_wp_context/config`, server-side derived state (static + closure form), classic themes.
+- [references/client-navigation.md](references/client-navigation.md) — router regions, `actions.navigate`/`prefetch`, `data-wp-key`, server-state sync, full pagination example.
+- [references/typescript.md](references/typescript.md) — typing stores, server state, derived getters, async actions.
