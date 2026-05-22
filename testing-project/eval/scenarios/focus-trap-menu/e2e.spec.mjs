@@ -43,7 +43,11 @@ test.describe("focus-trap-menu scenario", () => {
 			const root = document.querySelector(".wp-block-skillsmith-testing-block");
 			const link = root?.querySelector('a[href="#home"]');
 			if (!link) return null;
-			for (let el = link.parentElement; el && el !== root.parentElement; el = el.parentElement) {
+			for (
+				let el = link.parentElement;
+				el && el !== root.parentElement;
+				el = el.parentElement
+			) {
 				if (el.hidden) return true;
 			}
 			return false;
@@ -67,9 +71,15 @@ test.describe("focus-trap-menu scenario", () => {
 		await expect
 			.poll(() => isDrawerHidden(page), { timeout: 5000 })
 			.toBe(false);
-		await expect(block(page).getByRole("link", { name: /^home$/i })).toBeVisible();
-		await expect(block(page).getByRole("link", { name: /^about$/i })).toBeVisible();
-		await expect(block(page).getByRole("link", { name: /^contact$/i })).toBeVisible();
+		await expect(
+			block(page).getByRole("link", { name: /^home$/i }),
+		).toBeVisible();
+		await expect(
+			block(page).getByRole("link", { name: /^about$/i }),
+		).toBeVisible();
+		await expect(
+			block(page).getByRole("link", { name: /^contact$/i }),
+		).toBeVisible();
 	});
 
 	test("Escape closes the drawer and returns focus to the hamburger", async ({
@@ -82,9 +92,7 @@ test.describe("focus-trap-menu scenario", () => {
 		await page.keyboard.press("Escape");
 
 		await expect(hamburger).toHaveAttribute("aria-expanded", "false");
-		await expect
-			.poll(() => isDrawerHidden(page), { timeout: 5000 })
-			.toBe(true);
+		await expect.poll(() => isDrawerHidden(page), { timeout: 5000 }).toBe(true);
 		await expect(hamburger).toBeFocused();
 	});
 

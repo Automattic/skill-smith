@@ -10,6 +10,7 @@ export interface RenderOptions {
  * Render a `RunSnapshot` as the compact dashboard:
  *
  *   skillsmith run <runId>
+ *   iteration C/T                          (loop mode only; omitted when T=1)
  *   scenarios  ████░░░░  N/M  pass A · fail B · skip C
  *   phases     ███░░░░░  N/M  pass A · fail B · skip C
  *   elapsed mm:ss                          (or "elapsed mm:ss   done")
@@ -28,6 +29,10 @@ export function renderSnapshot(
 
 	const lines: string[] = [];
 	lines.push(`skillsmith run ${snap.runId}`);
+
+	if (snap.iteration !== undefined && snap.iteration.total > 1) {
+		lines.push(`iteration ${snap.iteration.current}/${snap.iteration.total}`);
+	}
 
 	const sc = snap.counters.scenarios;
 	const ph = snap.counters.phases;

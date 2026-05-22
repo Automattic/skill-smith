@@ -43,6 +43,12 @@ export interface RunSnapshot {
 	runId: string;
 	startedAt: number;
 	now: number;
+	/**
+	 * Present in self-improvement loop runs. `current` is the iteration
+	 * being shown; `total` is the iteration cap. Single-iteration runs
+	 * (test-only mode) leave this undefined so the line is omitted.
+	 */
+	iteration?: { current: number; total: number };
 	counters: RunCounters;
 	failures: Failure[];
 	finished: boolean;

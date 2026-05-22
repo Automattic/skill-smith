@@ -1,0 +1,10 @@
+name: verify-scenario
+description: Scenario whose judge passes but whose verification gate fails first.
+skills:
+  - foo
+prompt: |
+  Write a file `hello.txt` containing the word "hello".
+acceptance:
+  - hello.txt exists
+rubrics:
+  - r1

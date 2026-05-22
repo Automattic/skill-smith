@@ -1,3 +1,4 @@
+import type { SelfImprovementOverrides } from "./config/self-improvement";
 import { PreconditionError, resolveProjectRoot } from "./config/resolve-cwd";
 import { runPipeline } from "./pipeline/pipeline";
 import { UserFacingError } from "./util/errors";
@@ -6,6 +7,7 @@ export interface RunOptions {
 	cwd?: string;
 	verbose?: boolean;
 	scenarios?: string[];
+	selfImprovement?: SelfImprovementOverrides;
 }
 
 function makeRunId(now: Date = new Date()): string {
@@ -28,6 +30,7 @@ export async function run(options: RunOptions = {}): Promise<number> {
 			runId: makeRunId(),
 			verbose: options.verbose ?? false,
 			scenarios: options.scenarios,
+			selfImprovement: options.selfImprovement,
 		});
 	} catch (err) {
 		if (err instanceof PreconditionError || err instanceof UserFacingError) {
