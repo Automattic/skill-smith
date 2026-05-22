@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { isDirectorySafe } from "../util/fs";
-import { isAgentVerdictPass } from "./agent-verdict";
+import { classifyVerdict } from "./verdict";
 
 export interface AggregateScenarioReportParams {
 	scenarioDirectory: string;
@@ -17,10 +17,10 @@ export interface AggregateScenarioReportParams {
 
 /**
  * One agent's row inside `<scenario>/report.json`. We keep the
- * `testing` block (duration / token usage) verbatim and embed the
- * already-simplified `review` block (see agent-verdict.ts) the agent
- * loop wrote. A missing or unparseable per-agent report is reported
- * as an error string instead of an object.
+ * `testing` block (duration / token usage) and the judge's `review`
+ * block verbatim — the full rubrics/acceptance output the agent loop
+ * wrote. A missing or unparseable per-agent report is reported as an
+ * error string instead of an object.
  */
 export interface ScenarioAgentEntry {
 	testing?: unknown;
@@ -88,9 +88,7 @@ export function aggregateScenarioReport(
 			if (entry.review === null || typeof entry.review !== "object") {
 				return false;
 			}
-			return isAgentVerdictPass(
-				entry.review as Parameters<typeof isAgentVerdictPass>[0],
-			);
+			return classifyVerdict(entry.review).kind === "PASS";
 		});
 
 	const body: ScenarioReport = {

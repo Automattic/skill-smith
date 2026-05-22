@@ -1,8 +1,7 @@
 import type { EvaluationMode } from "../config/types";
 import type { ScenarioReport } from "../reports/scenario-report";
+import { classifyVerdict } from "../reports/verdict";
 import type { EnumeratedScenario } from "../scenarios/enumerate";
-import { isAgentVerdictPass } from "../reports/agent-verdict";
-import type { AgentVerdict } from "../reports/agent-verdict";
 
 export interface ScenarioSelection {
 	scenarios: EnumeratedScenario[];
@@ -84,12 +83,11 @@ function collectFailingAgents(
 				failed.add(agentId);
 				continue;
 			}
-			const review = entry.review as AgentVerdict | undefined;
-			if (review === undefined) {
+			if (entry.review === undefined) {
 				failed.add(agentId);
 				continue;
 			}
-			if (!isAgentVerdictPass(review)) failed.add(agentId);
+			if (classifyVerdict(entry.review).kind !== "PASS") failed.add(agentId);
 		}
 		if (failed.size > 0) out.set(name, failed);
 	}

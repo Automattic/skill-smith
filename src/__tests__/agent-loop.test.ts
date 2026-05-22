@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { classifyVerdict } from "../reports/verdict";
 import { run } from "../runner";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -54,8 +55,9 @@ test("judge phase is skipped when the testing agent reports an error", async () 
 	);
 	assert.ok(existsSync(failWorkspace));
 
-	// The other agent's full pipeline still runs as normal: its judge verdict
-	// collapses to `{ pass: true }`, distinct from the skipped block above.
+	// The other agent's full pipeline still runs as normal: its report
+	// carries the judge's complete review (every rubric/acceptance item),
+	// which classifies as a pass — distinct from the skipped block above.
 	const okReportPath = join(
 		iterationDir,
 		"hello-scenario",
@@ -63,13 +65,16 @@ test("judge phase is skipped when the testing agent reports an error", async () 
 		"report.json",
 	);
 	const okReport = JSON.parse(readFileSync(okReportPath, "utf8")) as {
-		review?: { pass?: unknown; skipped?: unknown };
+		review?: { skipped?: unknown };
 	};
 	assert.ok(
-		okReport.review !== undefined &&
-			!("skipped" in okReport.review) &&
-			okReport.review.pass === true,
+		okReport.review !== undefined && !("skipped" in okReport.review),
 		"the passing agent gets a real judge verdict, not a skipped block",
+	);
+	assert.equal(
+		classifyVerdict(okReport.review).kind,
+		"PASS",
+		"the passing agent's complete review classifies as a pass",
 	);
 
 	rmSync(baseDir, { recursive: true, force: true });

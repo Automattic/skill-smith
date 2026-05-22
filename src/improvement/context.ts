@@ -3,9 +3,9 @@ import { isAbsolute, resolve } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
 import type { ResolvedSelfImprovement } from "../config/self-improvement";
 import type { SkillsmithConfig } from "../config/types";
-import type { AgentVerdict } from "../reports/agent-verdict";
 import type { IterationReport } from "../reports/iteration-report";
 import type { ScenarioReport } from "../reports/scenario-report";
+import { classifyVerdict } from "../reports/verdict";
 import type { EnumeratedScenario } from "../scenarios/enumerate";
 import { loadSkill } from "../scenarios/skill-loader";
 
@@ -98,22 +98,18 @@ function renderFailureSummary(failing: FailingScenario[]): string {
 				agents[agentId] = { error: agentEntry.error };
 				continue;
 			}
-			const review = agentEntry.review as AgentVerdict | undefined;
+			const review = agentEntry.review;
 			if (review === undefined) {
 				agents[agentId] = { error: "missing review" };
 				continue;
 			}
-			if ("skipped" in review) {
-				agents[agentId] = { skipped: review.skipped };
+			const cell = classifyVerdict(review);
+			if (cell.kind === "PASS") continue;
+			if (cell.kind === "SKIPPED") {
+				agents[agentId] = { skipped: cell.reason };
 				continue;
 			}
-			if (review.pass === true) continue;
-			const failureEntry: Record<string, unknown> = { pass: false };
-			if (review.error !== undefined) failureEntry.error = review.error;
-			if (review.failures !== undefined && review.failures.length > 0) {
-				failureEntry.failures = review.failures;
-			}
-			agents[agentId] = failureEntry;
+			agents[agentId] = { pass: false, failures: cell.failures };
 		}
 		entry.agents = agents;
 		out.push(entry);

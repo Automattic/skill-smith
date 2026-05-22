@@ -1,9 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ScenarioRunRecord } from "../pipeline/pipeline";
-import { isAgentVerdictPass } from "./agent-verdict";
-import type { AgentVerdict } from "./agent-verdict";
 import type { ScenarioAgentEntry, ScenarioReport } from "./scenario-report";
+import { classifyVerdict } from "./verdict";
 
 export interface AggregateIterationReportParams {
 	iterationDirectory: string;
@@ -182,9 +181,8 @@ function agentsAllPass(agents: Record<string, ScenarioAgentEntry>): boolean {
 	if (entries.length === 0) return false;
 	for (const entry of entries) {
 		if (entry.error !== undefined) return false;
-		const review = entry.review as AgentVerdict | undefined;
-		if (review === undefined) return false;
-		if (!isAgentVerdictPass(review)) return false;
+		if (entry.review === undefined) return false;
+		if (classifyVerdict(entry.review).kind !== "PASS") return false;
 	}
 	return true;
 }

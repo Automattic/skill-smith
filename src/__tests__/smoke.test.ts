@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { classifyVerdict } from "../reports/verdict";
 import { run } from "../runner";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -53,10 +54,14 @@ test("smoke run with mock provider produces full reports for every (scenario, ag
 			unknown
 		>;
 		const review = agentReport.review as Record<string, unknown> | undefined;
-		assert.deepEqual(
-			review,
-			{ pass: true },
-			`agent report for ${id} should collapse to { pass: true }: ${JSON.stringify(agentReport)}`,
+		assert.equal(
+			classifyVerdict(review).kind,
+			"PASS",
+			`agent report for ${id} should classify as a pass: ${JSON.stringify(agentReport)}`,
+		);
+		assert.ok(
+			review !== undefined && "rubrics" in review,
+			`agent report for ${id} keeps the judge's complete review (rubrics): ${JSON.stringify(agentReport)}`,
 		);
 		const testing = agentReport.testing as
 			| { duration?: unknown; tokenUsage?: Record<string, unknown> }

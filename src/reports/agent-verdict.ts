@@ -69,8 +69,3 @@ export function collapseReview(raw: unknown): AgentVerdict {
 	if (failures.length === 0) return { pass: true };
 	return { pass: false, failures };
 }
-
-/** A verdict counts as passing only when every rubric/acceptance item passed. */
-export function isAgentVerdictPass(v: AgentVerdict): boolean {
-	return "pass" in v && v.pass === true;
-}

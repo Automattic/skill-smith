@@ -11,6 +11,7 @@ import type {
 import type { ProgressTracker } from "../progress";
 import type { TokenUsage } from "../providers/types";
 import { type AgentVerdict, collapseReview } from "../reports/agent-verdict";
+import { summarizeFailures } from "../reports/verdict";
 import { tryHook } from "../util/hooks";
 import type { RunLog } from "../util/run-log";
 import { runJudgeAgent } from "./judge-agent";
@@ -256,7 +257,11 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 			detail: verdictResult.detail,
 		});
 
-		writeAgentReport(agentDirectory, testing, verdict);
+		// Persist the judge's complete review (every rubric / acceptance
+		// item with its pass flag and notes) so a human or the improver
+		// can read the full picture. The collapsed `verdict` above is only
+		// used to drive the live dashboard.
+		writeAgentReport(agentDirectory, testing, rawReview);
 
 		await tryHook(
 			"afterJudgeAgent",
@@ -277,22 +282,22 @@ function classifyVerdictForTracker(verdict: AgentVerdict): {
 	if (verdict.pass === true) return { status: "passed" };
 	const failureDetail =
 		verdict.failures !== undefined && verdict.failures.length > 0
-			? verdict.failures.map((f) => `${f.kind} ${f.id}`).join(", ")
+			? summarizeFailures(verdict.failures.map((f) => `${f.kind} ${f.id}`))
 			: verdict.error;
 	return { status: "failed", detail: failureDetail };
 }
 
 /**
  * Single writer of the per-agent `report.json`. Pairs the `testing`
- * block (always present) with the simplified verdict the harness
- * computed under `review`. Passing agents collapse to
- * `review: { pass: true }`; failing agents keep just the rubrics /
- * acceptance items that failed plus the judge's notes inline.
+ * block (always present) with the judge's `review` verbatim — the
+ * complete set of rubrics and acceptance items with their pass flags
+ * and notes — so reports stay fully informative. Testing/dispatch
+ * failures persist a `{ skipped }` marker in place of the review.
  */
 function writeAgentReport(
 	agentDirectory: string,
 	testing: TestingBlock,
-	review: AgentVerdict,
+	review: unknown,
 ): void {
 	mkdirSync(agentDirectory, { recursive: true });
 	writeFileSync(
