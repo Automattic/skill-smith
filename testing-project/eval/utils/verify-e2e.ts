@@ -6,14 +6,14 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RunScenario, VerificationFailure } from "skillsmith";
 
-// This file lives at `<projectRoot>/eval/verify-e2e.ts`, so the project
-// root — where `node_modules`, `.wp-env.json`, and the npm scripts live —
-// is the parent of this file's directory.
-const PROJECT_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+// This file lives at `<projectRoot>/eval/utils/verify-e2e.ts`, so the
+// project root — where `node_modules`, `.wp-env.json`, and the npm
+// scripts live — is two directories up (matching `wp-cli.mjs`).
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const WP_ENV_PORT = Number(process.env.WP_ENV_PORT ?? 8987);
 
 /**

@@ -1,6 +1,6 @@
 import { defineConfig } from "skillsmith";
-import { scaffoldPlugin } from "./eval/scaffold-plugin";
-import { runE2eVerification } from "./eval/verify-e2e";
+import { scaffoldPlugin } from "./eval/utils/scaffold-plugin";
+import { runE2eVerification } from "./eval/utils/verify-e2e";
 
 export default defineConfig({
 	agents: {
