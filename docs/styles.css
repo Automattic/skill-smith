@@ -387,6 +387,18 @@ h2 {
 	margin: 0;
 }
 
+.note-card {
+	margin-top: 18px;
+	background: var(--bg-card-strong);
+}
+
+.note-card code {
+	padding: 2px 7px;
+	border-radius: 8px;
+	background: rgba(255, 255, 255, 0.09);
+	font-size: 0.9em;
+}
+
 .icon {
 	width: 44px;
 	height: 44px;

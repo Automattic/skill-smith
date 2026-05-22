@@ -24,6 +24,7 @@
 
 			<nav class="nav-links" aria-label="Primary navigation">
 				<a href="#how">How it works</a>
+				<a href="#improve">Improve</a>
 				<a href="#proof">Proof</a>
 				<a href="#use">Use it</a>
 				<a class="button dark" href="https://github.com/Automattic/skillsmith">GitHub</a>
@@ -42,7 +43,7 @@
 
 					<h1>
 						Stop reviewing skills by vibe.
-						<span>Start testing them.</span>
+						<span>Test and improve them.</span>
 					</h1>
 
 					<p class="hero-copy">
@@ -178,6 +179,54 @@
 			</div>
 		</section>
 
+		<section id="improve" class="section">
+			<div class="container">
+				<div class="section-header">
+					<p class="eyebrow">Self-improvement</p>
+					<h2>When a test fails, repair the skill — then prove it.</h2>
+					<p>
+						Testing tells you a skill is broken. Skillsmith can also fix it. When a run fails and
+						loop mode is on, a single improver agent turns each failure into a targeted edit and
+						re-runs until the suite passes — or gives up within a budget you set.
+					</p>
+				</div>
+
+				<div class="flow">
+					<article class="card">
+						<h3>Read the failure</h3>
+						<p>The improver reads the failure trace — the prompt, the generated artifact, and the judge's verdict — for every scenario that failed.</p>
+					</article>
+
+					<article class="card">
+						<h3>Edit the skill</h3>
+						<p>It edits the skill files in place, jailed to the skills directory. The scenarios, rubrics, and harness are never touched.</p>
+					</article>
+
+					<article class="card">
+						<h3>Re-run what failed</h3>
+						<p>Only the affected scenarios re-run, and the loop repeats until the suite passes or the iteration budget is spent.</p>
+					</article>
+
+					<article class="card">
+						<h3>Review and ship</h3>
+						<p>Edits land in your working tree with the full evidence trail, ready to review and open as a PR. The harness never commits or pushes.</p>
+					</article>
+				</div>
+
+				<div class="note-card card">
+					<h3>Validate against the real runtime, not just the rubric</h3>
+					<p>
+						A verification hook lets a project reject any artifact that reads well but breaks for
+						real — a green judge with a broken result still fails the iteration, and the reason is
+						preserved with the evidence and fed back to the repair loop when it runs. The bundled
+						WordPress example uses that hook to build each plugin, boot <code>wp-env</code>, and run
+						Playwright in a real browser. That runtime belongs to the example, not to Skillsmith —
+						your project plugs in whatever “does it actually work?” means for you.
+					</p>
+				</div>
+			</div>
+		</section>
+
 		<section id="proof" class="section">
 			<div class="container">
 				<div class="section-header">
@@ -260,7 +309,7 @@
 
 					<article class="card">
 						<h3>Human-reviewable changes</h3>
-						<p>When the improvement loop proposes edits, it produces a diff and evidence trail.</p>
+						<p>When the loop repairs a skill, the edits stay in your working tree alongside the evidence trail — ready to review and open as a PR.</p>
 					</article>
 				</div>
 			</div>
