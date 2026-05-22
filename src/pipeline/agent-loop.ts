@@ -10,8 +10,11 @@ import type {
 } from "../config/types";
 import type { ProgressTracker } from "../progress";
 import type { TokenUsage } from "../providers/types";
-import { type AgentVerdict, collapseReview } from "../reports/agent-verdict";
-import { summarizeFailures } from "../reports/verdict";
+import {
+	type Cell,
+	classifyVerdict,
+	summarizeFailures,
+} from "../reports/verdict";
 import { tryHook } from "../util/hooks";
 import type { RunLog } from "../util/run-log";
 import { runJudgeAgent } from "./judge-agent";
@@ -203,7 +206,6 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		log,
 	);
 
-	let verdict: AgentVerdict;
 	if (testingResult.error !== undefined) {
 		// Testing didn't produce evaluable output (missing API key, transport
 		// error, etc.). Skip the judge entirely: an empty workspace can't pass
@@ -211,12 +213,13 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		// redundant `N rubrics failed` row to the dashboard one line below the
 		// real cause. The paired before/afterJudgeAgent hooks are skipped
 		// symmetrically.
-		verdict = { skipped: `testing failed: ${testingResult.error}` };
 		tracker.phaseFinished(scenario.name, agent.id, "judge", {
 			status: "skipped",
 			detail: "testing failed",
 		});
-		writeAgentReport(agentDirectory, testing, verdict);
+		writeAgentReport(agentDirectory, testing, {
+			skipped: `testing failed: ${testingResult.error}`,
+		});
 	} else {
 		await tryHook(
 			"beforeJudgeAgent",
@@ -247,10 +250,11 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 			rawReview = { skipped: `judge dispatch failed: ${msg}` };
 			judgeError = msg;
 		}
-		verdict = judgeError
-			? { pass: false, error: judgeError }
-			: collapseReview(rawReview);
-		const verdictResult = classifyVerdictForTracker(verdict);
+		const cell: Cell =
+			judgeError !== undefined
+				? { kind: "FAIL", failures: [judgeError] }
+				: classifyVerdict(rawReview);
+		const verdictResult = cellToPhaseResult(cell);
 		tracker.phaseFinished(scenario.name, agent.id, "judge", {
 			status: verdictResult.status,
 			durationMs: Date.now() - judgeStart,
@@ -273,18 +277,15 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	}
 }
 
-function classifyVerdictForTracker(verdict: AgentVerdict): {
+function cellToPhaseResult(cell: Cell): {
 	status: "passed" | "failed" | "skipped";
 	detail?: string;
 } {
-	if ("skipped" in verdict)
-		return { status: "skipped", detail: verdict.skipped };
-	if (verdict.pass === true) return { status: "passed" };
-	const failureDetail =
-		verdict.failures !== undefined && verdict.failures.length > 0
-			? summarizeFailures(verdict.failures.map((f) => `${f.kind} ${f.id}`))
-			: verdict.error;
-	return { status: "failed", detail: failureDetail };
+	if (cell.kind === "SKIPPED") {
+		return { status: "skipped", detail: cell.reason };
+	}
+	if (cell.kind === "PASS") return { status: "passed" };
+	return { status: "failed", detail: summarizeFailures(cell.failures) };
 }
 
 /**

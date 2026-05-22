@@ -1,5 +1,3 @@
-import type { AgentVerdict } from "./agent-verdict";
-
 /**
  * Classify a judge verdict (parsed JSON from the per-agent `review`
  * block) into a pass/fail/skipped Cell with every failing rubric or
@@ -13,35 +11,11 @@ export type Cell =
 	| { kind: "FAIL"; failures: string[] }
 	| { kind: "SKIPPED"; reason: string };
 
-export function verdictToCell(verdict: AgentVerdict | undefined): Cell {
-	if (verdict === undefined) {
-		return { kind: "FAIL", failures: ["verdict missing"] };
-	}
-	if ("skipped" in verdict) {
-		return { kind: "SKIPPED", reason: verdict.skipped };
-	}
-	if (verdict.pass === true) return { kind: "PASS" };
-
-	const failures: string[] = [];
-	if (verdict.error !== undefined) failures.push(verdict.error);
-	if (verdict.failures !== undefined) {
-		for (const f of verdict.failures) {
-			const head = `${f.kind} ${f.id}`;
-			failures.push(
-				f.notes !== undefined && f.notes.length > 0
-					? `${head} — ${f.notes}`
-					: head,
-			);
-		}
-	}
-	if (failures.length === 0) failures.push("verdict failed without detail");
-	return { kind: "FAIL", failures };
-}
-
 /**
- * Treat an arbitrary parsed `review` payload as an `AgentVerdict`.
- * Wraps `verdictToCell` so callers can normalize either the raw judge
- * shape (old code paths) or the simplified shape we now persist.
+ * Classify a parsed `review` payload — the verbatim judge output
+ * persisted under `review` — into a pass/fail/skipped Cell. Handles
+ * both the simplified `{ pass, failures }` shape and the raw
+ * `{ rubrics, acceptance }` judge shape.
  */
 export function classifyVerdict(raw: unknown): Cell {
 	if (raw === null || raw === undefined || typeof raw !== "object") {
