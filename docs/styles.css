@@ -281,6 +281,24 @@ h1 span {
 	flex: 0 0 auto;
 }
 
+.terminal pre {
+	margin: 0;
+	padding: 0;
+	font-size: 0.82rem;
+	line-height: 1.95;
+	color: #d1fae5;
+	white-space: pre;
+	overflow-x: auto;
+}
+
+.terminal .prompt {
+	color: #67e8f9;
+}
+
+.terminal .fill {
+	color: var(--brand-2);
+}
+
 .result-card {
 	position: absolute;
 	right: -20px;
