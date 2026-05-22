@@ -89,23 +89,7 @@ When a run produces failures, the harness can loop: a single **improver** agent 
 
 The scenario-evaluation half of each iteration (testing agents → judges) is exactly the Skill Tester [described above](#how-the-skill-tester-works); the diagram below collapses it into one node and details what the loop adds around it.
 
-```mermaid
-flowchart TD
-    start([Run starts]) --> iter["Iteration N"]
-    iter --> eval["Evaluate scenarios<br/>(testing agents + judges)<br/><i>see Skill Tester</i>"]
-    eval --> verify{"afterAllScenarios hook<br/>e.g. run e2e tests"}
-    verify -- pass --> allpass{"All scenarios pass?"}
-    verify -- fail --> mark["Mark failed scenarios / pairs<br/>+ attach details"]
-    mark --> allpass
-    allpass -- yes --> done([PASS - open PR for review])
-    allpass -- no --> budget{"Iterations left?<br/>(loop mode + agents.improver set)"}
-    budget -- no --> fail([FAIL - report + evidence])
-    budget -- yes --> improve["Improver agent edits<br/>SKILL.md files in place<br/>(no proposal, no git)"]
-    improve --> select["Select scenarios to re-run<br/>(by evaluationMode;<br/>verification failures re-run full matrix)"]
-    select --> iter
-```
-
-> The same diagram lives at [`assets/self-improvement-loop.mermaid`](assets/self-improvement-loop.mermaid).
+![Self-improvement loop diagram](assets/self-improvement-loop.png)
 
 ### Lifecycle
 
