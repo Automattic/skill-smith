@@ -112,10 +112,8 @@ function collectFailingScenarios(report: IterationReport): FailingScenario[] {
  * `scenario.error`.
  */
 function projectReportForImprover(report: IterationReport): ImproverReport {
-	const scenarios: Record<
-		string,
-		ImproverScenarioReport | { error: string }
-	> = {};
+	const scenarios: Record<string, ImproverScenarioReport | { error: string }> =
+		{};
 	for (const [name, body] of Object.entries(report.scenarios)) {
 		if (!("agents" in body)) {
 			scenarios[name] = body;
