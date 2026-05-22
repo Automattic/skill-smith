@@ -26,9 +26,12 @@ their supporting files) so the next iteration passes.
 - Touch only the skills referenced by the failing scenarios.
 - Make the smallest change that addresses the failures. Prefer additive,
   surgical edits over rewrites; every line should earn its place.
-- Use the failure summary to understand *why* each scenario failed,
-  including any verification (e.g. end-to-end) failures the judges never
-  saw, and fix the underlying guidance — not just the symptom.
+- The iteration report below lists every scenario that ran — passing and
+  failing — with each judge's full review. Use the failing entries to
+  understand *why* a scenario failed (including any verification, e.g.
+  end-to-end, failures the judges never saw) and fix the underlying
+  guidance, not just the symptom. Use the passing entries to avoid
+  regressing what already works.
 - Do not commit, push, or run git. Leave your edits in the working tree.
 `;
 
@@ -124,8 +127,8 @@ export async function runImprovement(
 	].join("\n");
 
 	const userMessage = [
-		`# Iteration ${iteration} failures`,
-		context.failureSummary,
+		`# Iteration ${iteration} report`,
+		JSON.stringify(context.report, null, 2),
 		"",
 		"# Skills referenced by the failing scenarios",
 		`skill ids: ${context.skillIds.join(", ") || "(none)"}`,

@@ -1,11 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { stringify as stringifyYaml } from "yaml";
 import type { ResolvedSelfImprovement } from "../config/self-improvement";
 import type { SkillsmithConfig } from "../config/types";
 import type { IterationReport } from "../reports/iteration-report";
 import type { ScenarioReport } from "../reports/scenario-report";
-import { classifyVerdict } from "../reports/verdict";
 import type { EnumeratedScenario } from "../scenarios/enumerate";
 import { loadSkill } from "../scenarios/skill-loader";
 
@@ -17,9 +15,32 @@ export interface BuildImprovementContextParams {
 	allScenarios: EnumeratedScenario[];
 }
 
+/**
+ * The iteration report as handed to the improver: every scenario that
+ * ran — passing and failing — with each judge's verbatim `review`. The
+ * per-agent `testing` block (durations / token usage) is dropped as
+ * noise; everything else is preserved so the improver can see what
+ * passed as well as what failed.
+ */
+export interface ImproverAgentEntry {
+	review?: unknown;
+	error?: string;
+}
+export interface ImproverScenarioReport {
+	scenario: string;
+	pass: boolean;
+	error?: string;
+	agents: Record<string, ImproverAgentEntry>;
+}
+export interface ImproverReport {
+	iteration: number;
+	pass: boolean;
+	scenarios: Record<string, ImproverScenarioReport | { error: string }>;
+}
+
 export interface ImprovementContext {
-	/** YAML-formatted summary of failing scenarios and per-agent failures. */
-	failureSummary: string;
+	/** Iteration report (passing + failing scenarios), minus `testing` blocks. */
+	report: ImproverReport;
 	/** Concatenated text of every skill referenced by a failing scenario. */
 	skillsBlob: string;
 	/** Skill ids that contributed to `skillsBlob`. Always sorted. */
@@ -29,10 +50,10 @@ export interface ImprovementContext {
 }
 
 /**
- * Bundle the context the improver agent needs: a human-readable
- * failure summary (judge verdicts plus any verification-hook failures),
- * the verbatim text of every skill referenced by a failing scenario,
- * and the optional custom prompt configured on the project.
+ * Bundle the context the improver agent needs: the iteration report
+ * (every scenario that ran, with each judge's verbatim review), the
+ * verbatim text of every skill referenced by a failing scenario, and
+ * the optional custom prompt configured on the project.
  */
 export function buildImprovementContext(
 	params: BuildImprovementContextParams,
@@ -46,7 +67,6 @@ export function buildImprovementContext(
 	} = params;
 
 	const failingScenarios = collectFailingScenarios(iterationReport);
-	const failureSummary = renderFailureSummary(failingScenarios);
 
 	const skillIds = collectSkillIds(failingScenarios, allScenarios);
 	const skillsRoot = resolve(projectRoot, config.paths.skills);
@@ -55,7 +75,7 @@ export function buildImprovementContext(
 		.join("\n\n");
 
 	const context: ImprovementContext = {
-		failureSummary,
+		report: projectReportForImprover(iterationReport),
 		skillsBlob,
 		skillIds,
 	};
@@ -83,38 +103,40 @@ function collectFailingScenarios(report: IterationReport): FailingScenario[] {
 	return out;
 }
 
-function renderFailureSummary(failing: FailingScenario[]): string {
-	if (failing.length === 0) return "No failures recorded.";
-	const out: unknown[] = [];
-	for (const { name, body } of failing) {
-		const entry: Record<string, unknown> = { scenario: name };
-		// Scenario-level errors carry verification-hook details (e.g. an
-		// e2e failure) the per-agent reviews never saw — surface them so
-		// the improver knows the artifact broke beyond what the judge read.
-		if (body.error !== undefined) entry.error = body.error;
-		const agents: Record<string, unknown> = {};
-		for (const [agentId, agentEntry] of Object.entries(body.agents ?? {})) {
-			if (agentEntry.error !== undefined) {
-				agents[agentId] = { error: agentEntry.error };
-				continue;
-			}
-			const review = agentEntry.review;
-			if (review === undefined) {
-				agents[agentId] = { error: "missing review" };
-				continue;
-			}
-			const cell = classifyVerdict(review);
-			if (cell.kind === "PASS") continue;
-			if (cell.kind === "SKIPPED") {
-				agents[agentId] = { skipped: cell.reason };
-				continue;
-			}
-			agents[agentId] = { pass: false, failures: cell.failures };
+/**
+ * Project the iteration report into the shape handed to the improver:
+ * every scenario and agent is preserved (passing included) along with
+ * each judge's verbatim `review`; only the per-agent `testing` block
+ * (durations / token usage) is dropped as noise. Scenario-level errors
+ * — e.g. an e2e failure the per-agent reviews never saw — ride along on
+ * `scenario.error`.
+ */
+function projectReportForImprover(report: IterationReport): ImproverReport {
+	const scenarios: Record<
+		string,
+		ImproverScenarioReport | { error: string }
+	> = {};
+	for (const [name, body] of Object.entries(report.scenarios)) {
+		if (!("agents" in body)) {
+			scenarios[name] = body;
+			continue;
 		}
-		entry.agents = agents;
-		out.push(entry);
+		const agents: Record<string, ImproverAgentEntry> = {};
+		for (const [agentId, entry] of Object.entries(body.agents)) {
+			const out: ImproverAgentEntry = {};
+			if (entry.review !== undefined) out.review = entry.review;
+			if (entry.error !== undefined) out.error = entry.error;
+			agents[agentId] = out;
+		}
+		const scenarioOut: ImproverScenarioReport = {
+			scenario: body.scenario,
+			pass: body.pass,
+			agents,
+		};
+		if (body.error !== undefined) scenarioOut.error = body.error;
+		scenarios[name] = scenarioOut;
 	}
-	return stringifyYaml(out);
+	return { iteration: report.iteration, pass: report.pass, scenarios };
 }
 
 function collectSkillIds(
