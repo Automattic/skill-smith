@@ -3,13 +3,18 @@ import { join } from "node:path";
 import type {
 	AgentContext,
 	AgentDefinition,
+	IterationInfo,
 	RunScenario,
 	Scenario,
 	SkillsmithConfig,
 } from "../config/types";
 import type { ProgressTracker } from "../progress";
 import type { TokenUsage } from "../providers/types";
-import { classifyVerdict, summarizeFailures } from "../reports/verdict";
+import {
+	type Cell,
+	classifyVerdict,
+	summarizeFailures,
+} from "../reports/verdict";
 import { tryHook } from "../util/hooks";
 import type { RunLog } from "../util/run-log";
 import { runJudgeAgent } from "./judge-agent";
@@ -20,10 +25,18 @@ export interface RunAgentsParams {
 	scenarioDirectory: string;
 	config: SkillsmithConfig;
 	runId: string;
+	runDirectory: string;
+	iterations: IterationInfo[];
 	projectRoot: string;
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
+	/**
+	 * When present, only testing agents whose ids appear in this list
+	 * run for this scenario. Used by `failed-pairs` mode to re-run only
+	 * the agents that failed in the previous iteration.
+	 */
+	agentIdFilter?: string[];
 }
 
 export interface TestingAgentResult {
@@ -56,20 +69,38 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 		scenarioDirectory,
 		config,
 		runId,
+		runDirectory,
+		iterations,
 		projectRoot,
 		log,
 		tracker,
 		scenarios,
+		agentIdFilter,
 	} = params;
 
+	const filterSet =
+		agentIdFilter !== undefined ? new Set(agentIdFilter) : undefined;
+	const agents =
+		filterSet === undefined
+			? config.agents.testing
+			: config.agents.testing.filter((a) => filterSet.has(a.id));
+
+	if (filterSet !== undefined) {
+		log.info(
+			`agent filter active for ${scenario.name}: ${agents.map((a) => a.id).join(",") || "(none)"}`,
+		);
+	}
+
 	await Promise.all(
-		config.agents.testing.map((agent) =>
+		agents.map((agent) =>
 			runAgentPair({
 				agent,
 				scenario,
 				scenarioDirectory,
 				config,
 				runId,
+				runDirectory,
+				iterations,
 				projectRoot,
 				log,
 				tracker,
@@ -85,6 +116,8 @@ interface RunAgentPairParams {
 	scenarioDirectory: string;
 	config: SkillsmithConfig;
 	runId: string;
+	runDirectory: string;
+	iterations: IterationInfo[];
 	projectRoot: string;
 	log: RunLog;
 	tracker: ProgressTracker;
@@ -98,6 +131,8 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		scenarioDirectory,
 		config,
 		runId,
+		runDirectory,
+		iterations,
 		projectRoot,
 		log,
 		tracker,
@@ -111,6 +146,8 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	const agentCtx: AgentContext = {
 		runId,
 		config,
+		runDirectory,
+		iterations,
 		scenarios,
 		scenario,
 		agent,
@@ -169,7 +206,6 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		log,
 	);
 
-	let review: unknown;
 	if (testingResult.error !== undefined) {
 		// Testing didn't produce evaluable output (missing API key, transport
 		// error, etc.). Skip the judge entirely: an empty workspace can't pass
@@ -177,12 +213,13 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		// redundant `N rubrics failed` row to the dashboard one line below the
 		// real cause. The paired before/afterJudgeAgent hooks are skipped
 		// symmetrically.
-		review = { skipped: `testing failed: ${testingResult.error}` };
 		tracker.phaseFinished(scenario.name, agent.id, "judge", {
 			status: "skipped",
 			detail: "testing failed",
 		});
-		writeAgentReport(agentDirectory, testing, review);
+		writeAgentReport(agentDirectory, testing, {
+			skipped: `testing failed: ${testingResult.error}`,
+		});
 	} else {
 		await tryHook(
 			"beforeJudgeAgent",
@@ -195,8 +232,9 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		tracker.phaseStarted(scenario.name, agent.id, "judge");
 		const judgeStart = Date.now();
 		let judgeError: string | undefined;
+		let rawReview: unknown;
 		try {
-			review = await runJudgeAgent({
+			rawReview = await runJudgeAgent({
 				scenario,
 				judges: config.agents.judge,
 				agentDirectory,
@@ -209,19 +247,25 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			log.info(`judge-agent failed (${scope}): ${msg}`);
-			review = { skipped: `judge dispatch failed: ${msg}` };
+			rawReview = { skipped: `judge dispatch failed: ${msg}` };
 			judgeError = msg;
 		}
-		const verdictResult = judgeError
-			? { status: "failed" as const, detail: judgeError }
-			: classifyReview(review);
+		const cell: Cell =
+			judgeError !== undefined
+				? { kind: "FAIL", failures: [judgeError] }
+				: classifyVerdict(rawReview);
+		const verdictResult = cellToPhaseResult(cell);
 		tracker.phaseFinished(scenario.name, agent.id, "judge", {
 			status: verdictResult.status,
 			durationMs: Date.now() - judgeStart,
 			detail: verdictResult.detail,
 		});
 
-		writeAgentReport(agentDirectory, testing, review);
+		// Persist the judge's complete review (every rubric / acceptance
+		// item with its pass flag and notes) so a human or the improver
+		// can read the full picture. The collapsed `verdict` above is only
+		// used to drive the live dashboard.
+		writeAgentReport(agentDirectory, testing, rawReview);
 
 		await tryHook(
 			"afterJudgeAgent",
@@ -233,21 +277,23 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 	}
 }
 
-function classifyReview(review: unknown): {
+function cellToPhaseResult(cell: Cell): {
 	status: "passed" | "failed" | "skipped";
 	detail?: string;
 } {
-	const cell = classifyVerdict(review);
-	if (cell.kind === "PASS") return { status: "passed" };
-	if (cell.kind === "SKIPPED")
+	if (cell.kind === "SKIPPED") {
 		return { status: "skipped", detail: cell.reason };
+	}
+	if (cell.kind === "PASS") return { status: "passed" };
 	return { status: "failed", detail: summarizeFailures(cell.failures) };
 }
 
 /**
  * Single writer of the per-agent `report.json`. Pairs the `testing`
- * block (always present) with whatever the judge step produced under
- * `review`.
+ * block (always present) with the judge's `review` verbatim — the
+ * complete set of rubrics and acceptance items with their pass flags
+ * and notes — so reports stay fully informative. Testing/dispatch
+ * failures persist a `{ skipped }` marker in place of the review.
  */
 function writeAgentReport(
 	agentDirectory: string,

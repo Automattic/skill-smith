@@ -38,10 +38,11 @@ interface DisplayRow {
 }
 
 /**
- * Render the summary from `${runDirectory}/report.json`, write the
- * plain-text mirror to `${runDirectory}/summary.txt`, and return the
- * console lines + exit code so the caller can decide when to print.
- * Exit code is 0 if every cell is PASS, 1 otherwise.
+ * Render the summary from `${runDirectory}/report.json` — the merged
+ * matrix across every iteration the pipeline ran — write the plain-text
+ * mirror to `${runDirectory}/summary.txt`, and return the console lines
+ * + exit code so the caller can decide when to print. Exit code is 0
+ * if every cell is PASS, 1 otherwise.
  *
  * The table is long-format: one line per (scenario, agent), carrying
  * the agent's verdict plus the testing agent's wall-clock duration and
@@ -295,11 +296,14 @@ function classifyAgentReport(agentReport: unknown): Cell {
 	if (agentReport === null || typeof agentReport !== "object") {
 		return classifyVerdict(agentReport);
 	}
-	// The agent report nests the judge payload under `review`; the
-	// `testing` block alongside it carries duration/token metrics and is
-	// extracted separately by `extractMetrics`.
-	const review = (agentReport as { review?: unknown }).review;
-	return classifyVerdict(review);
+	const body = agentReport as { error?: unknown; review?: unknown };
+	if (typeof body.error === "string") {
+		return { kind: "FAIL", failures: [body.error] };
+	}
+	// The agent report nests the (already-simplified) verdict under
+	// `review`; the `testing` block alongside it carries duration/token
+	// metrics and is extracted separately by `extractMetrics`.
+	return classifyVerdict(body.review);
 }
 
 function isRowPass(row: Row, sortedAgents: string[]): boolean {
@@ -333,9 +337,9 @@ function failureLines(row: Row, sortedAgents: string[]): string[] {
 	return out;
 }
 
-function writeRunSummary(runDirectory: string, lines: string[]): void {
+function writeRunSummary(directory: string, lines: string[]): void {
 	try {
-		writeFileSync(join(runDirectory, "summary.txt"), `${lines.join("\n")}\n`);
+		writeFileSync(join(directory, "summary.txt"), `${lines.join("\n")}\n`);
 	} catch {
 		// best-effort; we already printed to the console
 	}

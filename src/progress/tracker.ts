@@ -51,6 +51,9 @@ interface ScenarioState {
 	agentIds: string[];
 	skipped: boolean;
 	skipReason?: string;
+	/** False when this scenario is not part of the current iteration's
+	 * selection; inactive scenarios are excluded from the counters. */
+	active: boolean;
 	phases: Map<string, { testing: PhaseSlot; judge: PhaseSlot }>;
 }
 
@@ -71,8 +74,9 @@ export class ProgressTracker {
 	private readonly runId: string;
 	private readonly startedAt: number;
 	private readonly scenarios: Map<string, ScenarioState>;
-	private readonly failures: Failure[] = [];
+	private failures: Failure[] = [];
 	private finished = false;
+	private iteration: { current: number; total: number } | undefined;
 
 	private lastPaintAt = 0;
 	private lastPaintedLines = 0;
@@ -95,6 +99,7 @@ export class ProgressTracker {
 					name: s.name,
 					agentIds: s.agentIds,
 					skipped: false,
+					active: true,
 					phases: new Map(
 						s.agentIds.map((id) => [
 							id,
@@ -111,6 +116,35 @@ export class ProgressTracker {
 				this.tickTimer.unref();
 			}
 		}
+	}
+
+	/**
+	 * Begin a new iteration of the self-improvement loop. Resets every
+	 * scenario's phase slots to pending and clears the failures list so
+	 * the dashboard reflects only this iteration's progress. When
+	 * `activeScenarios` is given, scenarios outside it are marked
+	 * inactive and excluded from the counters (subset iterations re-run
+	 * only the previously-failing scenarios).
+	 */
+	beginIteration(
+		current: number,
+		total: number,
+		activeScenarios?: string[],
+	): void {
+		this.iteration = { current, total };
+		const activeSet =
+			activeScenarios === undefined ? undefined : new Set(activeScenarios);
+		this.failures = [];
+		for (const s of this.scenarios.values()) {
+			s.active = activeSet === undefined || activeSet.has(s.name);
+			s.skipped = false;
+			s.skipReason = undefined;
+			for (const slots of s.phases.values()) {
+				slots.testing = "pending";
+				slots.judge = "pending";
+			}
+		}
+		this.requestPaint();
 	}
 
 	private onTick(): void {
@@ -201,6 +235,7 @@ export class ProgressTracker {
 			runId: this.runId,
 			startedAt: this.startedAt,
 			now: this.lastPaintAt,
+			iteration: this.iteration,
 			counters: this.counters(),
 			failures: this.failures.slice(),
 			finished: this.finished,
@@ -224,8 +259,12 @@ export class ProgressTracker {
 	}
 
 	private counters(): RunCounters {
+		let activeScenarios = 0;
+		for (const s of this.scenarios.values()) {
+			if (s.active) activeScenarios++;
+		}
 		const sc = {
-			total: this.scenarios.size,
+			total: activeScenarios,
 			passed: 0,
 			failed: 0,
 			skipped: 0,
@@ -241,6 +280,7 @@ export class ProgressTracker {
 			pending: 0,
 		};
 		for (const s of this.scenarios.values()) {
+			if (!s.active) continue;
 			if (s.skipped) {
 				sc.skipped++;
 				ph.total += s.agentIds.length * 2;
