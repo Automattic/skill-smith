@@ -1,43 +1,38 @@
-import type {
-	EvaluationMode,
-	SelfImprovementMode,
-	SelfImprovementPaths,
-	SkillsmithConfig,
-} from "./types";
+import type { EvaluationScope, RunMode, SkillsmithConfig } from "./types";
 
 export interface ResolvedSelfImprovement {
-	mode: SelfImprovementMode;
+	mode: RunMode;
 	maxIterations: number;
-	evaluationMode: EvaluationMode;
+	scope: EvaluationScope;
 	finalPass: boolean;
-	paths: SelfImprovementPaths;
 }
 
 export interface SelfImprovementOverrides {
-	mode?: SelfImprovementMode;
+	mode?: RunMode;
 	maxIterations?: number;
-	evaluationMode?: EvaluationMode;
+	scope?: EvaluationScope;
 	finalPass?: boolean;
 }
 
 const DEFAULTS: Pick<
 	ResolvedSelfImprovement,
-	"mode" | "maxIterations" | "evaluationMode" | "finalPass"
+	"mode" | "maxIterations" | "scope" | "finalPass"
 > = {
 	mode: "test-only",
 	maxIterations: 3,
-	evaluationMode: "failed-scenarios",
+	scope: "failed-scenarios",
 	finalPass: false,
 };
 
 /**
- * Merge the config's `selfImprovement` block with CLI overrides and
- * the harness defaults. Precedence: CLI override > config > defaults.
+ * Merge the config's top-level `mode` plus its `selfImprovement` block
+ * with CLI overrides and the harness defaults. Precedence:
+ * CLI override > config > defaults.
  *
  * `maxIterations` is clamped to a minimum of 1 here so the rest of the
  * pipeline can treat the value as a loop bound without re-validating.
- * The improver agent itself lives in `config.agents.improver`, not in
- * this block.
+ * The improver agent itself lives in `config.roles.improver.agent`, not
+ * in this block.
  */
 export function resolveSelfImprovement(
 	config: SkillsmithConfig,
@@ -47,11 +42,9 @@ export function resolveSelfImprovement(
 	const maxIterations =
 		overrides.maxIterations ?? cfg.maxIterations ?? DEFAULTS.maxIterations;
 	return {
-		mode: overrides.mode ?? cfg.mode ?? DEFAULTS.mode,
+		mode: overrides.mode ?? config.mode ?? DEFAULTS.mode,
 		maxIterations: Math.max(1, maxIterations),
-		evaluationMode:
-			overrides.evaluationMode ?? cfg.evaluationMode ?? DEFAULTS.evaluationMode,
+		scope: overrides.scope ?? cfg.scope ?? DEFAULTS.scope,
 		finalPass: overrides.finalPass ?? cfg.finalPass ?? DEFAULTS.finalPass,
-		paths: cfg.paths ?? {},
 	};
 }

@@ -1,6 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
-import type { ResolvedSelfImprovement } from "../config/self-improvement";
+import { resolve } from "node:path";
 import type { SkillsmithConfig } from "../config/types";
 import type { IterationReport } from "../reports/iteration-report";
 import type { ScenarioReport } from "../reports/scenario-report";
@@ -10,7 +8,6 @@ import { loadSkill } from "../scenarios/skill-loader";
 export interface BuildImprovementContextParams {
 	projectRoot: string;
 	config: SkillsmithConfig;
-	selfImprovement: ResolvedSelfImprovement;
 	iterationReport: IterationReport;
 	allScenarios: EnumeratedScenario[];
 }
@@ -45,26 +42,19 @@ export interface ImprovementContext {
 	skillsBlob: string;
 	/** Skill ids that contributed to `skillsBlob`. Always sorted. */
 	skillIds: string[];
-	/** Body of `selfImprovement.paths.improverPrompt` if configured. */
-	improverPrompt?: string;
 }
 
 /**
  * Bundle the context the improver agent needs: the iteration report
- * (every scenario that ran, with each judge's verbatim review), the
- * verbatim text of every skill referenced by a failing scenario, and
- * the optional custom prompt configured on the project.
+ * (every scenario that ran, with each judge's verbatim review) and the
+ * verbatim text of every skill referenced by a failing scenario. The
+ * optional per-project improver prompt is now handled by the caller
+ * directly (it lives on `config.roles.improver.prompt`).
  */
 export function buildImprovementContext(
 	params: BuildImprovementContextParams,
 ): ImprovementContext {
-	const {
-		projectRoot,
-		config,
-		selfImprovement,
-		iterationReport,
-		allScenarios,
-	} = params;
+	const { projectRoot, config, iterationReport, allScenarios } = params;
 
 	const failingScenarios = collectFailingScenarios(iterationReport);
 
@@ -74,18 +64,11 @@ export function buildImprovementContext(
 		.map((id) => loadSkill(id, skillsRoot))
 		.join("\n\n");
 
-	const context: ImprovementContext = {
+	return {
 		report: projectReportForImprover(iterationReport),
 		skillsBlob,
 		skillIds,
 	};
-
-	const promptPath = selfImprovement.paths.improverPrompt;
-	if (promptPath !== undefined) {
-		context.improverPrompt = readGuidelines(projectRoot, promptPath);
-	}
-
-	return context;
 }
 
 interface FailingScenario {
@@ -151,10 +134,4 @@ function collectSkillIds(
 		for (const id of scenario.skills) ids.add(id);
 	}
 	return [...ids].sort();
-}
-
-function readGuidelines(projectRoot: string, p: string): string {
-	const abs = isAbsolute(p) ? p : resolve(projectRoot, p);
-	if (!existsSync(abs)) return "";
-	return readFileSync(abs, "utf8");
 }

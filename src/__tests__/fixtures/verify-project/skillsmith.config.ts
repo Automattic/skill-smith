@@ -5,18 +5,23 @@ import { defineConfig } from "../../../index";
 // — standing in for an e2e suite that breaks even though the artifact
 // passed review. Iteration 2 verifies clean, so the loop converges.
 export default defineConfig({
+	mode: "self-improvement",
 	agents: {
-		testing: [{ id: "tester", provider: "mock", model: "mock" }],
-		judge: [{ id: "grader", provider: "mock", model: "mock" }],
-		improver: { id: "improver", provider: "mock", model: "mock" },
+		tester: { provider: "mock", model: "mock" },
+		grader: { provider: "mock", model: "mock" },
+		improver: { provider: "mock", model: "mock" },
+	},
+	roles: {
+		test: { agents: ["tester"] },
+		judge: "grader",
+		improver: "improver",
 	},
 	paths: {
 		base: "./.skillsmith",
 	},
 	selfImprovement: {
-		mode: "loop",
 		maxIterations: 3,
-		evaluationMode: "failed-scenarios",
+		scope: "failed-scenarios",
 	},
 	hooks: {
 		afterAllScenarios: ({ iteration }) => {

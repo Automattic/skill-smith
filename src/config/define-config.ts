@@ -1,22 +1,13 @@
-import { DEFAULT_PATHS } from "./defaults";
-import type {
-	AgentsConfig,
-	Hooks,
-	Paths,
-	SelfImprovementConfig,
-	SkillsmithConfig,
-} from "./types";
+import type { SkillsmithConfigInput } from "./types";
 
-interface SkillsmithConfigInput {
-	agents: AgentsConfig;
-	paths?: Partial<Paths>;
-	hooks?: Hooks;
-	selfImprovement?: SelfImprovementConfig;
-}
-
-export function defineConfig(input: SkillsmithConfigInput): SkillsmithConfig {
-	return {
-		...input,
-		paths: { ...DEFAULT_PATHS, ...input.paths },
-	};
+/**
+ * Passthrough used in `skillsmith.config.ts` so projects get the input
+ * type-checked at authoring time. The harness validates and normalizes
+ * the result at load time (see `src/config/load.ts`), so this stays a
+ * plain identity function.
+ */
+export function defineConfig(
+	input: SkillsmithConfigInput,
+): SkillsmithConfigInput {
+	return input;
 }

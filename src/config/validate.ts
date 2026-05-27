@@ -1,61 +1,78 @@
 import { isProviderId, PROVIDER_IDS } from "../providers/registry";
 import type {
-	AgentDefinition,
-	EvaluationMode,
-	SelfImprovementMode,
-	SkillsmithConfig,
+	AgentDefinitionInput,
+	EvaluationScope,
+	RunMode,
+	SingleRoleInput,
+	SkillsmithConfigInput,
 } from "./types";
 
-const VALID_MODES: SelfImprovementMode[] = ["test-only", "loop"];
-const VALID_EVALUATION_MODES: EvaluationMode[] = [
+const VALID_MODES: RunMode[] = ["test-only", "self-improvement"];
+const VALID_SCOPES: EvaluationScope[] = [
 	"failed-pairs",
 	"failed-scenarios",
 	"all",
 ];
 
-export function collectConfigErrors(config: SkillsmithConfig): string[] {
+export function collectConfigErrors(config: SkillsmithConfigInput): string[] {
 	const errors: string[] = [];
-	for (const slot of ["testing", "judge"] as const) {
-		const list = config.agents[slot];
-		if (!Array.isArray(list)) {
-			errors.push(`agents.${slot} must be an array of AgentDefinition`);
-			continue;
-		}
-		if (list.length === 0) {
-			errors.push(`agents.${slot} must contain at least one entry`);
-			continue;
-		}
-		const seenIds = new Set<string>();
-		list.forEach((entry, index) => {
-			validateAgentEntry(entry, `agents.${slot}[${index}]`, errors);
-			if (
-				typeof entry?.id === "string" &&
-				entry.id.length > 0 &&
-				seenIds.has(entry.id)
-			) {
-				errors.push(`agents.${slot}: duplicate id "${entry.id}"`);
-			}
-			if (typeof entry?.id === "string") seenIds.add(entry.id);
-		});
+
+	if (config === undefined || config === null || typeof config !== "object") {
+		errors.push("config must be an object");
+		return errors;
 	}
-	if (config.agents.improver !== undefined) {
-		validateAgentEntry(config.agents.improver, "agents.improver", errors);
+
+	if (!VALID_MODES.includes(config.mode)) {
+		errors.push(
+			`mode must be one of ${VALID_MODES.map((m) => `"${m}"`).join(", ")}`,
+		);
 	}
+
+	const agentIds = validateAgents(config, errors);
+	validateRoles(config, agentIds, errors);
 	validateSelfImprovement(config, errors);
+
 	return errors;
 }
 
+function validateAgents(
+	config: SkillsmithConfigInput,
+	errors: string[],
+): Set<string> {
+	const ids = new Set<string>();
+	if (
+		config.agents === undefined ||
+		config.agents === null ||
+		typeof config.agents !== "object" ||
+		Array.isArray(config.agents)
+	) {
+		errors.push("agents must be an object keyed by agent id");
+		return ids;
+	}
+	const entries = Object.entries(config.agents);
+	if (entries.length === 0) {
+		errors.push("agents must contain at least one entry");
+		return ids;
+	}
+	for (const [id, entry] of entries) {
+		if (id.length === 0) {
+			errors.push("agents: id keys must be non-empty strings");
+			continue;
+		}
+		ids.add(id);
+		validateAgentEntry(entry, `agents.${id}`, errors);
+	}
+	return ids;
+}
+
 function validateAgentEntry(
-	entry: AgentDefinition | undefined,
+	entry: AgentDefinitionInput | undefined,
 	path: string,
 	errors: string[],
 ): void {
 	if (entry === undefined || entry === null || typeof entry !== "object") {
 		errors.push(`${path} must be an object`);
 		return;
-	}
-	if (typeof entry.id !== "string" || entry.id.length === 0) {
-		errors.push(`${path}.id must be a non-empty string`);
 	}
 	if (typeof entry.model !== "string" || entry.model.length === 0) {
 		errors.push(`${path}.model must be a non-empty string`);
@@ -67,8 +84,100 @@ function validateAgentEntry(
 	}
 }
 
+function validateRoles(
+	config: SkillsmithConfigInput,
+	agentIds: Set<string>,
+	errors: string[],
+): void {
+	const roles = config.roles;
+	if (roles === undefined || roles === null || typeof roles !== "object") {
+		errors.push("roles must be an object with `test`, `judge`, `improver`");
+		return;
+	}
+
+	validateTestRole(roles.test, agentIds, errors);
+	validateSingleRole(roles.judge, "roles.judge", agentIds, errors);
+	validateSingleRole(roles.improver, "roles.improver", agentIds, errors);
+}
+
+function validateTestRole(
+	role: SkillsmithConfigInput["roles"]["test"] | undefined,
+	agentIds: Set<string>,
+	errors: string[],
+): void {
+	if (role === undefined || role === null || typeof role !== "object") {
+		errors.push("roles.test must be an object with an `agents` array");
+		return;
+	}
+	if (!Array.isArray(role.agents)) {
+		errors.push("roles.test.agents must be a non-empty string array");
+		return;
+	}
+	if (role.agents.length === 0) {
+		errors.push("roles.test.agents must be a non-empty string array");
+		return;
+	}
+	const seen = new Set<string>();
+	role.agents.forEach((id, index) => {
+		if (typeof id !== "string" || id.length === 0) {
+			errors.push(
+				`roles.test.agents[${index}] must be a non-empty string`,
+			);
+			return;
+		}
+		if (seen.has(id)) {
+			errors.push(`roles.test.agents: duplicate id "${id}"`);
+		}
+		seen.add(id);
+		if (!agentIds.has(id)) {
+			errors.push(`roles.test.agents references unknown agent "${id}"`);
+		}
+	});
+	if (role.prompt !== undefined && typeof role.prompt !== "string") {
+		errors.push("roles.test.prompt must be a string");
+	}
+}
+
+function validateSingleRole(
+	role: SingleRoleInput | undefined,
+	path: string,
+	agentIds: Set<string>,
+	errors: string[],
+): void {
+	if (role === undefined || role === null) {
+		errors.push(
+			`${path} must be a string agent id or an object { agent, prompt? }`,
+		);
+		return;
+	}
+	if (typeof role === "string") {
+		if (role.length === 0) {
+			errors.push(`${path} must be a non-empty string`);
+			return;
+		}
+		if (!agentIds.has(role)) {
+			errors.push(`${path} references unknown agent "${role}"`);
+		}
+		return;
+	}
+	if (typeof role !== "object") {
+		errors.push(
+			`${path} must be a string agent id or an object { agent, prompt? }`,
+		);
+		return;
+	}
+	if (typeof role.agent !== "string" || role.agent.length === 0) {
+		errors.push(`${path}.agent must be a non-empty string`);
+	} else if (!agentIds.has(role.agent)) {
+		errors.push(`${path} references unknown agent "${role.agent}"`);
+	}
+	if (role.prompt !== undefined && typeof role.prompt !== "string") {
+		errors.push(`${path}.prompt must be a string`);
+	}
+}
+
 function validateSelfImprovement(
-	config: SkillsmithConfig,
+	config: SkillsmithConfigInput,
 	errors: string[],
 ): void {
 	const block = config.selfImprovement;
@@ -78,11 +187,6 @@ function validateSelfImprovement(
 		return;
 	}
 
-	if (block.mode !== undefined && !VALID_MODES.includes(block.mode)) {
-		errors.push(
-			`selfImprovement.mode must be one of ${VALID_MODES.map((m) => `"${m}"`).join(", ")}`,
-		);
-	}
 	if (block.maxIterations !== undefined) {
 		if (
 			!Number.isInteger(block.maxIterations) ||
@@ -92,26 +196,14 @@ function validateSelfImprovement(
 		}
 	}
 	if (
-		block.evaluationMode !== undefined &&
-		!VALID_EVALUATION_MODES.includes(block.evaluationMode)
+		block.scope !== undefined &&
+		!VALID_SCOPES.includes(block.scope)
 	) {
 		errors.push(
-			`selfImprovement.evaluationMode must be one of ${VALID_EVALUATION_MODES.map((m) => `"${m}"`).join(", ")}`,
+			`selfImprovement.scope must be one of ${VALID_SCOPES.map((m) => `"${m}"`).join(", ")}`,
 		);
 	}
 	if (block.finalPass !== undefined && typeof block.finalPass !== "boolean") {
 		errors.push("selfImprovement.finalPass must be a boolean");
-	}
-
-	const paths = block.paths;
-	if (paths !== undefined) {
-		if (paths === null || typeof paths !== "object") {
-			errors.push("selfImprovement.paths must be an object");
-		} else if (
-			paths.improverPrompt !== undefined &&
-			typeof paths.improverPrompt !== "string"
-		) {
-			errors.push("selfImprovement.paths.improverPrompt must be a string");
-		}
 	}
 }

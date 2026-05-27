@@ -1,15 +1,15 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { normalizeConfig } from "./normalize";
 import { CONFIG_FILENAME, PreconditionError } from "./resolve-cwd";
-import type { SkillsmithConfig } from "./types";
+import type { SkillsmithConfig, SkillsmithConfigInput } from "./types";
 import { collectConfigErrors } from "./validate";
 
 /**
- * Dynamically import `skillsmith.config.ts` from the project root and
- * return the resolved config. The user is expected to author the file
- * with `defineConfig(...)`, so defaults are already merged before we
- * see it.
+ * Dynamically import `skillsmith.config.ts` from the project root,
+ * validate the raw user input, then normalize it into the
+ * `SkillsmithConfig` the rest of the harness consumes.
  */
 export async function loadConfig(
 	projectRoot: string,
@@ -19,7 +19,7 @@ export async function loadConfig(
 		throw new PreconditionError([`${configPath} not found`]);
 	}
 	const mod = (await import(pathToFileURL(configPath).href)) as {
-		default?: SkillsmithConfig;
+		default?: SkillsmithConfigInput;
 	};
 	if (!mod.default) {
 		throw new PreconditionError([
@@ -30,5 +30,5 @@ export async function loadConfig(
 	if (errors.length > 0) {
 		throw new PreconditionError(errors);
 	}
-	return mod.default;
+	return normalizeConfig(mod.default);
 }

@@ -82,8 +82,8 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 		agentIdFilter !== undefined ? new Set(agentIdFilter) : undefined;
 	const agents =
 		filterSet === undefined
-			? config.agents.testing
-			: config.agents.testing.filter((a) => filterSet.has(a.id));
+			? config.roles.test.agents
+			: config.roles.test.agents.filter((a) => filterSet.has(a.id));
 
 	if (filterSet !== undefined) {
 		log.info(
@@ -236,7 +236,7 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		try {
 			rawReview = await runJudgeAgent({
 				scenario,
-				judges: config.agents.judge,
+				judge: config.roles.judge.agent,
 				agentDirectory,
 				agentWorkspace,
 				projectRoot,

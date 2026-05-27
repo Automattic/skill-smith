@@ -1,6 +1,5 @@
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { ResolvedSelfImprovement } from "../config/self-improvement";
 import type {
 	AgentDefinition,
 	IterationCompleteHookContext,
@@ -42,8 +41,12 @@ export interface RunImprovementParams {
 	iterations: IterationInfo[];
 	scenarios: RunScenario[];
 	config: SkillsmithConfig;
-	selfImprovement: ResolvedSelfImprovement;
 	agent: AgentDefinition;
+	/**
+	 * Optional project-specific prompt that fully replaces the built-in
+	 * improver instructions. Comes from `config.roles.improver.prompt`.
+	 */
+	improverPrompt?: string;
 	iteration: number;
 	iterationDirectory: string;
 	iterationReport: IterationReport;
@@ -71,8 +74,8 @@ export async function runImprovement(
 		projectRoot,
 		runId,
 		config,
-		selfImprovement,
 		agent,
+		improverPrompt,
 		iteration,
 		iterationDirectory,
 		iterationReport,
@@ -99,7 +102,6 @@ export async function runImprovement(
 	const context = buildImprovementContext({
 		projectRoot,
 		config,
-		selfImprovement,
 		iterationReport,
 		allScenarios,
 	});
@@ -113,7 +115,10 @@ export async function runImprovement(
 	);
 
 	const skillsDir = resolve(projectRoot, config.paths.skills);
-	const instructions = context.improverPrompt ?? DEFAULT_PROMPT;
+	const instructions =
+		improverPrompt !== undefined && improverPrompt.length > 0
+			? improverPrompt
+			: DEFAULT_PROMPT;
 
 	const systemPrompt = [
 		"You are the improver agent in the skillsmith self-improvement loop.",

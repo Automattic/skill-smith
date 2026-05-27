@@ -1,12 +1,16 @@
 import { defineConfig } from "../../../index";
 
 export default defineConfig({
+	mode: "test-only",
 	agents: {
-		testing: [
-			{ id: "ok", provider: "mock", model: "mock-model" },
-			{ id: "mock-fail-testing", provider: "mock", model: "mock-model" },
-		],
-		judge: [{ id: "opus", provider: "mock", model: "mock-model" }],
+		ok: { provider: "mock", model: "mock-model" },
+		"mock-fail-testing": { provider: "mock", model: "mock-model" },
+		opus: { provider: "mock", model: "mock-model" },
+	},
+	roles: {
+		test: { agents: ["ok", "mock-fail-testing"] },
+		judge: "opus",
+		improver: "opus",
 	},
 	paths: {
 		base: "./.skillsmith",
