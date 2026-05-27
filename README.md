@@ -174,14 +174,14 @@ export default defineConfig({
     // Keyed by id — the key is the agent id used everywhere downstream.
     haiku: { provider: "claude-code", model: "claude-haiku-4-5" },
     opus:  { provider: "claude-code", model: "claude-opus-4-7" },
-    improver: { provider: "claude-code", model: "claude-opus-4-7" },
   },
   roles: {
     // Reference agents by id. Single-agent roles accept a string shorthand.
+    // The same agent can play multiple roles — `opus` is both judge and improver here.
     test: { agents: ["haiku"], prompt: "be terse and avoid emojis" },
     judge: "opus",
     // Replace the built-in improver instructions with a project-specific strategy.
-    improver: { agent: "improver", prompt: "..." },
+    improver: { agent: "opus", prompt: "..." },
   },
   selfImprovement: {
     maxIterations: 3,                   // default 3

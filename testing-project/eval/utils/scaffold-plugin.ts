@@ -75,11 +75,6 @@ function blockJson(): string {
  * under `<agentWorkspace>/<slug>/`. The plugin slug stays unique per
  * (scenario, agent) so the e2e run can activate each independently; the
  * block name is fixed because the e2e specs reference it directly.
- *
- * The on-disk AGENTS.md is no longer written here — the equivalent
- * guidance is injected into the testing-agent system prompt via
- * `roles.test.prompt` in the skillsmith config (see
- * `eval/prompts/testing-agent.md`).
  */
 export function scaffoldPlugin(
 	agentWorkspace: string,

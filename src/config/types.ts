@@ -77,9 +77,6 @@ export interface NormalizedRoles {
  * `mode` is `"self-improvement"`. `scope` controls how subsequent
  * iterations narrow re-evaluation. `finalPass: true` adds one extra full
  * sweep at the end when the last iteration only ran a subset.
- *
- * The improver's optional custom prompt now lives on `roles.improver.prompt`,
- * not here.
  */
 export interface SelfImprovementConfig {
 	maxIterations?: number;
