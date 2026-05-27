@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { resolveSelfImprovement } from "../config/self-improvement";
-import type {
-	SkillsmithConfig,
-	SkillsmithConfigInput,
-} from "../config/types";
+import type { SkillsmithConfig, SkillsmithConfigInput } from "../config/types";
 import { collectConfigErrors } from "../config/validate";
 
 const PATHS = {

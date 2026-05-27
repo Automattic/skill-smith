@@ -27,7 +27,9 @@ export function normalizeConfig(
 
 	const roles: NormalizedRoles = {
 		test: {
-			agents: input.roles.test.agents.map((id) => agents[id] as AgentDefinition),
+			agents: input.roles.test.agents.map(
+				(id) => agents[id] as AgentDefinition,
+			),
 			...(input.roles.test.prompt !== undefined
 				? { prompt: input.roles.test.prompt }
 				: {}),

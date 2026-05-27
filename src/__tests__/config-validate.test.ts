@@ -39,10 +39,7 @@ test("rejects an unknown top-level mode", () => {
 
 test("rejects an empty agents map", () => {
 	const errors = collectConfigErrors(build({ agents: {} }));
-	assert.match(
-		errors.join("\n"),
-		/agents must contain at least one entry/,
-	);
+	assert.match(errors.join("\n"), /agents must contain at least one entry/);
 });
 
 test("rejects an empty roles.test.agents", () => {

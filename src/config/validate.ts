@@ -120,9 +120,7 @@ function validateTestRole(
 	const seen = new Set<string>();
 	role.agents.forEach((id, index) => {
 		if (typeof id !== "string" || id.length === 0) {
-			errors.push(
-				`roles.test.agents[${index}] must be a non-empty string`,
-			);
+			errors.push(`roles.test.agents[${index}] must be a non-empty string`);
 			return;
 		}
 		if (seen.has(id)) {
@@ -195,10 +193,7 @@ function validateSelfImprovement(
 			errors.push("selfImprovement.maxIterations must be an integer >= 1");
 		}
 	}
-	if (
-		block.scope !== undefined &&
-		!VALID_SCOPES.includes(block.scope)
-	) {
+	if (block.scope !== undefined && !VALID_SCOPES.includes(block.scope)) {
 		errors.push(
 			`selfImprovement.scope must be one of ${VALID_SCOPES.map((m) => `"${m}"`).join(", ")}`,
 		);
