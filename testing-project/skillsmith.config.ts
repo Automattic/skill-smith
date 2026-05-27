@@ -17,7 +17,6 @@ const improverPrompt = readFileSync(
 
 export default defineConfig({
 	mode: "test-only",
-
 	agents: {
 		haiku: {
 			provider: "claude-code",
@@ -25,47 +24,18 @@ export default defineConfig({
 		},
 		opus: {
 			provider: "claude-code",
-			model: "claude-opus-4-6",
-		},
-		"anthropic-sonnet": {
-			provider: "anthropic-api",
-			model: "claude-sonnet-4-6",
-		},
-		"openai-api-nano": {
-			provider: "openai-api",
-			model: "gpt-5.4-nano",
-		},
-		"codex-mini": { provider: "codex", model: "gpt-5.4-mini" },
-		"codex-gpt55": { provider: "codex", model: "gpt-5.5" },
-		"gemini-flash": { provider: "gemini-api", model: "gemini-2.5-flash" },
-		codex: {
-			provider: "codex",
-			model: "gpt-5.5",
+			model: "claude-opus-4-7",
 			effort: "xhigh",
 		},
-		improver: {
-			provider: "claude-code",
-			model: "claude-opus-4-6",
-		},
 	},
-
 	roles: {
 		test: {
-			agents: [
-				"haiku",
-				"opus",
-				"anthropic-sonnet",
-				"openai-api-nano",
-				"codex-mini",
-				"codex-gpt55",
-				"gemini-flash",
-			],
+			agents: ["haiku", "opus"],
 			prompt: testingAgentPrompt,
 		},
-		judge: "codex",
-		improver: { agent: "improver", prompt: improverPrompt },
+		judge: "opus",
+		improver: { agent: "opus", prompt: improverPrompt },
 	},
-
 	selfImprovement: {
 		maxIterations: 3,
 		scope: "failed-scenarios",
