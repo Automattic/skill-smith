@@ -30,7 +30,7 @@ export default defineConfig({
 	},
 	roles: {
 		test: {
-			agents: ["haiku", "opus"],
+			agents: ["haiku"],
 			prompt: testingAgentPrompt,
 		},
 		judge: "opus",
