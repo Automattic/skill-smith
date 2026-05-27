@@ -1,71 +1,74 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "skillsmith";
 import { scaffoldPlugin } from "./eval/utils/scaffold-plugin";
 import { runE2eVerification } from "./eval/utils/verify-e2e";
 
+const here = dirname(fileURLToPath(import.meta.url));
+const testingAgentPrompt = readFileSync(
+	resolve(here, "eval/prompts/testing-agent.md"),
+	"utf8",
+);
+const improverPrompt = readFileSync(
+	resolve(here, "eval/prompts/improver.md"),
+	"utf8",
+);
+
 export default defineConfig({
+	mode: "test-only",
+
 	agents: {
-		testing: [
-			{
-				id: "haiku",
-				provider: "claude-code",
-				model: "claude-haiku-4-5-20251001",
-			},
-			{
-				id: "opus",
-				provider: "claude-code",
-				model: "claude-opus-4-6",
-			},
-			{
-				id: "anthropic-sonnet",
-				provider: "anthropic-api",
-				model: "claude-sonnet-4-6",
-			},
-			{
-				id: "openai-api-nano",
-				provider: "openai-api",
-				model: "gpt-5.4-nano",
-			},
-			{ id: "codex-mini", provider: "codex", model: "gpt-5.4-mini" },
-			{
-				id: "codex-gpt55",
-				provider: "codex",
-				model: "gpt-5.5",
-			},
-			{
-				id: "gemini-flash",
-				provider: "gemini-api",
-				model: "gemini-2.5-flash",
-			},
-		],
-		judge: [
-			{
-				id: "codex",
-				provider: "codex",
-				model: "gpt-5.5",
-				effort: "xhigh",
-			},
-		],
-		// Single agent that edits the failing skills between iterations in
-		// loop mode. It edits SKILL.md files in place — no proposal,
-		// reviewer, or git.
+		haiku: {
+			provider: "claude-code",
+			model: "claude-haiku-4-5-20251001",
+		},
+		opus: {
+			provider: "claude-code",
+			model: "claude-opus-4-6",
+		},
+		"anthropic-sonnet": {
+			provider: "anthropic-api",
+			model: "claude-sonnet-4-6",
+		},
+		"openai-api-nano": {
+			provider: "openai-api",
+			model: "gpt-5.4-nano",
+		},
+		"codex-mini": { provider: "codex", model: "gpt-5.4-mini" },
+		"codex-gpt55": { provider: "codex", model: "gpt-5.5" },
+		"gemini-flash": { provider: "gemini-api", model: "gemini-2.5-flash" },
+		codex: {
+			provider: "codex",
+			model: "gpt-5.5",
+			effort: "xhigh",
+		},
 		improver: {
-			id: "improver",
 			provider: "claude-code",
 			model: "claude-opus-4-6",
 		},
 	},
 
-	// Self-improvement is opt-in. With `agents.improver` set, a run with
-	// `--mode loop` will, after each failing iteration, let the improver
-	// edit the relevant SKILL.md files and re-run the failing scenarios.
-	// `--mode test-only` (the default) ignores it entirely. Point
-	// `paths.improverPrompt` at a file to replace the built-in improver
-	// instructions with a project-specific strategy.
+	roles: {
+		test: {
+			agents: [
+				"haiku",
+				"opus",
+				"anthropic-sonnet",
+				"openai-api-nano",
+				"codex-mini",
+				"codex-gpt55",
+				"gemini-flash",
+			],
+			prompt: testingAgentPrompt,
+		},
+		judge: "codex",
+		improver: { agent: "improver", prompt: improverPrompt },
+	},
+
 	selfImprovement: {
-		mode: "test-only",
 		maxIterations: 3,
-		evaluationMode: "failed-scenarios",
-		// paths: { improverPrompt: "./eval/improvement/improver.md" },
+		scope: "failed-scenarios",
 	},
 
 	hooks: {
