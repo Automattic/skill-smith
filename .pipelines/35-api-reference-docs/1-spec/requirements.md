@@ -216,7 +216,7 @@ Secondary, strict superset: the **hook author** who needs behavioural guarantees
 Explicit non-readers (no special accommodation):
 - Brand-new evaluators who haven't read the README — that's the README's job.
 - Fork authors extending the harness — that's `CONTRIBUTING.md` territory. The reference may include a single "Stability and extension points" note saying "the public surface is `src/index.ts`; everything else is internal" and stop there.
-- Third-party provider integrators — the `Provider` interface is exported but not pluggable today (see Q3); the reference will say so and stop there.
+- Third-party provider integrators — the `Provider` interface is exported but not pluggable today. The reference's `providers.md` chapter states this in a closing "Custom providers" section and stops there.
 
 ### Physical form
 
@@ -292,7 +292,7 @@ The following are **internal** — forks may read them for understanding, but th
 - `src/reports/*` — writer functions. **The on-disk report shapes ARE public** (§6); the writers that produce them are not.
 - `src/progress/*` — live dashboard internals.
 - `src/util/*` — pure internals. Note: `PreconditionError` and `UserFacingError` are thrown by `run()` but are not exported as types; their **string output formats** are the documented contract (see §2).
-- `src/providers/*` non-types — registry plus per-provider implementations. The `Provider` and `ProviderId` **types** are public; the registration mechanism is not (see Q3 below).
+- `src/providers/*` non-types — registry plus per-provider implementations. The `Provider` and `ProviderId` **types** are public; the registration mechanism is not.
 - `src/scenarios/enumerate.ts`, `src/scenarios/skill-loader.ts` — the on-disk shapes they parse are public contracts; the loaders are not.
 - `src/config/load.ts`, `normalize.ts`, `validate.ts`, `self-improvement.ts`, `resolve-cwd.ts` — the types they consume/produce are exported; the functions are not.
 - `bin/skillsmith.mjs` — the binary itself is the public surface; the file's internals are not.
@@ -316,25 +316,112 @@ Out of scope as a side-effect of these decisions:
 - Rewriting/slimming the README (separate follow-up issue).
 - TypeDoc / generated-doc tooling.
 
-### Q3 — Provider interface, report shape exports, stale README — bundled
+### Q3 — Provider interface, report shape exports, stale README — RESOLVED
 
-Three small follow-up decisions. Sending as Q3 so we keep momentum.
+- **(a) `Provider` interface.** Confirmed: `docs/api/providers.md` documents the six built-in `ProviderId`s end-to-end and closes with a "Custom providers" section stating that the set is fixed in this version and there is no `registerProvider()` API. The section additionally notes that `Provider` and `ProviderId` remain useful as types (e.g. when an `afterTestAgent`/`afterJudgeAgent` hook branches on `ctx.agent.provider`). No issue link unless one is filed.
+- **(b) Report shapes.** Confirmed: re-export. The right set is **six** types, not four — see §"In-scope code changes" below.
+- **(c) Stale README text.** Confirmed (A): one-line fix at `README.md:46`, in scope. Broader README slimming explicitly **not** in scope.
 
-- **(a) `Provider` interface treatment.** Document it in `docs/api/providers.md` as exported-but-read-only (no registration API today), with a single forward pointer if a tracking issue gets filed for custom-provider support.
-- **(b) Report shapes — re-export from `src/index.ts`?** The harness's report TypeScript interfaces (`ScenarioReport`, `ScenarioAgentEntry`, `IterationReport`, `RunSummary`) live in `src/reports/*` and are not currently re-exported. Spec-analyst lean: re-export, because hooks authors writing `afterAllScenarios` (or anyone post-processing CI) clearly need them and the WordPress reference project (`testing-project/eval/utils/verify-e2e.ts`) already imports from `"skillsmith"`. Alternative: document on-disk shapes only as inline JSON schemas in `docs/api/run-artifacts.md` and leave the TS surface unchanged.
-- **(c) Stale README text.** `README.md:46` says "No CLI flags are supported yet" but `README.md:204-211` documents the flags. Tiny fix vs. separate issue?
+## In-scope code and docs changes
 
-Out for researcher.
+This pipeline ships both new docs and a small public-surface tightening. The complete set of in-scope changes is:
+
+### A. New files
+
+```
+docs/api/
+├── README.md                 # thin index: 1 paragraph + flat TOC
+├── configuration.md
+├── agents-and-roles.md
+├── providers.md
+├── cli.md
+├── programmatic.md
+├── hooks.md
+├── scenarios-and-rubrics.md
+└── run-artifacts.md
+```
+
+Constraints on each chapter and on the index are spelled out in §"Deliverable shape" above.
+
+### B. Public-surface tightening — `src/index.ts`
+
+Add these re-exports (sourced from `src/reports/*` and `src/providers/types.ts`):
+
+```ts
+// Report shapes (newly part of the public surface).
+export type {
+    IterationReport,
+    IterationSummaryEntry,
+    RunSummary,
+} from "./reports/iteration-report";
+export type {
+    ScenarioAgentEntry,
+    ScenarioReport,
+} from "./reports/scenario-report";
+
+// Token-usage detail (already documented in README; now typed publicly).
+export type { TokenUsage } from "./providers/types";
+```
+
+**Why these six, and only these six** (researcher-verified inventory):
+
+- `ScenarioReport`, `ScenarioAgentEntry` — shape of `<scenarioDirectory>/report.json` and its `agents` rows. Needed by any hook that walks scenario reports off disk.
+- `IterationReport` — shape of `<runDirectory>/iteration-N/report.json`. Needed by `afterAllScenarios` and any CI post-processor.
+- `RunSummary`, `IterationSummaryEntry` — shape of `<runDirectory>/run.json`. Exporting `RunSummary` without `IterationSummaryEntry` would force consumers to re-declare it.
+- `TokenUsage` — embedded under `<agent>/report.json` → `testing.tokenUsage`. Its semantics are already documented in `README.md`; making it a typed export removes the duplicate-interface drift risk for any CI script reading token spend.
+
+**Explicitly NOT exported in this pipeline** (researcher-verified, deliberate non-goal):
+
+- `AggregateIterationReportParams`, `AggregateScenarioReportParams` — parameter types for internal aggregator functions whose call sites are not public.
+- `PreparedSummary`, `PrintSummaryParams` — internal to the console-summary writer.
+- `Cell` (verdict-classification result) and the `classifyVerdict` helper — the verdict-normalization logic is the kind of thing users may eventually ask for, but committing to its tolerance shape now is premature. Park for a future issue.
+- `InvokeParams`, `InvokeResult`, `Role` — only meaningful to a provider implementation, and there is no public registration path (Q3a).
+
+### C. Type stability constraints (recorded so a future contributor cannot accidentally regress them)
+
+Two field shapes become part of the public contract as a side-effect of (B) and must be preserved across non-major versions:
+
+- **`ScenarioAgentEntry.testing` and `ScenarioAgentEntry.review` are typed `unknown`.** This is a deliberate hedge so the report writer can persist heterogeneous review shapes (verbose-vs-simplified judge output, `{ skipped: "..." }`, `{ error: "...", raw }`). Once `ScenarioAgentEntry` is exported, **the spec must record that these fields stay `unknown`**. Users narrow at the call site. Tightening to a closed union later would silently break consumers.
+- **`IterationReport.scenarios` is `Record<string, ScenarioReport | { error: string }>`**. The `{ error: string }` branch fires when a scenario report is missing or unparseable during aggregation. **The spec must record that this union stays.** Lifting it into a separate `errors` map later would break every consumer.
+
+### D. `examples/skillsmith.config.ts`
+
+Add a single top-comment line pointing at `docs/api/` as the canonical reference. Leave all inline comments unchanged.
+
+### E. `README.md` minimal edits
+
+Scoped to:
+
+1. **Delete the stale sentence at `README.md:46`** — *"No CLI flags are supported yet, such as `--scenario`, fail before a run starts."* It contradicts `README.md:204-211` which documents the actual flags. Replace with a one-sentence pointer to `docs/api/cli.md` (or delete outright — both acceptable; the existing `### CLI flags` subsection already covers it).
+2. **Add link-outs from each overlapping README subsection to the matching `docs/api/*.md` chapter.** Concretely, the `### Configuration`, `### CLI flags`, `### Hooks`, and Lifecycle sections each get a one-line "See [docs/api/...](./docs/api/...) for the full reference."
+
+**No** other README edits: no slimming, no rewriting overlapping prose, no reshuffling section order. Each of those is its own design decision that deserves its own review pass and is explicitly deferred.
 
 ## Confirmed requirements
 
-(Will be populated as the open questions close.)
+The reference must:
+
+1. **Cover every public surface** listed in the inventory §1–§9 — every export from `src/index.ts` (including the six newly-added report-type re-exports), every CLI flag and positional behaviour, every config field and default, every hook (with firing-order, context, return-value semantics, on-throw behaviour), every on-disk shape (authored and produced), every provider's env vars / knobs / tool surface / missing-key behaviour, and the environment preconditions / project-root resolution rule.
+2. **Document the on-disk run-artifact JSON shapes both as TypeScript types and as JSON examples.** Six types now exist for them; both representations need to appear (TS reference in `programmatic.md` or wherever the type is most natural, JSON shapes in `run-artifacts.md`).
+3. **Document each hook's behavioural guarantees**, not just its context type — when it fires, what its return value does (if any), and what happens when it throws.
+4. **Document the CLI's user-visible failure formats** — the precondition-error string format and the unknown-scenario string format — so readers can recognise them in real failures.
+5. **Document the dual identity of scenarios** — directory ID (used by CLI selectors) vs. `scenario.name` in YAML (used to build iteration-side directory paths).
+6. **State the type-stability constraints** in §"Type stability constraints" above somewhere in the docs (most naturally a callout in the `programmatic.md` or `run-artifacts.md` chapter), so future contributors don't accidentally regress them.
+7. **Ship valid examples** — TS that typechecks, YAML that parses against the documented schema, JSON that validates, shell that runs.
+8. **Be GitHub-rendered Markdown only**, no generation tooling.
+9. **Be cross-linked**: each chapter ends with a single callout pointing to `examples/skillsmith.config.ts`; the README links into the chapters where its sections overlap; the index links to every chapter.
+
+The pipeline also ships:
+
+10. **Six new type re-exports** in `src/index.ts` (§"In-scope code changes" B).
+11. **A one-line top-comment** added to `examples/skillsmith.config.ts` pointing at `docs/api/` (§"In-scope code changes" D).
+12. **One stale-sentence deletion plus per-section link-outs** in `README.md` (§"In-scope code changes" E).
 
 ## Out of scope
 
 - Anything outside the public surface listed in §1–§9. Internal modules get a one-line "not part of the public API" mention only, no per-symbol coverage.
 - Tutorials and getting-started narratives. This pipeline produces **reference**, not **tutorials**.
-- Provider registration / extensibility — `Provider` is documented as read-only; actual custom-provider support is a separate concern (see Q3a).
+- Provider registration / extensibility. `Provider` is documented as a read-only type. Custom-provider support is a separate concern, not tracked by this pipeline.
 - Rewriting or slimming `README.md`. Once `docs/api/` lands, a follow-up issue can slim README's overlapping sections.
 - TypeDoc / api-extractor / any doc-generation tooling. All chapters are hand-authored Markdown.
 - Adding a `docs/index.html` route for the API reference. The reference lives at `docs/api/` and is GitHub-rendered.
