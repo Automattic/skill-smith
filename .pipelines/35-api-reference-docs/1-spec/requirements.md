@@ -205,6 +205,84 @@ ${paths.base}/<runId>/
 - **`assets/skill-tester-workflow.png`** and **`assets/self-improvement-loop.png`** — workflow diagrams the README already embeds.
 - **`docs/index.html`** (GitHub Pages landing page) — separate from the API reference, but is the project's public marketing surface and the README links to it.
 
+## Deliverable shape
+
+### Reader
+
+Primary: a developer who has read the `README.md`, decided to adopt Skillsmith, and now needs a desk-reference — "what fields can I put in `roles`?", "what does `afterTestAgent` receive?", "is `cachedInputTokens` a subset of `inputTokens`?". Voice is terse, precise, code-and-table-heavy. Not tutorial. No "Welcome to..." prose. Assumes the reader knows the README's vocabulary (scenario, testing agent, judge, improver).
+
+Secondary, strict superset: the **hook author** who needs behavioural guarantees, not just type shapes. Every hook entry must document **(1) when it fires, (2) what's in its context, (3) what its return value does (if any), (4) what happens on throw**. Satisfying this superset is what makes the reference useful for real work.
+
+Explicit non-readers (no special accommodation):
+- Brand-new evaluators who haven't read the README — that's the README's job.
+- Fork authors extending the harness — that's `CONTRIBUTING.md` territory. The reference may include a single "Stability and extension points" note saying "the public surface is `src/index.ts`; everything else is internal" and stop there.
+- Third-party provider integrators — the `Provider` interface is exported but not pluggable today (see Q3); the reference will say so and stop there.
+
+### Physical form
+
+A new folder `docs/api/` of hand-authored Markdown files. No TypeDoc / api-extractor / generation tooling. The project has none today (verified — `package.json` declares no doc tooling), and `src/config/types.ts` is already TSDoc-style so a future migration is unblocked but is **explicitly out of scope** for this pipeline.
+
+Files (9 in total, including a thin index):
+
+```
+docs/api/
+├── README.md                 # index: one-paragraph orientation + flat TOC, nothing more
+├── configuration.md          # SkillsmithConfigInput / defineConfig / Paths / RunMode / EvaluationScope / SelfImprovementConfig / defaults
+├── agents-and-roles.md       # AgentDefinitionInput / RolesInput / TestRoleInput / SingleRoleInput / role-prompt semantics
+├── providers.md              # ProviderId catalog + per-provider env vars, knobs, tool surfaces, missing-key behaviour
+├── cli.md                    # `skillsmith` binary: flags, positional scenario IDs, env vars (.env, SKILLSMITH_VERBOSE), exit codes, precondition errors
+├── programmatic.md           # `run(options)` and RunOptions; embedding-in-a-Node-process path
+├── hooks.md                  # lifecycle, Hooks fields, every context shape, the afterAllScenarios verification contract
+├── scenarios-and-rubrics.md  # scenario.yaml schema, rubric file shape, SKILL.md layout + link-following rules
+└── run-artifacts.md          # on-disk shapes: runDirectory layout + JSON schema for every report file
+```
+
+Constraints on each file:
+
+- Self-contained. A reader who arrives via deep link should not need to read another page to use the surface.
+- Anchor-heavy (headings for every documented symbol/field/flag so deep links work).
+- If any file grows past ~800 lines, split it; until then one page per concept.
+
+Constraints on the index (`docs/api/README.md`):
+
+- Exactly two things: (1) one paragraph stating what the reference covers vs. what the top-level README covers; (2) a flat link table to the other 8 files with a one-line summary of each.
+- No duplicated content from the chapter files.
+
+Folder naming is `docs/api/`, not `docs/api-reference/` or `docs/reference/` — `docs/` already exists (for the landing page), and `api` is the cleanest scoped subfolder.
+
+### Source-of-truth policy
+
+**The API reference is the single source of truth for every field, type, on-disk shape, default value, and exact behaviour.** `README.md` may keep:
+
+- the conceptual narrative;
+- the lifecycle overview (in the form the README already uses);
+- minimal "what does it look like at a glance?" config and CLI snippets.
+
+But every authoritative detail — every field default, every hook context, every report shape — lives **once**, in `docs/api/`. README sections that overlap with the reference get a one-line "See [docs/api/...](...) for the full reference" link-out.
+
+Explicit out-of-scope for this pipeline: rewriting/slimming the README. The README is well-written narrative; gutting it risks regressing the project's front door. Once `docs/api/` lands, a follow-up issue can slim the README's overlapping sections — but that is a separate, reviewable change, not part of issue #35.
+
+`examples/skillsmith.config.ts` stays as the canonical end-to-end runnable example. It earns its keep by answering "show me one full working file" — a need no field-by-field reference can replace. To keep all three artifacts consistent the pipeline must:
+
+- Add a one-line top comment to `examples/skillsmith.config.ts` pointing at `docs/api/` as the canonical reference.
+- Leave the existing inline comments in `examples/skillsmith.config.ts` as-is. The docs are authoritative; the example file is illustrative. When the two conflict, docs win.
+
+### Examples policy
+
+Each chapter ships **fresh, minimal, per-section snippets** in the appropriate format — never excerpts of `examples/skillsmith.config.ts`. Snippets are the smallest valid code that exercises the surface immediately under discussion; orthogonal fields use placeholder values (`provider: "claude-code"`, `model: "claude-haiku-4-5"`).
+
+Per format:
+
+- **TS** — in `configuration.md`, `agents-and-roles.md`, `providers.md`, `hooks.md`, `programmatic.md`. Each imports from `"skillsmith"` as a consumer would.
+- **YAML** — in `scenarios-and-rubrics.md`: at least one full valid `scenario.yaml`, one minimal rubric `<id>.md`, one minimal `SKILL.md` with a linked file demonstrating the link-following rule.
+- **JSON** — in `run-artifacts.md`: every report shape illustrated with both a passing case and a failing case. The failing cases **must** include the verification-gate failure shape and the `skipped: "testing failed: <env var> is not set"` shape.
+- **Shell** — in `cli.md`: one example per flag, one for positional scenario IDs, one for the precondition-error output, one for the unknown-scenario error output.
+- **Hook examples** — in `hooks.md`: every hook gets a 5-15 line snippet showing typical context destructuring. This is the highest-payoff format for that chapter.
+
+Each chapter ends with a single "Full working example: see [`examples/skillsmith.config.ts`](../../examples/skillsmith.config.ts)" callout. No inline excerpts of the canonical example anywhere.
+
+**All snippets must be valid** — TS must typecheck, YAML must parse against the documented schema, JSON must validate, CLI snippets must run if a user pastes them. Enforcement is by reviewer (not a doctest runner), but the requirement is in the spec so reviewers know to check.
+
 ## Modules explicitly out of the public surface
 
 The following are **internal** — forks may read them for understanding, but the docs should state they are not part of the supported public API and should not be deep-imported:
@@ -225,39 +303,28 @@ The following are **internal** — forks may read them for understanding, but th
 
 The inventory in §1–§9 is the agreed surface. Internal modules listed in the section above.
 
-### Q2 — Reader, deliverable shape, source-of-truth policy, examples policy
+### Q2 — Reader, deliverable shape, source-of-truth policy, examples policy — RESOLVED
 
-Sent to researcher. Sub-questions:
+Decisions captured in §"Deliverable shape" above. Summary:
 
-- (a) Target reader: experienced adopter looking up specifics — confirm vs. add tutorial readers / fork authors / brand-new evaluators.
-- (b) Physical form: single markdown file vs. `docs/api/` folder of per-surface files vs. TSDoc-generated vs. README extension vs. routes under `docs/index.html`. Spec-analyst's nudge: per-surface folder.
-- (c) Single source of truth: README links out to reference for every detail, duplicate independently, or thin out README. Spec-analyst's nudge: link out.
-- (d) Examples policy: hand-authored excerpts of `examples/skillsmith.config.ts` (single canonical file) vs. fresh per-section minimal snippets.
+- **Reader** = experienced adopter doing lookups, with hook authors as a strict superset.
+- **Form** = `docs/api/` folder, 9 hand-authored Markdown files including a thin index. No TypeDoc.
+- **SoT** = API reference is canonical for every detail; README keeps narrative + lifecycle + minimal snippets and links out; `examples/skillsmith.config.ts` stays as the canonical end-to-end runnable file with a one-line pointer to the docs.
+- **Examples** = fresh per-section minimal snippets, never excerpts of the canonical example; all must be valid.
 
-Awaiting answer.
+Out of scope as a side-effect of these decisions:
+- Rewriting/slimming the README (separate follow-up issue).
+- TypeDoc / generated-doc tooling.
 
-### Q3 — `Provider` interface: document as read-only, or defer?
+### Q3 — Provider interface, report shape exports, stale README — bundled
 
-`Provider` is exported from `src/index.ts` but no public registration hook exists — users can read the type but cannot plug in a custom provider via the public API. Three options:
+Three small follow-up decisions. Sending as Q3 so we keep momentum.
 
-- (i) Document it in the reference but mark it explicitly read-only ("not a registration API").
-- (ii) Omit from the reference and open a separate issue to add a registration hook.
-- (iii) Both — document with a "non-goal of this pipeline; tracked in issue #X" pointer.
+- **(a) `Provider` interface treatment.** Document it in `docs/api/providers.md` as exported-but-read-only (no registration API today), with a single forward pointer if a tracking issue gets filed for custom-provider support.
+- **(b) Report shapes — re-export from `src/index.ts`?** The harness's report TypeScript interfaces (`ScenarioReport`, `ScenarioAgentEntry`, `IterationReport`, `RunSummary`) live in `src/reports/*` and are not currently re-exported. Spec-analyst lean: re-export, because hooks authors writing `afterAllScenarios` (or anyone post-processing CI) clearly need them and the WordPress reference project (`testing-project/eval/utils/verify-e2e.ts`) already imports from `"skillsmith"`. Alternative: document on-disk shapes only as inline JSON schemas in `docs/api/run-artifacts.md` and leave the TS surface unchanged.
+- **(c) Stale README text.** `README.md:46` says "No CLI flags are supported yet" but `README.md:204-211` documents the flags. Tiny fix vs. separate issue?
 
-To be raised after Q2 lands.
-
-### Q4 — Report shapes: document inline, or re-export them from the barrel?
-
-The harness's report types (`ScenarioReport`, `ScenarioAgentEntry`, `IterationReport`, `RunSummary`) are defined in `src/reports/*` and consumed on disk by anyone post-processing CI runs or writing an `afterAllScenarios` hook. They are **not** re-exported from `src/index.ts`. Researcher's recommendation: re-export, because the WordPress reference project already imports `from "skillsmith"`. Two options:
-
-- (i) Document the shapes as inline JSON schemas only (keep the source of truth as on-disk JSON).
-- (ii) Re-export the TypeScript interfaces from `src/index.ts` and document them as part of the programmatic surface, in addition to as on-disk JSON.
-
-Spec-analyst's lean: (ii). To be raised after Q2 lands.
-
-### Q5 — Stale README text: fix as part of this pipeline, or leave for a follow-up?
-
-`README.md:46` says "No CLI flags are supported yet", contradicted by `README.md:207` which documents the flags. Option A: spec includes a small README fix as a sub-deliverable. Option B: leave for a separate issue. To be raised after Q2 lands.
+Out for researcher.
 
 ## Confirmed requirements
 
@@ -265,6 +332,11 @@ Spec-analyst's lean: (ii). To be raised after Q2 lands.
 
 ## Out of scope
 
-- Anything outside the public surface listed in §1–§9. Internal modules (listed above) get a one-line "not part of the public API" mention only, no per-symbol coverage.
-- Tutorials and getting-started narratives (those belong in the README or a separate `docs/getting-started.md`). This pipeline produces **reference**, not **tutorials** — pending Q2(a) confirmation.
-- Provider registration / extensibility (tracked separately — see Q3).
+- Anything outside the public surface listed in §1–§9. Internal modules get a one-line "not part of the public API" mention only, no per-symbol coverage.
+- Tutorials and getting-started narratives. This pipeline produces **reference**, not **tutorials**.
+- Provider registration / extensibility — `Provider` is documented as read-only; actual custom-provider support is a separate concern (see Q3a).
+- Rewriting or slimming `README.md`. Once `docs/api/` lands, a follow-up issue can slim README's overlapping sections.
+- TypeDoc / api-extractor / any doc-generation tooling. All chapters are hand-authored Markdown.
+- Adding a `docs/index.html` route for the API reference. The reference lives at `docs/api/` and is GitHub-rendered.
+- Contributor / fork-author / internals documentation. That belongs in `CONTRIBUTING.md`, not here.
+- An automated doc-test runner. The "all snippets must be valid" requirement is enforced by reviewer.
