@@ -48,7 +48,7 @@ export interface PipelineParams {
 	runId: string;
 	verbose?: boolean;
 	scenarios?: string[];
-	selfImprovement?: SelfImprovementOverrides;
+	overrides?: SelfImprovementOverrides;
 }
 
 export interface ScenarioRunRecord {
@@ -63,9 +63,9 @@ export interface ScenarioRunRecord {
  * or more iterations:
  *
  *   1. Iteration 1 runs every scenario.
- *   2. If `selfImprovement.mode === "loop"` and the run is not yet
+ *   2. If `mode === "self-improvement"` and the run is not yet
  *      passing, the improver agent edits the failing skills and the
- *      next iteration starts with a subset chosen by `evaluationMode`.
+ *      next iteration starts with a subset chosen by `selfImprovement.scope`.
  *   3. Stop when the merged matrix is all-pass, when `maxIterations`
  *      is reached, or — when `finalPass=true` and the last iteration
  *      was a subset — after one extra full sweep.
@@ -81,10 +81,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 	const config = await loadConfig(projectRoot);
 	checkPaths(config, projectRoot);
-	const selfImprovement = resolveSelfImprovement(
-		config,
-		params.selfImprovement,
-	);
+	const selfImprovement = resolveSelfImprovement(config, params.overrides);
 	const allScenarios = filterScenarios(
 		enumerateScenarios(config.paths, projectRoot),
 		params.scenarios,
@@ -113,7 +110,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 			runId,
 			scenarios: allScenarios.map((s) => ({
 				name: s.scenario.name,
-				agentIds: config.agents.testing.map((a) => a.id),
+				agentIds: config.roles.test.agents.map((a) => a.id),
 			})),
 		},
 		verbose ? { interactive: false } : {},
@@ -153,10 +150,10 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 							i,
 							allScenarios,
 							prevReport?.scenarios ?? {},
-							selfImprovement.evaluationMode,
+							selfImprovement.scope,
 						);
 
-			lastWasSubset = i > 1 && selfImprovement.evaluationMode !== "all";
+			lastWasSubset = i > 1 && selfImprovement.scope !== "all";
 
 			const outcome = await runOneIteration({
 				iteration: i,
@@ -188,28 +185,26 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 			// The improver is part of the iteration: it runs after the
 			// scenario sweep was graded and verified, when the run is not
 			// yet passing and there is budget left.
-			if (!mergedPass && i < maxIterations && selfImprovement.mode === "loop") {
-				if (config.agents.improver !== undefined) {
-					await runImprovement({
-						projectRoot,
-						runId,
-						runDirectory,
-						iterations,
-						scenarios: runScenarios,
-						config,
-						selfImprovement,
-						agent: config.agents.improver,
-						iteration: i,
-						iterationDirectory: outcome.iterationDirectory,
-						iterationReport: outcome.report,
-						allScenarios,
-						log: outcome.log,
-					});
-				} else {
-					outcome.log.info(
-						"improvement: skipped — agents.improver is not configured",
-					);
-				}
+			if (
+				!mergedPass &&
+				i < maxIterations &&
+				selfImprovement.mode === "self-improvement"
+			) {
+				await runImprovement({
+					projectRoot,
+					runId,
+					runDirectory,
+					iterations,
+					scenarios: runScenarios,
+					config,
+					agent: config.roles.improver.agent,
+					improverPrompt: config.roles.improver.prompt,
+					iteration: i,
+					iterationDirectory: outcome.iterationDirectory,
+					iterationReport: outcome.report,
+					allScenarios,
+					log: outcome.log,
+				});
 			}
 
 			await fireAfterIteration(config, runCtx, outcome, i);
@@ -220,7 +215,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		if (
 			selfImprovement.finalPass &&
 			lastWasSubset &&
-			selfImprovement.mode === "loop" &&
+			selfImprovement.mode === "self-improvement" &&
 			!mergedPass
 		) {
 			const i = iterations.length + 1;
@@ -319,7 +314,7 @@ async function runOneIteration(
 	log.info(`runDirectory=${args.runDirectory}`);
 	log.info(`iterationDirectory=${iterationDirectory}`);
 	log.info(
-		`selfImprovement: mode=${args.selfImprovement.mode} maxIterations=${args.selfImprovement.maxIterations} evaluation=${args.selfImprovement.evaluationMode} finalPass=${args.selfImprovement.finalPass}`,
+		`selfImprovement: mode=${args.selfImprovement.mode} maxIterations=${args.selfImprovement.maxIterations} scope=${args.selfImprovement.scope} finalPass=${args.selfImprovement.finalPass}`,
 	);
 	log.info(
 		`hooks defined: ${

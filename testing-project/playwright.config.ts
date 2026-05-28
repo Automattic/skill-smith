@@ -20,9 +20,9 @@ export default defineConfig({
 	testMatch: "**/e2e.spec.mjs",
 	globalSetup: "./global-setup.mjs",
 	reporter: [["list"], ["json"]],
-	projects: config.agents.testing.map((agent) => ({
-		name: agent.id,
-		metadata: { agentId: agent.id },
+	projects: config.roles.test.agents.map((agentId) => ({
+		name: agentId,
+		metadata: { agentId },
 	})),
 	workers: 1,
 	fullyParallel: false,

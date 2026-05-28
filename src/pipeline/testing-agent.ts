@@ -41,7 +41,7 @@ export async function runTestingAgent(
 	const before = snapshotWorkspace(agentWorkspace);
 	const workspaceContents = buildWorkspaceContents(agentWorkspace, before);
 
-	const systemPrompt = [
+	const sections = [
 		skillBlob,
 		"",
 		"# Workspace constraint",
@@ -53,7 +53,12 @@ export async function runTestingAgent(
 		"",
 		"# Recursion guard",
 		"You are running inside the skillsmith harness. Do not invoke `skillsmith` or any wrapper that would re-enter the harness.",
-	].join("\n");
+	];
+	const rolePrompt = config.roles.test.prompt;
+	if (rolePrompt !== undefined && rolePrompt.length > 0) {
+		sections.push("", "# Role instructions", rolePrompt);
+	}
+	const systemPrompt = sections.join("\n");
 
 	log.info(
 		`testing-agent starting (${scope}): provider=${agent.provider} model=${agent.model}`,

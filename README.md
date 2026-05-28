@@ -53,9 +53,9 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
 
 1. **Init run.** Generate `runId`, load scenarios from `config.paths.scenarios`, and apply any positional scenario directory filters.
 2. **`beforeAll({ config, runId, scenarios })`**. `scenarios` is the filtered list of selected scenario directory IDs and parsed scenario bodies.
-3. **Iteration directory.** Create `${runDirectory}/iteration-N/`. Test-only mode runs exactly one iteration; loop mode (see below) may run more, each with its own subdirectory.
+3. **Iteration directory.** Create `${runDirectory}/iteration-N/`. Test-only mode runs exactly one iteration; self-improvement mode (see below) may run more, each with its own subdirectory.
 4. **Scenario loop — parallel.** For each scenario:
-   1. **Init scenario.** Create the scenario directory inside the current iteration, load testing agents from `config.agents.testing` and the judge from `config.agents.judge`.
+   1. **Init scenario.** Create the scenario directory inside the current iteration, load testing agents from `config.roles.test.agents` and the judge from `config.roles.judge` (both resolved against the top-level `config.agents` registry).
    2. **`beforeScenario({ config, runId, scenario })`**.
    3. **Agent loop — parallel.** For each testing agent:
       1. **Init agent.** Create the agent directory and `agentWorkspace`.
@@ -87,7 +87,7 @@ A **rubric** is prose reference material the judge LLM consults — describing s
 
 ## How the Self-Improvement works
 
-When a run produces failures, the harness can loop: a single **improver** agent edits the failing skill, the affected scenarios re-run, and the loop stops when the suite passes or the iteration budget is exhausted. Loop mode is opt-in — the default behaviour is the one-shot Skill Tester described above.
+When a run produces failures, the harness can loop: a single **improver** agent edits the failing skill, the affected scenarios re-run, and the loop stops when the suite passes or the iteration budget is exhausted. Self-improvement mode is opt-in (`mode: "self-improvement"`) — the default behaviour is the one-shot Skill Tester described above.
 
 The scenario-evaluation half of each iteration (testing agents → judges) is exactly the Skill Tester [described above](#how-the-skill-tester-works); the diagram below collapses it into one node and details what the loop adds around it.
 
@@ -105,7 +105,7 @@ Every run lives under `${paths.base}/<runId>/`. Each iteration owns its own subd
 ├── iteration-1/
 │   ├── report.json                # what ran this iteration (failures detailed)
 │   ├── run.log
-│   ├── improvement.md             # improver transcript (loop mode, not yet passing)
+│   ├── improvement.md             # improver transcript (self-improvement mode, not yet passing)
 │   └── <scenario>/<agent>/...     # workspaces and per-agent reports
 ├── iteration-2/
 │   └── ...
@@ -113,15 +113,15 @@ Every run lives under `${paths.base}/<runId>/`. Each iteration owns its own subd
 
 1. **Iteration 1** runs every scenario (same as Skill Tester).
 2. **Verification gate.** After the judges grade the scenario sweep, the optional `afterAllScenarios` hook fires (see below). Its return value can fail scenarios — or specific `(scenario, agent)` pairs — that the judges passed, folding those failures into the iteration report.
-3. If the merged matrix is not yet passing, `selfImprovement.mode === "loop"`, and `agents.improver` is configured, the **improver** runs: it reads the failure summary (judge verdicts plus any verification details) and the text of every skill referenced by a failing scenario, then edits the files under `paths.skills` directly. It runs with `Read/Write/Edit/Glob/Grep/Bash`, jailed to the skills directory, and writes its transcript to `iteration-N/improvement.md`. There is no separate proposal or review step. `afterIteration` fires after this, so it sees the post-improve state — the iteration is not over until the improver has run.
-4. **Iteration N+1** runs a subset of scenarios chosen by `selfImprovement.evaluationMode`:
+3. If the merged matrix is not yet passing and `mode === "self-improvement"`, the **improver** runs: it reads the failure summary (judge verdicts plus any verification details) and the text of every skill referenced by a failing scenario, then edits the files under `paths.skills` directly. It runs with `Read/Write/Edit/Glob/Grep/Bash`, jailed to the skills directory, and writes its transcript to `iteration-N/improvement.md`. There is no separate proposal or review step. `afterIteration` fires after this, so it sees the post-improve state — the iteration is not over until the improver has run.
+4. **Iteration N+1** runs a subset of scenarios chosen by `selfImprovement.scope`:
    - `failed-pairs` — only (scenario, agent) pairs that failed last iteration.
    - `failed-scenarios` *(default)* — every agent of every failing scenario.
    - `all` — the full matrix.
    A scenario-level verification failure (no specific agent named) re-runs that scenario's full agent matrix. Scenarios that were not re-evaluated keep their previous verdict in the merged matrix.
 5. The loop exits early on all-pass. If `finalPass: true` and the last iteration ran a subset, the harness runs one extra full sweep at the end so the final report reflects the current state of every (scenario, agent) pair.
 
-The improver is the only agent that writes, and only inside `paths.skills`. The harness never commits, pushes, or captures a diff — your edits live in the working tree for human review. Set `selfImprovement.paths.improverPrompt` to a file to replace the built-in improver instructions with a project-specific edit strategy.
+The improver is the only agent that writes, and only inside `paths.skills`. The harness never commits, pushes, or captures a diff — your edits live in the working tree for human review. Set `roles.improver.prompt` to a string (or load one from disk) to replace the built-in improver instructions with a project-specific edit strategy.
 
 ### `afterAllScenarios` — the verification gate
 
@@ -169,21 +169,24 @@ Reports are deliberately compact. The per-agent `review` block collapses to `{ p
 ```ts
 // skillsmith.config.ts
 export default defineConfig({
+  mode: "self-improvement",            // "test-only" (default) | "self-improvement"
   agents: {
-    testing: [...],
-    judge: [...],
-    // The single agent that edits skills between iterations in loop mode.
-    improver: { id: "improver", provider: "claude-code", model: "claude-opus-4-7" },
+    // Keyed by id — the key is the agent id used everywhere downstream.
+    haiku: { provider: "claude-code", model: "claude-haiku-4-5" },
+    opus:  { provider: "claude-code", model: "claude-opus-4-7" },
+  },
+  roles: {
+    // Reference agents by id. Single-agent roles accept a string shorthand.
+    // The same agent can play multiple roles — `opus` is both judge and improver here.
+    test: { agents: ["haiku"], prompt: "be terse and avoid emojis" },
+    judge: "opus",
+    // Replace the built-in improver instructions with a project-specific strategy.
+    improver: { agent: "opus", prompt: "..." },
   },
   selfImprovement: {
-    mode: "loop",                       // "test-only" (default) | "loop"
     maxIterations: 3,                   // default 3
-    evaluationMode: "failed-scenarios", // "failed-pairs" | "failed-scenarios" | "all"
+    scope: "failed-scenarios",          // "failed-pairs" | "failed-scenarios" | "all"
     finalPass: false,
-    paths: {
-      // Optional: a file whose contents replace the built-in improver prompt.
-      improverPrompt: "./eval/improvement/improver.md",
-    },
   },
   hooks: {
     // Optional: fail iterations whose artifacts pass review but break for real.
@@ -194,14 +197,16 @@ export default defineConfig({
 });
 ```
 
-`agents.improver` is the only agent the loop adds; without it, loop mode evaluates and verifies but never edits. When `paths.improverPrompt` is not set, the harness uses a minimal built-in instruction ("edit the failing skills in place, minimally, no git").
+`roles.test.prompt` and `roles.judge.prompt` are appended to the respective system prompts as a `# Role instructions` section, augmenting the harness-owned structural blocks. `roles.improver.prompt` replaces the built-in improver instructions entirely. When `roles.improver.prompt` is not set, the harness uses a minimal built-in instruction ("edit the failing skills in place, minimally, no git").
+
+See [`examples/skillsmith.config.ts`](./examples/skillsmith.config.ts) for a reference config showing every provider (`claude-code`, `anthropic-api`, `openai-api`, `codex`, `gemini-api`), provider-specific options like `effort`, and the full set of hooks and `selfImprovement` knobs.
 
 ### CLI flags
 
 Flags override the config block for a single invocation:
 
 ```
-skillsmith --mode loop --iterations 5 --evaluation failed-pairs --final-pass
+skillsmith --mode self-improvement --iterations 5 --scope failed-pairs --final-pass
 ```
 
 ### Hooks
@@ -213,7 +218,7 @@ The base hooks (`beforeAll`, `beforeScenario`, ...) still fire. The iteration ad
 | `beforeIteration` | once per iteration, before anything else |
 | `beforeAllScenarios` | just before the scenario sweep begins |
 | `afterAllScenarios` | after the judges grade the sweep, before the improver — its return value can fail scenarios/pairs (see [the verification gate](#afterallscenarios--the-verification-gate)) |
-| `beforeImprove` / `afterImprove` | around the improver call (loop mode, when not yet passing) |
+| `beforeImprove` / `afterImprove` | around the improver call (self-improvement mode, when not yet passing) |
 | `afterIteration` | last, after the improver — so it sees the post-improve state |
 
 Each receives the iteration number, the iteration directory, and (for `afterImprove`) `improvementPath`. `afterAllScenarios` is the only hook whose return value the harness consumes; the rest are fire-and-forget.

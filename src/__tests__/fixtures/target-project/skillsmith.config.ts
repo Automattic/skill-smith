@@ -15,9 +15,15 @@ function record(name: string): void {
 }
 
 export default defineConfig({
+	mode: "test-only",
 	agents: {
-		testing: [{ id: "haiku", provider: "mock", model: "mock-haiku" }],
-		judge: [{ id: "opus", provider: "mock", model: "mock-opus" }],
+		haiku: { provider: "mock", model: "mock-haiku" },
+		opus: { provider: "mock", model: "mock-opus" },
+	},
+	roles: {
+		test: { agents: ["haiku"] },
+		judge: "opus",
+		improver: "opus",
 	},
 	paths: {
 		base: "./.skillsmith",

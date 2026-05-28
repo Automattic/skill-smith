@@ -5,17 +5,22 @@ import { defineConfig } from "../../../index";
 // iteration 1 fails, the mock improver appends the marker to SKILL.md
 // between iterations, and iteration 2 passes.
 export default defineConfig({
+	mode: "self-improvement",
 	agents: {
-		testing: [{ id: "tester", provider: "mock", model: "mock" }],
-		judge: [{ id: "grader", provider: "mock", model: "mock" }],
-		improver: { id: "improver", provider: "mock", model: "mock" },
+		tester: { provider: "mock", model: "mock" },
+		grader: { provider: "mock", model: "mock" },
+		improver: { provider: "mock", model: "mock" },
+	},
+	roles: {
+		test: { agents: ["tester"] },
+		judge: "grader",
+		improver: "improver",
 	},
 	paths: {
 		base: "./.skillsmith",
 	},
 	selfImprovement: {
-		mode: "loop",
 		maxIterations: 3,
-		evaluationMode: "failed-scenarios",
+		scope: "failed-scenarios",
 	},
 });

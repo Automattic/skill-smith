@@ -11,12 +11,8 @@ if (existsSync(envPath)) {
 
 const { run } = await import("../src/runner.ts");
 
-const VALID_MODES = new Set(["test-only", "loop"]);
-const VALID_EVALUATION_MODES = new Set([
-	"failed-pairs",
-	"failed-scenarios",
-	"all",
-]);
+const VALID_MODES = new Set(["test-only", "self-improvement"]);
+const VALID_SCOPES = new Set(["failed-pairs", "failed-scenarios", "all"]);
 
 let values;
 let scenarios;
@@ -29,14 +25,14 @@ try {
 			verbose: { type: "boolean", short: "v" },
 			mode: { type: "string" },
 			iterations: { type: "string" },
-			evaluation: { type: "string" },
+			scope: { type: "string" },
 			"final-pass": { type: "boolean" },
 		},
 	}));
 } catch (err) {
 	console.error(err.message);
 	console.error(
-		"Usage: skillsmith [--verbose] [--mode test-only|loop] [--iterations N] [--evaluation failed-pairs|failed-scenarios|all] [--final-pass] [scenario-dir ...]",
+		"Usage: skillsmith [--verbose] [--mode test-only|self-improvement] [--iterations N] [--scope failed-pairs|failed-scenarios|all] [--final-pass] [scenario-dir ...]",
 	);
 	process.exit(1);
 }
@@ -62,14 +58,14 @@ if (values.iterations !== undefined) {
 	}
 	overrides.maxIterations = n;
 }
-if (values.evaluation !== undefined) {
-	if (!VALID_EVALUATION_MODES.has(values.evaluation)) {
+if (values.scope !== undefined) {
+	if (!VALID_SCOPES.has(values.scope)) {
 		console.error(
-			`--evaluation must be one of ${[...VALID_EVALUATION_MODES].map((m) => `"${m}"`).join(", ")}`,
+			`--scope must be one of ${[...VALID_SCOPES].map((m) => `"${m}"`).join(", ")}`,
 		);
 		process.exit(1);
 	}
-	overrides.evaluationMode = values.evaluation;
+	overrides.scope = values.scope;
 }
 if (values["final-pass"] === true) {
 	overrides.finalPass = true;
@@ -79,6 +75,6 @@ process.exit(
 	await run({
 		verbose,
 		scenarios,
-		selfImprovement: Object.keys(overrides).length > 0 ? overrides : undefined,
+		overrides: Object.keys(overrides).length > 0 ? overrides : undefined,
 	}),
 );

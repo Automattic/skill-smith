@@ -1,13 +1,11 @@
 import type { ProviderId } from "../providers/types";
 
-export interface SkillsmithConfig {
-	agents: AgentsConfig;
-	paths: Paths;
-	hooks?: Hooks;
-	selfImprovement?: SelfImprovementConfig;
-}
-
-export type SelfImprovementMode = "test-only" | "loop";
+/**
+ * Top-level run mode. `test-only` runs a single iteration; `self-improvement`
+ * runs up to `selfImprovement.maxIterations`, invoking the improver between
+ * failing iterations.
+ */
+export type RunMode = "test-only" | "self-improvement";
 
 /**
  * How a subsequent iteration narrows what to re-evaluate based on the
@@ -16,50 +14,25 @@ export type SelfImprovementMode = "test-only" | "loop";
  *   - `failed-scenarios` — every agent of every scenario where any agent failed.
  *   - `all` — re-run the full matrix each iteration.
  */
-export type EvaluationMode = "failed-pairs" | "failed-scenarios" | "all";
-
-export interface SelfImprovementPaths {
-	/**
-	 * Path to a custom prompt file. When set, its contents replace the
-	 * built-in improver instructions, so a project can drive a more
-	 * elaborate edit strategy without changing the harness.
-	 */
-	improverPrompt?: string;
-}
+export type EvaluationScope = "failed-pairs" | "failed-scenarios" | "all";
 
 /**
- * Self-improvement loop settings. `mode: "test-only"` (default) keeps
- * the one-iteration Skill Tester behaviour. `mode: "loop"` runs up to
- * `maxIterations` iterations, letting a single improver agent
- * (`agents.improver`) edit the failing skills between each one, and
- * stops early when all scenarios pass. CLI flags (`--mode`,
- * `--iterations`, `--evaluation`, `--final-pass`) override these
- * per-invocation.
+ * One agent as the user writes it in `agents`. The id comes from the map
+ * key, so there is no `id` field here. Extra keys (e.g. `effort`,
+ * `temperature`) flow through to whichever provider the harness dispatches
+ * to.
  */
-export interface SelfImprovementConfig {
-	mode?: SelfImprovementMode;
-	maxIterations?: number;
-	evaluationMode?: EvaluationMode;
-	finalPass?: boolean;
-	paths?: SelfImprovementPaths;
-}
-
-export interface AgentsConfig {
-	testing: AgentDefinition[];
-	judge: AgentDefinition[];
-	/**
-	 * Single agent that edits the failing skills between iterations in
-	 * loop mode. Optional — without it, loop mode evaluates but never
-	 * edits, so it behaves like a repeated test run.
-	 */
-	improver?: AgentDefinition;
+export interface AgentDefinitionInput {
+	provider: ProviderId;
+	model: string;
+	[key: string]: unknown;
 }
 
 /**
- * One concrete agent in the matrix. `id` is user-chosen and stable
- * (used in directory names and reports). Extra keys (e.g. `effort`,
- * `temperature`) flow through to whichever provider the harness
- * dispatches to.
+ * One concrete agent after normalization. `id` is injected from the
+ * `agents` map key (stable, user-chosen, used in directory names and
+ * reports). All downstream code (pipeline, hooks, providers) reads
+ * `agent.id` so it must be present internally.
  */
 export interface AgentDefinition {
 	id: string;
@@ -68,11 +41,83 @@ export interface AgentDefinition {
 	[key: string]: unknown;
 }
 
+/**
+ * The user-facing `roles` block. Each role is a reference to one (or
+ * more) ids in the `agents` map. Single-agent roles accept a string
+ * shorthand; the testing role is always an object because it carries an
+ * array.
+ */
+export interface RolesInput {
+	test: TestRoleInput;
+	judge: SingleRoleInput;
+	improver: SingleRoleInput;
+}
+
+export interface TestRoleInput {
+	agents: string[];
+	prompt?: string;
+}
+
+export type SingleRoleInput = string | { agent: string; prompt?: string };
+
+/**
+ * The normalized form the harness uses internally. String shorthands are
+ * lifted to object form; each id reference is resolved to a full
+ * `AgentDefinition` with `id` injected. Downstream code never sees the
+ * raw string/object union.
+ */
+export interface NormalizedRoles {
+	test: { agents: AgentDefinition[]; prompt?: string };
+	judge: { agent: AgentDefinition; prompt?: string };
+	improver: { agent: AgentDefinition; prompt?: string };
+}
+
+/**
+ * Self-improvement loop settings. Only consulted when the top-level
+ * `mode` is `"self-improvement"`. `scope` controls how subsequent
+ * iterations narrow re-evaluation. `finalPass: true` adds one extra full
+ * sweep at the end when the last iteration only ran a subset.
+ */
+export interface SelfImprovementConfig {
+	maxIterations?: number;
+	scope?: EvaluationScope;
+	finalPass?: boolean;
+}
+
 export interface Paths {
 	base: string;
 	skills: string;
 	scenarios: string;
 	rubrics: string;
+}
+
+/**
+ * The raw shape of `skillsmith.config.ts` as the user writes it. The
+ * harness validates this shape and then normalizes it into a
+ * `SkillsmithConfig` (see below) for the rest of the pipeline.
+ */
+export interface SkillsmithConfigInput {
+	mode: RunMode;
+	agents: Record<string, AgentDefinitionInput>;
+	roles: RolesInput;
+	paths?: Partial<Paths>;
+	hooks?: Hooks;
+	selfImprovement?: SelfImprovementConfig;
+}
+
+/**
+ * The resolved, normalized config the harness carries around after
+ * `defineConfig`. `roles` is fully resolved to `AgentDefinition`s;
+ * `agents` retains the original map keyed by id (with id injected on
+ * each entry) so callers that need to look up an agent by id can.
+ */
+export interface SkillsmithConfig {
+	mode: RunMode;
+	agents: Record<string, AgentDefinition>;
+	roles: NormalizedRoles;
+	paths: Paths;
+	hooks?: Hooks;
+	selfImprovement?: SelfImprovementConfig;
 }
 
 export interface Scenario {
@@ -200,7 +245,7 @@ export type AfterAllScenariosHookFn = (
  *       beforeScenario · beforeTestAgent · afterTestAgent
  *       beforeJudgeAgent · afterJudgeAgent · afterScenario
  *     afterAllScenarios        <- returns the iteration verdict
- *     beforeImprove · afterImprove   (loop mode, when not yet passing)
+ *     beforeImprove · afterImprove   (self-improvement mode, when not yet passing)
  *   afterIteration             <- fires after the improver, ending the iteration
  * afterAll
  * ```
@@ -235,8 +280,8 @@ export interface Hooks {
 	 * harness consumes. Runs every iteration, in every mode.
 	 */
 	afterAllScenarios?: AfterAllScenariosHookFn;
-	/** Fires before the improver agent runs (loop mode only). */
+	/** Fires before the improver agent runs (self-improvement mode only). */
 	beforeImprove?: HookFn<IterationCompleteHookContext>;
-	/** Fires after the improver wrote its transcript (loop mode only). */
+	/** Fires after the improver wrote its transcript (self-improvement mode only). */
 	afterImprove?: HookFn<ImproveHookContext>;
 }

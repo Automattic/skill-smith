@@ -7,7 +7,11 @@ export interface RunOptions {
 	cwd?: string;
 	verbose?: boolean;
 	scenarios?: string[];
-	selfImprovement?: SelfImprovementOverrides;
+	/**
+	 * CLI / API overrides that win over the loaded config. `mode` is the
+	 * top-level run mode; the rest are the `selfImprovement` block fields.
+	 */
+	overrides?: SelfImprovementOverrides;
 }
 
 function makeRunId(now: Date = new Date()): string {
@@ -30,7 +34,7 @@ export async function run(options: RunOptions = {}): Promise<number> {
 			runId: makeRunId(),
 			verbose: options.verbose ?? false,
 			scenarios: options.scenarios,
-			selfImprovement: options.selfImprovement,
+			overrides: options.overrides,
 		});
 	} catch (err) {
 		if (err instanceof PreconditionError || err instanceof UserFacingError) {

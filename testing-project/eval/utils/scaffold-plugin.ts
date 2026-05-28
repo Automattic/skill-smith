@@ -54,15 +54,6 @@ add_action(
 `;
 }
 
-function agentsMd(slug: string): string {
-	return `# Workspace instructions
-
-A WordPress plugin scaffold lives at \`${slug}/\`. Implement the requested work inside this scaffold — do not create a new plugin or rename the existing one.
-A block named \`${BLOCK_NAME}\` lives at \`${slug}/src/blocks/testing-block/\` and is registered in \`${slug}/index.php\`. Implement the block as needed for the task, but do not change the block name or registration mechanism.
-The root element rendered by \`render.php\` must apply \`<?php echo get_block_wrapper_attributes(); ?>\` so WordPress emits the standard block class (\`wp-block-skillsmith-testing-block\`) and any block-supports attributes on the wrapper. Adding your own \`class="..."\` attribute alongside the helper is fine; replacing the helper with a hand-written class is not.
-`;
-}
-
 function blockJson(): string {
 	return `${JSON.stringify(
 		{
@@ -101,5 +92,4 @@ export function scaffoldPlugin(
 		`${JSON.stringify({ name: slug, version: "0.1.0", private: true }, null, 2)}\n`,
 	);
 	writeFileSync(join(blockDir, "block.json"), blockJson());
-	writeFileSync(join(agentWorkspace, "AGENTS.md"), agentsMd(slug));
 }

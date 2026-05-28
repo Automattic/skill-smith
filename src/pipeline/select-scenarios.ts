@@ -1,4 +1,4 @@
-import type { EvaluationMode } from "../config/types";
+import type { EvaluationScope } from "../config/types";
 import type { ScenarioReport } from "../reports/scenario-report";
 import { classifyVerdict } from "../reports/verdict";
 import type { EnumeratedScenario } from "../scenarios/enumerate";
@@ -34,7 +34,7 @@ export function selectScenarios(
 	iteration: number,
 	allScenarios: EnumeratedScenario[],
 	prevScenarioReports: Record<string, ScenarioReport | { error: string }>,
-	mode: EvaluationMode,
+	mode: EvaluationScope,
 ): ScenarioSelection {
 	if (iteration <= 1 || mode === "all") {
 		return { scenarios: allScenarios };

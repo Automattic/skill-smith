@@ -11,7 +11,7 @@ import type { TestingAgentResult } from "./agent-loop";
 
 export interface RunJudgeAgentParams {
 	scenario: Scenario;
-	judges: AgentDefinition[];
+	judge: AgentDefinition;
 	agentDirectory: string;
 	agentWorkspace: string;
 	projectRoot: string;
@@ -25,9 +25,6 @@ export interface RunJudgeAgentParams {
  * never sees the skill text — only the rubrics, the inline acceptance
  * items, and the files the testing agent produced.
  *
- * If `judges` has more than one entry the harness uses the first and
- * logs a `multiJudge` gap; cross-judge aggregation is not yet defined.
- *
  * Returns the review object — `{ rubrics, acceptance }` on success, or
  * an error-shaped payload on the failure paths. The judge emits a
  * single JSON object (no YAML). The caller (`agent-loop.ts`) is the
@@ -39,7 +36,7 @@ export async function runJudgeAgent(
 ): Promise<unknown> {
 	const {
 		scenario,
-		judges,
+		judge,
 		agentDirectory,
 		agentWorkspace,
 		projectRoot,
@@ -48,19 +45,6 @@ export async function runJudgeAgent(
 		testingResult,
 	} = params;
 	const scope = `judge:${scenario.name}@${relative(projectRoot, agentDirectory)}`;
-
-	const judge = judges[0];
-	if (judge === undefined) {
-		log.info(`${scope}: no judge configured`);
-		return { error: "no judge configured" };
-	}
-	if (judges.length > 1) {
-		log.gap("multiJudge", {
-			scope,
-			used: judge.id,
-			ignored: judges.slice(1).map((j) => j.id),
-		});
-	}
 
 	const systemPrompt = buildJudgeSystemPrompt(scenario, projectRoot, config);
 	const userMsg = buildUserMessage(
@@ -146,7 +130,12 @@ function buildJudgeSystemPrompt(
 		"Do not invoke `skillsmith` or any wrapper that would re-enter the harness.",
 	].join("\n");
 
-	return [...rubricBlobs, acceptanceBlock, jsonInstruction].join("\n\n");
+	const sections = [...rubricBlobs, acceptanceBlock, jsonInstruction];
+	const rolePrompt = config.roles.judge.prompt;
+	if (rolePrompt !== undefined && rolePrompt.length > 0) {
+		sections.push(`# Role instructions\n${rolePrompt}`);
+	}
+	return sections.join("\n\n");
 }
 
 function parseJudgeJson(finalText: string): object | undefined {
