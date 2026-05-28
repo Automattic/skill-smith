@@ -54,7 +54,7 @@ The index contains exactly two things and nothing else:
 1. **One paragraph** stating what the reference covers vs. what the top-level README covers.
 2. **A flat link table** to the other eight files, with a one-line summary of each.
 
-No duplicated content from the chapter files. The index may optionally include a one-line callout pointing at `testing-project/` (the end-to-end working WordPress reference project consumed by the smoke test) as a directory layout example, but that callout is optional and limited to one line if included.
+No duplicated content from the chapter files. The index should include a one-line callout pointing at `testing-project/` (the end-to-end working WordPress reference project consumed by the smoke test) as a directory layout example. The callout is limited to one line.
 
 #### A.3. Examples policy — applied to every chapter
 
@@ -242,6 +242,7 @@ afterAll                                   once per run    RunContext
 - `afterAllScenarios` is the **only** hook whose return value is consumed (source: `src/improvement/verify.ts:56-84`). A throwing `afterAllScenarios` is treated as `pass=false` with `details: "verification hook threw: <message>"` — **fail-safe**. A `false` return value (no object) coarsely fails every scenario that ran. An object return is normalised: `failures[]` lists scenario-/agent-scoped failures, `pass` defaults to `false` when any failures are present and `true` when none are. A coarse failure attaches the `details` string (or the literal `"verification gate reported failure"` when none was provided — source: `src/improvement/verify.ts:9`) to every scenario row that ran.
 - The verification gate's `details` (or the default `"verification gate reported failure"`) is appended to the affected scenario's existing `error` string with `"; "` (source: `src/improvement/verify.ts:142-145`). The compound string is what callers reading `IterationReport.scenarios[<name>].error` see.
 - `beforeJudgeAgent` / `afterJudgeAgent` are **skipped when the testing agent errors** — they are not fired at all, not fired-and-no-op'd. The pair is skipped symmetrically.
+- `beforeScenario` and `afterScenario` fire on **every** scenario, including those skipped due to enumeration errors (`unresolved reference: …`, `scenario.yaml parse error: …`, `scenario.yaml malformed: …` — see §A.5.5). The per-scenario hooks bracket every scenario unconditionally (source: `src/pipeline/pipeline.ts:517-555`: `beforeScenario` fires before the `try` block; `afterScenario` fires in the `finally`). Only the agent-pair hooks (`beforeTestAgent` / `afterTestAgent` / `beforeJudgeAgent` / `afterJudgeAgent`) are suppressed on the errored path, because the agent loop is short-circuited when `error !== undefined`. Hook authors writing `afterScenario` to read the per-agent workspace must be defensive: the workspace was never populated for an errored scenario.
 - `afterIteration` fires **after** the improver in self-improvement mode, so its context reflects the post-improve state.
 - `runDirectory` and `iterationDirectory` are absolute paths. Users may write into the iteration directory (and the reference WordPress project does — e.g. `tests-report.json`); the harness owns everything else there.
 
@@ -264,10 +265,12 @@ rubrics:                       # ids; each must resolve to <rubricsRoot>/<id>.md
   - <rubric-id>
 ```
 
-All seven fields are required by the shape check at `src/scenarios/enumerate.ts:100-115`. A scenario with a missing or malformed YAML body is emitted with one of the following enumeration errors and skipped from agent runs (source: `src/scenarios/enumerate.ts:42-58`):
+All six required fields (`name`, `description`, `skills`, `prompt`, `acceptance`, `rubrics`) are checked by the shape validator at `src/scenarios/enumerate.ts:100-115`. A scenario with a missing or malformed YAML body is emitted with one of the following enumeration errors and skipped from agent runs (source: `src/scenarios/enumerate.ts:42-58`):
 
 - `"scenario.yaml parse error: <yaml-parser-message>"`
 - `"scenario.yaml malformed: expected name/description/skills/prompt/acceptance/rubrics"`
+
+The `Scenario` interface (`src/config/types.ts:123-131`) additionally carries a `[key: string]: unknown` index signature alongside the six declared fields. A `scenario.yaml` author may add arbitrary extra keys (e.g. `tags`, `category`) and they will round-trip through enumeration into the runtime `Scenario` object available to hooks via `ctx.scenario`. The docs should mention this as an ergonomic affordance for hook authors writing a scenario-tag pattern — it parallels `AgentDefinitionInput`'s `[key: string]: unknown` (called out above for provider-specific knobs).
 
 **Dual identity to call out explicitly:** the **scenario directory ID** (the directory name under `paths.scenarios/`) is what the CLI matches against positional args. The **`scenario.name`** YAML field is used to build iteration-side directory paths (`iteration-N/<scenario.name>/...`). They are independent and non-obvious; the docs must explain both.
 
@@ -366,7 +369,11 @@ All six aggregator strings are stable: users may pattern-match them in CI script
 - Node engine `>=20.17` (per `package.json`). `process.loadEnvFile` requires Node `>=20.12` and is satisfied by the engine pin.
 - `.env.example` declares `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`. `OPENAI_API_KEY` is also used by the `codex` SDK. Shell-exported env vars win over `.env` per `process.loadEnvFile` semantics (the loader only sets variables not already present in `process.env`).
 - `resolveProjectRoot` (`src/config/resolve-cwd.ts`): tries `${cwd}/skillsmith.config.ts` first, then walks **one level** into immediate child directories. Exactly one child with a config → that child becomes the project root. Zero or multiple → `PreconditionError`. **Does not recurse beyond one level.**
-- `checkPaths` requires `paths.skills`, `paths.scenarios`, `paths.rubrics` to exist as directories before any iteration runs. `paths.base` only needs a non-empty string — the harness creates it.
+- `checkPaths` requires `paths.skills`, `paths.scenarios`, `paths.rubrics` to exist as directories before any iteration runs. `paths.base` only needs a non-empty string — the harness creates it. On failure, the missing-paths reasons are wrapped into a `PreconditionError` and appear as bullets inside the precondition-failure envelope documented in §A.5.2. The three reason-string formats are stable contract (source: `src/pipeline/pipeline.ts:565-583`):
+  - `"paths.<key> → <abs-path> (does not exist)"`
+  - `"paths.<key> → <abs-path> (not a directory)"`
+  - `"paths.base is empty"`
+  Each reason becomes one `- <reason>` bullet inside the `"skillsmith: precondition failed\n  - …\n  - …"` envelope described in §A.5.2; users pattern-matching on a CI build output can rely on the prefixes.
 
 ##### A.5.9. Stability and extension points — single short note
 
