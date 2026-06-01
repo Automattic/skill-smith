@@ -223,10 +223,30 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		};
 	}
 	const testingDuration = Date.now() - testingStart;
+
+	// Classify a testing error up front so the dashboard reflects the right
+	// outcome. A misconfiguration-class error (missing key, HTTP 401/403/404)
+	// reports the testing phase as `skipped`, not `failed`: the cell is a
+	// misconfigured sentinel, not a red failure (R8/AC4) — it lands in the
+	// `skipped` counter and never adds a failure row. A transient error stays
+	// `failed`. With no ledger every error is transient (today's behaviour).
+	const runtimeMisconfig =
+		ledger !== undefined && testingResult.error !== undefined
+			? classifyRuntimeError(testingResult.error)
+			: undefined;
+	const testingStatus =
+		testingResult.error === undefined
+			? "passed"
+			: runtimeMisconfig !== undefined
+				? "skipped"
+				: "failed";
 	tracker.phaseFinished(scenario.name, agent.id, "testing", {
-		status: testingResult.error === undefined ? "passed" : "failed",
+		status: testingStatus,
 		durationMs: testingDuration,
-		detail: testingResult.error,
+		detail:
+			runtimeMisconfig !== undefined
+				? describeReason(runtimeMisconfig)
+				: testingResult.error,
 	});
 
 	const testing: TestingBlock = { duration: testingDuration };
@@ -262,14 +282,11 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		// excludes from the denominator (KD2/KD7). A transient error keeps the
 		// unchanged `testing failed: ...` row and counts as an ordinary failure
 		// (AC5). With no ledger, every error is treated as transient — today's
-		// behaviour.
-		const reason =
-			ledger === undefined
-				? undefined
-				: classifyRuntimeError(testingResult.error);
-		if (ledger !== undefined && reason !== undefined) {
-			ledger.record(agent.id, ["test"], reason);
-			const described = describeReason(reason);
+		// behaviour. `runtimeMisconfig` was classified above to drive the testing
+		// phase status; reuse it here so the sentinel and the dashboard agree.
+		if (runtimeMisconfig !== undefined) {
+			ledger?.record(agent.id, ["test"], runtimeMisconfig);
+			const described = describeReason(runtimeMisconfig);
 			log.info(`agent ${agent.id} skipped: ${described}`);
 			writeAgentReport(agentDirectory, testing, {
 				skipped: `${MISCONFIG_SKIP_PREFIX}${described}`,

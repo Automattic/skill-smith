@@ -140,6 +140,8 @@ function makeHarness(
 	scenarioDirectory: string;
 	config: SkillsmithConfig;
 	tracker: ProgressTracker;
+	/** Paint chunks the tracker wrote; populated once `tracker.finish()` runs. */
+	chunks: string[];
 	log: RunLog;
 	cleanup: () => void;
 } {
@@ -170,15 +172,27 @@ function makeHarness(
 		},
 		hooks,
 	};
+	const chunks: string[] = [];
 	const tracker = new ProgressTracker(
 		{ runId: "t9", scenarios: [{ name: scenario.name, agentIds }] },
-		{ interactive: false, tickMs: 0, stream: { write: () => true } as never },
+		{
+			interactive: false,
+			tickMs: 0,
+			color: false,
+			stream: {
+				write: (s: string) => {
+					chunks.push(s);
+					return true;
+				},
+			} as never,
+		},
 	);
 	return {
 		scenario,
 		scenarioDirectory,
 		config,
 		tracker,
+		chunks,
 		log: new RunLog(),
 		cleanup: () => rmSync(root, { recursive: true, force: true }),
 	};
@@ -280,6 +294,14 @@ test("a runtime misconfiguration is recorded and written as a misconfigured sent
 			review?.skipped,
 			"misconfigured: invalid-credential (HTTP 401)",
 		);
+
+		// Live dashboard (Task 12, AC4): the runtime-misconfigured cell lands in
+		// the `skipped` counter, never the `failed` one, and adds no red failure
+		// row. Both phases (testing skipped, judge skipped) are counted as skips.
+		h.tracker.finish();
+		const out = h.chunks.join("");
+		assert.match(out, /phases.*fail 0.*skip 2/, "two skipped phases, no fail");
+		assert.doesNotMatch(out, /failures \(/, "no failure list is rendered");
 	} finally {
 		h.cleanup();
 	}

@@ -30,6 +30,35 @@ async function silentRun(projectRoot: string): Promise<number> {
 	}
 }
 
+/**
+ * Run a fixture with `console` and `process.stderr.write` captured, returning
+ * the exit code and every chunk the live dashboard painted to stderr. The
+ * tracker writes to `process.stderr` in non-verbose runs, so this is how a test
+ * observes the rendered grid/counters/failure list.
+ */
+async function runCapturingDashboard(
+	projectRoot: string,
+): Promise<{ exitCode: number; dashboard: string }> {
+	const originalLog = console.log;
+	const originalErr = console.error;
+	const originalWrite = process.stderr.write.bind(process.stderr);
+	const chunks: string[] = [];
+	console.log = () => {};
+	console.error = () => {};
+	process.stderr.write = ((chunk: unknown): boolean => {
+		chunks.push(String(chunk));
+		return true;
+	}) as typeof process.stderr.write;
+	try {
+		const exitCode = await run({ cwd: projectRoot });
+		return { exitCode, dashboard: chunks.join("") };
+	} finally {
+		console.log = originalLog;
+		console.error = originalErr;
+		process.stderr.write = originalWrite;
+	}
+}
+
 /** The single timestamped run directory under a fixture's `.skillsmith`. */
 function soleRunDir(baseDir: string): string {
 	const runIds = readdirSync(baseDir).filter((n) => /^\d{8}-\d{6}$/.test(n));
@@ -239,6 +268,42 @@ test("a whole-run all-misconfigured set renders INCONCLUSIVE with a one-time ann
 
 	// summary.txt is plain text (no ANSI escapes).
 	assert.equal(summary.includes(String.fromCharCode(27)), false);
+
+	rmSync(baseDir, { recursive: true, force: true });
+});
+
+// --- T12 AC6 / AC4: live dashboard true-absence + runtime skip ---------------
+
+test("the live dashboard omits a pre-flight skip and counts a runtime skip as skip, not fail (AC6, AC4)", async () => {
+	// `misconfig-hook-project` has two testers: `bad-multi` (pre-flight
+	// unknown-provider) and `mock-misconfig-testing` (runtime HTTP 401). The
+	// scenario `hello` is the only one, so the grid should hold exactly one
+	// surviving tester's two phases — `bad-multi` occupies no slot at all.
+	const projectRoot = join(fixtures, "misconfig-hook-project");
+	const baseDir = join(projectRoot, ".skillsmith");
+	rmSync(baseDir, { recursive: true, force: true });
+
+	const { dashboard } = await runCapturingDashboard(projectRoot);
+
+	// AC6 (true absence): the pre-flight-skipped tester is not a grid row, so the
+	// scenario's only phases are the surviving tester's testing+judge — a total
+	// of 2 phase slots, not 4. Were `bad-multi` still gridded, the total would be
+	// 4 with two extra pending/skip slots.
+	assert.match(
+		dashboard,
+		/phases\s+\S+\s+2\/2/,
+		`grid totals the surviving tester's two phases only:\n${dashboard}`,
+	);
+
+	// AC4: the surviving tester is the runtime HTTP 401 sentinel, so both its
+	// phases are skips — the run shows skips and zero failures, and renders no
+	// red failure list.
+	assert.match(dashboard, /phases.*fail 0.*skip 2/, dashboard);
+	assert.doesNotMatch(
+		dashboard,
+		/failures \(/,
+		`no red failure row for a misconfigured cell:\n${dashboard}`,
+	);
 
 	rmSync(baseDir, { recursive: true, force: true });
 });

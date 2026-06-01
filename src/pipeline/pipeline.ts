@@ -147,9 +147,17 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	const tracker = new ProgressTracker(
 		{
 			runId,
+			// Grid rows are the *surviving* testers only: a pre-flight-skipped
+			// agent is absent from the ledger-filtered id list, so it occupies no
+			// slot (true absence, AC6/KD4) rather than a skipped cell. The ledger
+			// is seeded and frozen above (Task 10) before this runs, so
+			// `ledger.has` reflects the complete pre-flight roster here. A clean
+			// run leaves the ledger empty, so this is every test agent (AC14).
 			scenarios: allScenarios.map((s) => ({
 				name: s.scenario.name,
-				agentIds: config.roles.test.agents.map((a) => a.id),
+				agentIds: config.roles.test.agents
+					.map((a) => a.id)
+					.filter((id) => !ledger.has(id)),
 			})),
 		},
 		verbose ? { interactive: false } : {},
