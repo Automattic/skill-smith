@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadConfig } from "../config/load";
+import { preflightMisconfig } from "../config/misconfig";
+import { type AgentRole, MisconfigLedger } from "../config/misconfig-ledger";
 import { PreconditionError } from "../config/resolve-cwd";
 import {
 	type ResolvedSelfImprovement,
@@ -8,7 +10,9 @@ import {
 	type SelfImprovementOverrides,
 } from "../config/self-improvement";
 import type {
+	AgentDefinition,
 	IterationInfo,
+	MisconfiguredEntry,
 	RunContext,
 	RunScenario,
 	ScenarioContext,
@@ -87,6 +91,34 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		params.scenarios,
 	);
 
+	// Pre-flight probe: classify every distinct role agent once, before any
+	// phase work, and seed the run's ledger. This is the boundary set hooks see
+	// at `beforeAll` (KD5), so it must exist and be frozen before the iteration
+	// loop and before any tester dispatch. A clean run leaves the ledger empty.
+	const ledger = buildPreflightLedger(config);
+	ledger.freezePreflight();
+
+	// Judge fail-fast (KD6, AC12): a misconfigured judge can never grade, so
+	// terminate before any tester is dispatched rather than running a sweep
+	// whose verdicts can't be produced. Throws a `PreconditionError` naming the
+	// judge and reason; no run directory, no partial matrix.
+	const judgeId = config.roles.judge.agent.id;
+	const judgeEntry = ledger.snapshot()[judgeId];
+	if (judgeEntry !== undefined) {
+		throw new PreconditionError([
+			`Judge agent "${judgeId}" is misconfigured: ${judgeEntry.reason}`,
+		]);
+	}
+
+	// Improver degrade (KD6, AC13): a misconfigured improver in a
+	// self-improvement run does not abort. Instead we degrade to a single
+	// test/judge sweep — force `maxIterations` to 1 so `runImprovement` is never
+	// reached and no redundant identical sweeps spin — and skip the improver
+	// invocation. The matrix the sweep produces is still valid.
+	const improverMisconfigured =
+		selfImprovement.mode === "self-improvement" &&
+		ledger.has(config.roles.improver.agent.id);
+
 	const runDirectory = resolve(projectRoot, config.paths.base, runId);
 	mkdirSync(runDirectory, { recursive: true });
 
@@ -103,9 +135,13 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		runDirectory,
 		iterations,
 		scenarios: runScenarios,
-		// Live view of skipped-as-misconfigured agents; Task 10 wires the run's
-		// ledger snapshot in here. Empty until then, matching the clean-run contract.
-		misconfigured: {},
+		// Live view backed by the ledger: a getter so a hook reading at
+		// `beforeAll` sees the frozen pre-flight set and one reading at `afterAll`
+		// sees the accumulated runtime finds too (KD5, AC8). A clean run's ledger
+		// is empty, so this reads `{}` (AC14).
+		get misconfigured(): Readonly<Record<string, MisconfiguredEntry>> {
+			return ledger.snapshot();
+		},
 	};
 
 	const tracker = new ProgressTracker(
@@ -119,7 +155,9 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		verbose ? { interactive: false } : {},
 	);
 	const maxIterations =
-		selfImprovement.mode === "test-only" ? 1 : selfImprovement.maxIterations;
+		selfImprovement.mode === "test-only" || improverMisconfigured
+			? 1
+			: selfImprovement.maxIterations;
 
 	let mergedScenarios: Record<string, ScenarioReport | { error: string }> = {};
 	let mergedPass = false;
@@ -154,6 +192,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 							allScenarios,
 							prevReport?.scenarios ?? {},
 							selfImprovement.scope,
+							ledger.has.bind(ledger),
 						);
 
 			lastWasSubset = i > 1 && selfImprovement.scope !== "all";
@@ -173,6 +212,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 				tracker,
 				fireBeforeAll: !firedBeforeAll,
 				selfImprovement,
+				ledger,
 			});
 			firedBeforeAll = true;
 			prevReport = outcome.report;
@@ -182,16 +222,28 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 				mergedScenarios,
 				outcome.report.scenarios,
 			);
-			mergedPass = writeRunReport(runDirectory, runId, mergedScenarios);
+			// Persist the ledger's current snapshot alongside the matrix on every
+			// write; the final write (after the last iteration) carries the
+			// complete pre-flight-plus-runtime roster `prepareSummary` reads (R8).
+			mergedPass = writeRunReport(
+				runDirectory,
+				runId,
+				mergedScenarios,
+				ledger.snapshot(),
+			);
 			renderRunSummary();
 
 			// The improver is part of the iteration: it runs after the
 			// scenario sweep was graded and verified, when the run is not
-			// yet passing and there is budget left.
+			// yet passing and there is budget left. A misconfigured improver
+			// degrades the run to test-only (AC13): `maxIterations` is forced to
+			// 1 above so this branch's `i < maxIterations` is already false, but
+			// we also guard explicitly so the intent is local and robust.
 			if (
 				!mergedPass &&
 				i < maxIterations &&
-				selfImprovement.mode === "self-improvement"
+				selfImprovement.mode === "self-improvement" &&
+				!improverMisconfigured
 			) {
 				await runImprovement({
 					projectRoot,
@@ -237,13 +289,19 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 				tracker,
 				fireBeforeAll: false,
 				selfImprovement,
+				ledger,
 			});
 			iterationPasses.push(outcome.report.pass);
 			mergedScenarios = mergeIntoRunningReport(
 				mergedScenarios,
 				outcome.report.scenarios,
 			);
-			mergedPass = writeRunReport(runDirectory, runId, mergedScenarios);
+			mergedPass = writeRunReport(
+				runDirectory,
+				runId,
+				mergedScenarios,
+				ledger.snapshot(),
+			);
 			renderRunSummary();
 			await fireAfterIteration(config, runCtx, outcome, i);
 		}
@@ -283,6 +341,8 @@ interface RunOneIterationParams {
 	tracker: ProgressTracker;
 	fireBeforeAll: boolean;
 	selfImprovement: ResolvedSelfImprovement;
+	/** The run's misconfiguration ledger, threaded down to `runAgents`. */
+	ledger: MisconfigLedger;
 }
 
 interface IterationOutcome {
@@ -378,6 +438,7 @@ async function runOneIteration(
 					log,
 					tracker: args.tracker,
 					scenarios: args.runCtx.scenarios,
+					ledger: args.ledger,
 				}),
 			),
 		);
@@ -494,6 +555,8 @@ interface ScenarioRunArgs {
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
+	/** The run's misconfiguration ledger, threaded down to `runAgents`. */
+	ledger: MisconfigLedger;
 }
 
 async function runScenario(
@@ -508,8 +571,9 @@ async function runScenario(
 		runDirectory: args.runDirectory,
 		iterations: args.iterations,
 		scenarios: args.scenarios,
-		// Empty until Task 10 threads the run's ledger snapshot through here.
-		misconfigured: {},
+		// Derived from the run's threaded ledger so scenario-scoped hooks see the
+		// same live misconfiguration view as the run context.
+		misconfigured: args.ledger.snapshot(),
 		scenario,
 	};
 
@@ -541,6 +605,7 @@ async function runScenario(
 				tracker: args.tracker,
 				scenarios: args.scenarios,
 				agentIdFilter: args.agentFilter,
+				ledger: args.ledger,
 			});
 		}
 
@@ -585,4 +650,42 @@ function checkPaths(config: SkillsmithConfig, projectRoot: string): void {
 	if (missing.length > 0) {
 		throw new PreconditionError(missing);
 	}
+}
+
+/**
+ * Build and seed the run's misconfiguration ledger from a pre-flight probe over
+ * the deduplicated set of every agent referenced by any role. Each distinct id
+ * is classified once via {@link preflightMisconfig}; a non-`undefined` reason is
+ * recorded against *all* the roles that id fills, so an id used as both tester
+ * and improver yields a single entry listing both roles (AC10). A clean config
+ * yields an empty ledger. The caller freezes the pre-flight roster after this
+ * returns so {@link MisconfigLedger.preflight} reflects exactly this boundary.
+ */
+function buildPreflightLedger(config: SkillsmithConfig): MisconfigLedger {
+	const ledger = new MisconfigLedger();
+
+	// Collect, per distinct id, the agent definition and the set of roles that
+	// reference it. An id can appear under more than one role.
+	const byId = new Map<string, { agent: AgentDefinition; roles: AgentRole[] }>();
+	const note = (agent: AgentDefinition, role: AgentRole): void => {
+		const existing = byId.get(agent.id);
+		if (existing === undefined) {
+			byId.set(agent.id, { agent, roles: [role] });
+		} else if (!existing.roles.includes(role)) {
+			existing.roles.push(role);
+		}
+	};
+
+	for (const agent of config.roles.test.agents) note(agent, "test");
+	note(config.roles.judge.agent, "judge");
+	note(config.roles.improver.agent, "improver");
+
+	for (const { agent, roles } of byId.values()) {
+		const reason = preflightMisconfig(agent);
+		if (reason !== undefined) {
+			ledger.record(agent.id, roles, reason);
+		}
+	}
+
+	return ledger;
 }

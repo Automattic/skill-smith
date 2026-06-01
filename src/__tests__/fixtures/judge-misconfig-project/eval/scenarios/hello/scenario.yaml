@@ -1,0 +1,10 @@
+name: hello-scenario
+description: Judge-misconfig fixture scenario.
+skills:
+  - foo
+prompt: |
+  Write a file `hello.txt` containing the word "hello".
+acceptance:
+  - hello.txt exists
+rubrics:
+  - r1

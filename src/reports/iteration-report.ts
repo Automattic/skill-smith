@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isMisconfiguredSkipReason } from "../config/misconfig";
+import type { MisconfiguredEntry } from "../config/types";
 import type { ScenarioRunRecord } from "../pipeline/pipeline";
 import type { ScenarioAgentEntry, ScenarioReport } from "./scenario-report";
 import { classifyVerdict } from "./verdict";
@@ -150,16 +151,24 @@ export function mergeIntoRunningReport(
  * Write `${runDirectory}/report.json` — the merged matrix across every
  * iteration the pipeline ran. This is the canonical "final" report
  * the console summary renders.
+ *
+ * `misconfigured` is the run's misconfiguration roster (the ledger's
+ * `snapshot()`), persisted alongside the matrix so the on-disk reader
+ * (`prepareSummary`, which has no `RunContext`) can surface the skipped-agent
+ * verdict. The pipeline re-writes this each iteration; the final write carries
+ * the complete pre-flight-plus-runtime set. Omitted (defaulting to `{}`) by
+ * callers that have no roster, keeping the field always present.
  */
 export function writeRunReport(
 	runDirectory: string,
 	runId: string,
 	scenarios: Record<string, ScenarioReport | { error: string }>,
+	misconfigured: Record<string, MisconfiguredEntry> = {},
 ): boolean {
 	const pass = scenariosAllPass(scenarios);
 	writeFileSync(
 		join(runDirectory, "report.json"),
-		`${JSON.stringify({ runId, pass, scenarios }, null, 2)}\n`,
+		`${JSON.stringify({ runId, pass, scenarios, misconfigured }, null, 2)}\n`,
 	);
 	return pass;
 }
