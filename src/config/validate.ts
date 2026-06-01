@@ -1,4 +1,3 @@
-import { isProviderId, PROVIDER_IDS } from "../providers/registry";
 import type {
 	AgentDefinitionInput,
 	EvaluationScope,
@@ -77,11 +76,9 @@ function validateAgentEntry(
 	if (typeof entry.model !== "string" || entry.model.length === 0) {
 		errors.push(`${path}.model must be a non-empty string`);
 	}
-	if (!isProviderId(entry.provider)) {
-		errors.push(
-			`${path}.provider must be one of ${PROVIDER_IDS.map((id) => `"${id}"`).join(", ")}`,
-		);
-	}
+	// An unknown or missing provider id is intentionally not a load-time abort:
+	// it is caught structurally by the pre-flight probe and the affected agent
+	// is skipped, rather than aborting the whole run.
 }
 
 function validateRoles(

@@ -106,7 +106,7 @@ test("rejects an unknown agent referenced by roles.improver object form", () => 
 	);
 });
 
-test("rejects missing provider on an agent entry", () => {
+test("loads a config whose agent is missing a provider (caught by pre-flight probe)", () => {
 	const errors = collectConfigErrors(
 		build({
 			agents: {
@@ -122,10 +122,10 @@ test("rejects missing provider on an agent entry", () => {
 			},
 		}),
 	);
-	assert.match(errors.join("\n"), /agents\.broken\.provider must be one of/);
+	assert.deepEqual(errors, []);
 });
 
-test("rejects an unknown provider on an agent entry", () => {
+test("loads a config whose agent has an unknown provider (caught by pre-flight probe)", () => {
 	const errors = collectConfigErrors(
 		build({
 			agents: {
@@ -141,7 +141,7 @@ test("rejects an unknown provider on an agent entry", () => {
 			},
 		}),
 	);
-	assert.match(errors.join("\n"), /agents\.bogus\.provider must be one of/);
+	assert.deepEqual(errors, []);
 });
 
 test("rejects missing model on an agent entry", () => {
