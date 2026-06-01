@@ -115,7 +115,20 @@ This applies at two granularities:
 - **Per scenario.** A single scenario whose only testers are all misconfigured is marked inconclusive on its own; its healthy sibling scenarios still run, grade, and roll up normally. One all-misconfigured scenario does not derail the rest of the run.
 - **Whole run.** When *every* testing agent in the run is misconfigured, every scenario is inconclusive and the run as a whole reports INCONCLUSIVE — again, never a silent empty-set pass.
 
-The misconfigured agents that produced an inconclusive outcome are also named once in the run's [skipped-agents announcement](#misconfigured-agents) with their reasons, so the cause is always surfaced and never silent.
+The misconfigured agents that produced an inconclusive outcome are also named once in the run's [skipped-agents announcement](#skipped-agents-announcement) with their reasons, so the cause is always surfaced and never silent.
+
+### Skipped-agents announcement
+
+Below the `RUN RESULT` line, the summary prints a single **skipped-agents announcement**: each [misconfigured](#misconfigured-agents) agent appears on **exactly one line for the whole run**, carrying its id, the role(s) it filled, and the reason it was skipped. This one block replaces what used to be the same failure repeated as a row on every (scenario, iteration) pair — a misconfigured agent is now stated once, in one place, instead of flooding the output.
+
+The announcement is deliberately set apart from a genuine failure:
+
+- It is its own section, headed to mark the agents as skipped, in the same yellow styling the matrix uses for skipped cells — visually separate from the red FAIL block where real failures are listed.
+- A well-configured agent that **genuinely fails its tests is still a failure**: it appears in the red FAIL block, is reported as a failure, and still counts toward the verdict and exit code. Only the misconfigured skips move into this announcement, and only they are excluded from the pass/fail math.
+
+So the two are never confused: a yellow skipped-agents line means "this agent never ran, here is why," while a red failure line means "this agent ran and did not pass." The announcement renders under every verdict (PASS, FAIL, and INCONCLUSIVE) whenever any agent was skipped, and is omitted entirely on a clean run, leaving that run's output unchanged (see [Misconfigured agents](#misconfigured-agents)).
+
+On the live progress dashboard the same skipped agents simply do not appear: a pre-flight-skipped tester occupies no slot in the scenario/phase grid at all, rather than showing up as a failing or skipped row. The end-of-run announcement is where their ids and reasons are surfaced.
 
 ## How the Self-Improvement works
 
