@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { LanguageModelV2, LanguageModelV2Usage } from "@ai-sdk/provider";
+import { APICallError } from "ai";
+import { classifyRuntimeError } from "../config/misconfig";
 import { anthropicApiProvider } from "../providers/anthropic-api";
 import { geminiApiProvider } from "../providers/gemini-api";
 import { runVercel } from "../providers/lib/vercel-runner";
@@ -34,6 +36,25 @@ function fakeModel(usage: LanguageModelV2Usage): LanguageModelV2 {
 			usage,
 			warnings: [],
 		}),
+		doStream: async () => {
+			throw new Error("doStream not implemented in fake model");
+		},
+	};
+}
+
+/**
+ * Minimal `LanguageModelV2` stand-in whose `doGenerate` throws the supplied
+ * error, exercising `runVercel`'s `catch` branch.
+ */
+function throwingModel(err: unknown): LanguageModelV2 {
+	return {
+		specificationVersion: "v2",
+		provider: "fake",
+		modelId: "fake-model",
+		supportedUrls: {},
+		doGenerate: async () => {
+			throw err;
+		},
 		doStream: async () => {
 			throw new Error("doStream not implemented in fake model");
 		},
@@ -123,4 +144,86 @@ test("runVercel coalesces undefined token counts to 0", async () => {
 		outputTokens: 0,
 		totalTokens: 0,
 	});
+});
+
+function apiCallError(statusCode: number, message: string): APICallError {
+	return new APICallError({
+		message,
+		url: "https://example.test/v1",
+		requestBodyValues: {},
+		statusCode,
+	});
+}
+
+test("runVercel prepends the HTTP status form for a 401 APICallError", async () => {
+	const err = apiCallError(401, "invalid x-api-key");
+	const result = await runVercel(
+		baseParams("anthropic-api"),
+		throwingModel(err),
+	);
+	assert.equal(result.finalText, "");
+	assert.equal(result.toolUseCount, 0);
+	assert.ok(result.error?.startsWith("[HTTP 401] "));
+	assert.ok(result.error?.includes("invalid x-api-key"));
+	assert.deepEqual(classifyRuntimeError(result.error), {
+		kind: "invalid-credential",
+		status: 401,
+	});
+});
+
+test("runVercel round-trips a 403 APICallError to invalid-credential", async () => {
+	const result = await runVercel(
+		baseParams("openai-api"),
+		throwingModel(apiCallError(403, "forbidden")),
+	);
+	assert.deepEqual(classifyRuntimeError(result.error), {
+		kind: "invalid-credential",
+		status: 403,
+	});
+});
+
+test("runVercel round-trips a 404 APICallError to model-not-found", async () => {
+	const result = await runVercel(
+		baseParams("gemini-api"),
+		throwingModel(apiCallError(404, "model nope")),
+	);
+	assert.deepEqual(classifyRuntimeError(result.error), {
+		kind: "model-not-found",
+		status: 404,
+	});
+});
+
+test("runVercel keeps a retried 429 an ordinary failure", async () => {
+	// The SDK marks a 429 `APICallError` retryable and retries it internally;
+	// what escapes is a `RetryError` with no readable status. The runner must
+	// not invent a status from it, so this stays an ordinary failure.
+	const result = await runVercel(
+		baseParams("anthropic-api"),
+		throwingModel(apiCallError(429, "rate limited")),
+	);
+	assert.equal(result.error?.startsWith("[HTTP "), false);
+	assert.equal(classifyRuntimeError(result.error), undefined);
+});
+
+test("runVercel tolerates a duck-typed error carrying status", async () => {
+	// A non-`Error` object that exposes a numeric `status` still surfaces the
+	// HTTP form; the message follows today's `String(err)` path.
+	const result = await runVercel(
+		baseParams("openai-api"),
+		throwingModel({ status: 401 }),
+	);
+	assert.ok(result.error?.startsWith("[HTTP 401] "));
+	assert.deepEqual(classifyRuntimeError(result.error), {
+		kind: "invalid-credential",
+		status: 401,
+	});
+});
+
+test("runVercel leaves a status-less error message byte-for-byte unchanged", async () => {
+	const result = await runVercel(
+		baseParams("anthropic-api"),
+		throwingModel(new Error("network timeout")),
+	);
+	assert.equal(result.error, "network timeout");
+	assert.equal(classifyRuntimeError(result.error), undefined);
 });
