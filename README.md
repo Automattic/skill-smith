@@ -85,6 +85,8 @@ A **rubric** is prose reference material the judge LLM consults — describing s
 
 **The judge does not read the skill.** The agent learns from the skill; the judge grades from the rubrics. Keeping them epistemically separate is what lets the harness catch a regression in the skill itself — if the judge consulted the same skill the agent did, a bad skill edit would simultaneously redefine "correct" and the regression would slip through.
 
+**A misconfigured judge stops the run.** The judge is the single point that turns every tested result into the matrix, so there is no coherent partial run without it. If `roles.judge` is [misconfigured](#misconfigured-agents), the harness fails fast: it terminates before dispatching any testing agent, naming the judge agent and the reason. You get one clear message — not a partial matrix and not the same misconfiguration repeated as a failure on every (scenario, agent) pair. This is decided once, per the judge's agent id, the moment the run starts.
+
 ### Misconfigured agents
 
 An agent is **misconfigured** when it has a config or credential defect that would fail identically on every attempt — a missing or invalid API key, or a provider id that doesn't exist — rather than a transient or test-specific failure. (The full list of what counts, and how detection reads provider errors, lives in [`examples/skillsmith.config.ts`](./examples/skillsmith.config.ts).)
@@ -135,6 +137,8 @@ Every run lives under `${paths.base}/<runId>/`. Each iteration owns its own subd
 5. The loop exits early on all-pass. If `finalPass: true` and the last iteration ran a subset, the harness runs one extra full sweep at the end so the final report reflects the current state of every (scenario, agent) pair. A misconfigured agent stays excluded from this final pass too.
 
 The improver is the only agent that writes, and only inside `paths.skills`. The harness never commits, pushes, or captures a diff — your edits live in the working tree for human review. Set `roles.improver.prompt` to a string (or load one from disk) to replace the built-in improver instructions with a project-specific edit strategy.
+
+**A misconfigured improver degrades the run; it does not stop it.** Unlike the judge, the improver is not on the path that produces the matrix — its only job is to edit skills between iterations, and that step is optional. So if `roles.improver` is [misconfigured](#misconfigured-agents), the harness degrades the self-improvement run to a single test-only sweep: the testing agents and judge still produce a full, valid matrix, but no skill edits are attempted and no further iterations run (there is nothing to change between them, so repeating the identical sweep would be pointless). The run does not fail solely because the improver is misconfigured. This is the asymmetric counterpart to the judge's fail-fast above — both are decided per agent id, once, but a bad judge has no coherent run to fall back to while a bad improver simply loses its optional step.
 
 ### `afterAllScenarios` — the verification gate
 
@@ -211,6 +215,8 @@ export default defineConfig({
 ```
 
 `roles.test.prompt` and `roles.judge.prompt` are appended to the respective system prompts as a `# Role instructions` section, augmenting the harness-owned structural blocks. `roles.improver.prompt` replaces the built-in improver instructions entirely. When `roles.improver.prompt` is not set, the harness uses a minimal built-in instruction ("edit the failing skills in place, minimally, no git").
+
+If the agent behind `roles.judge` or `roles.improver` is misconfigured, the two roles diverge: a bad judge stops the run, a bad improver degrades it to a single test-only sweep (see [Rubrics and the judge](#rubrics-and-the-judge) and [How the Self-Improvement works](#how-the-self-improvement-works)).
 
 See [`examples/skillsmith.config.ts`](./examples/skillsmith.config.ts) for a reference config showing every provider (`claude-code`, `anthropic-api`, `openai-api`, `codex`, `gemini-api`), provider-specific options like `effort`, and the full set of hooks and `selfImprovement` knobs.
 
