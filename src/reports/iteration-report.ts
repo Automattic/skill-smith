@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isMisconfiguredSkipReason } from "../config/misconfig";
 import type { ScenarioRunRecord } from "../pipeline/pipeline";
 import type { ScenarioAgentEntry, ScenarioReport } from "./scenario-report";
 import { classifyVerdict } from "./verdict";
@@ -176,10 +177,36 @@ function scenariosAllPass(
 	});
 }
 
+/**
+ * Recompute a merged scenario's `pass` over its *surviving* agent rows, using
+ * the same exclusion rule as scenario aggregation (Task 6): a row whose
+ * `review` classifies `SKIPPED` with {@link isMisconfiguredSkipReason} is
+ * dropped from the vote entirely — neither numerator nor denominator. The
+ * scenario passes iff at least one survivor remains and every survivor is
+ * `PASS`. An all-misconfigured-skip survivor set is therefore *not* a pass
+ * (returns `false`), keeping this recomputed verdict consistent with the
+ * scenario-level `pass` that `aggregateScenarioReport` writes.
+ */
 function agentsAllPass(agents: Record<string, ScenarioAgentEntry>): boolean {
-	const entries = Object.values(agents);
-	if (entries.length === 0) return false;
-	for (const entry of entries) {
+	const survivors: ScenarioAgentEntry[] = [];
+	for (const entry of Object.values(agents)) {
+		if (
+			entry.error === undefined &&
+			entry.review !== undefined &&
+			entry.review !== null
+		) {
+			const verdict = classifyVerdict(entry.review);
+			if (
+				verdict.kind === "SKIPPED" &&
+				isMisconfiguredSkipReason(verdict.reason)
+			) {
+				continue;
+			}
+		}
+		survivors.push(entry);
+	}
+	if (survivors.length === 0) return false;
+	for (const entry of survivors) {
 		if (entry.error !== undefined) return false;
 		if (entry.review === undefined) return false;
 		if (classifyVerdict(entry.review).kind !== "PASS") return false;
