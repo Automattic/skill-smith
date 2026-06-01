@@ -100,6 +100,23 @@ A misconfigured testing agent is **identified once and then skipped everywhere f
 
 A run in which no agent is misconfigured is unchanged: the matrix, the verdict, the hook firing, and the CLI output are exactly as they were before this handling existed.
 
+### Run result and exit code
+
+When a run finishes, the harness prints a `RUN RESULT` line (mirrored into `summary.txt`) and exits with a status a CI script can branch on. There are **three** observable outcomes:
+
+- **PASS** — every scenario passed over its surviving testers. Exit code `0`.
+- **FAIL** — at least one scenario genuinely failed (a testing agent that ran and did not pass, or a scenario error). A real failure dominates: even if some scenarios were inconclusive, the run reports FAIL. Non-zero exit.
+- **INCONCLUSIVE** — non-PASS, but with no genuine failure anywhere; the only non-passing scenarios are ones whose entire surviving tester set was empty because every tester was [misconfigured](#misconfigured-agents). Distinct, non-zero exit.
+
+The INCONCLUSIVE outcome exists so that an empty surviving tester set is **never** reported as a silent pass over an empty matrix, and is **never** dressed up as an ordinary FAIL it is indistinguishable from. It is its own verdict, in its own visually-distinct section (it reuses the yellow misconfigured styling, separate from the red FAIL block), and it lists the inconclusive scenarios with the misconfigured agent ids responsible. Both FAIL and INCONCLUSIVE exit non-zero, so a passing CI gate still requires a genuine PASS — but the two are reported distinctly, and the exit status tells them apart from a clean pass.
+
+This applies at two granularities:
+
+- **Per scenario.** A single scenario whose only testers are all misconfigured is marked inconclusive on its own; its healthy sibling scenarios still run, grade, and roll up normally. One all-misconfigured scenario does not derail the rest of the run.
+- **Whole run.** When *every* testing agent in the run is misconfigured, every scenario is inconclusive and the run as a whole reports INCONCLUSIVE — again, never a silent empty-set pass.
+
+The misconfigured agents that produced an inconclusive outcome are also named once in the run's [skipped-agents announcement](#misconfigured-agents) with their reasons, so the cause is always surfaced and never silent.
+
 ## How the Self-Improvement works
 
 When a run produces failures, the harness can loop: a single **improver** agent edits the failing skill, the affected scenarios re-run, and the loop stops when the suite passes or the iteration budget is exhausted. Self-improvement mode is opt-in (`mode: "self-improvement"`) — the default behaviour is the one-shot Skill Tester described above.
