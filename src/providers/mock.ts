@@ -72,6 +72,17 @@ function invokeTesting(params: InvokeParams): InvokeResult {
 		return { finalText: "", toolUseCount: 0, error: "mock testing failure" };
 	}
 
+	// Sentinel id used by `agent-loop.test.ts` to exercise the runtime
+	// misconfiguration branch: the error string carries a leading
+	// `[HTTP 401]` so `classifyRuntimeError` reports `invalid-credential`.
+	if (params.agent.id === "mock-misconfig-testing") {
+		return {
+			finalText: "",
+			toolUseCount: 0,
+			error: "[HTTP 401] invalid api key",
+		};
+	}
+
 	// Gated testing agent: the skill text is inlined into the system
 	// prompt, so surface whether it already carries the marker. The
 	// judge keys off the file we write here.

@@ -1,5 +1,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+	classifyRuntimeError,
+	describeReason,
+	MISCONFIG_SKIP_PREFIX,
+} from "../config/misconfig";
+import type { MisconfigLedger } from "../config/misconfig-ledger";
 import type {
 	AgentContext,
 	AgentDefinition,
@@ -37,6 +43,16 @@ export interface RunAgentsParams {
 	 * the agents that failed in the previous iteration.
 	 */
 	agentIdFilter?: string[];
+	/**
+	 * The run's misconfiguration ledger, supplied by the pipeline (Task 10
+	 * wires the real instance). When present, any testing agent whose id is
+	 * already ledgered is dropped before dispatch (true absence — no
+	 * workspace, no hooks, no row), and a tester whose first call fails with a
+	 * misconfiguration-class error is recorded here. When absent, the loop
+	 * behaves exactly as it did before misconfiguration handling: no filtering
+	 * and no runtime recording.
+	 */
+	ledger?: MisconfigLedger;
 }
 
 export interface TestingAgentResult {
@@ -76,20 +92,30 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 		tracker,
 		scenarios,
 		agentIdFilter,
+		ledger,
 	} = params;
 
 	const filterSet =
 		agentIdFilter !== undefined ? new Set(agentIdFilter) : undefined;
-	const agents =
+	const selected =
 		filterSet === undefined
 			? config.roles.test.agents
 			: config.roles.test.agents.filter((a) => filterSet.has(a.id));
 
 	if (filterSet !== undefined) {
 		log.info(
-			`agent filter active for ${scenario.name}: ${agents.map((a) => a.id).join(",") || "(none)"}`,
+			`agent filter active for ${scenario.name}: ${selected.map((a) => a.id).join(",") || "(none)"}`,
 		);
 	}
+
+	// Drop any ledgered (already-misconfigured) tester before dispatch so it
+	// gets no workspace, no before/afterTestAgent hooks, no testing, and no
+	// row — true absence, not a skipped cell (KD4). A missing ledger means no
+	// filtering, preserving the pre-misconfiguration behaviour.
+	const agents =
+		ledger === undefined
+			? selected
+			: selected.filter((a) => !ledger.has(a.id));
 
 	await Promise.all(
 		agents.map((agent) =>
@@ -105,6 +131,7 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 				log,
 				tracker,
 				scenarios,
+				ledger,
 			}),
 		),
 	);
@@ -122,6 +149,12 @@ interface RunAgentPairParams {
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
+	/**
+	 * The run's misconfiguration ledger, threaded from {@link runAgents}. When
+	 * present, a tester whose first call fails with a misconfiguration-class
+	 * error is recorded here and written as a misconfigured sentinel cell.
+	 */
+	ledger?: MisconfigLedger;
 }
 
 async function runAgentPair(params: RunAgentPairParams): Promise<void> {
@@ -137,6 +170,7 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		log,
 		tracker,
 		scenarios,
+		ledger,
 	} = params;
 	const agentDirectory = join(scenarioDirectory, agent.id);
 	const agentWorkspace = join(agentDirectory, "workspace");
@@ -219,9 +253,32 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 			status: "skipped",
 			detail: "testing failed",
 		});
-		writeAgentReport(agentDirectory, testing, {
-			skipped: `testing failed: ${testingResult.error}`,
-		});
+
+		// Split misconfiguration from ordinary (transient) failure. A
+		// misconfiguration-class error (missing key, HTTP 401/403/404) means the
+		// agent could never have produced a verdict, so we record it in the
+		// ledger (role `test`; merged if already pre-flighted in another role)
+		// and write a misconfigured *sentinel* cell that pass math later
+		// excludes from the denominator (KD2/KD7). A transient error keeps the
+		// unchanged `testing failed: ...` row and counts as an ordinary failure
+		// (AC5). With no ledger, every error is treated as transient — today's
+		// behaviour.
+		const reason =
+			ledger === undefined
+				? undefined
+				: classifyRuntimeError(testingResult.error);
+		if (ledger !== undefined && reason !== undefined) {
+			ledger.record(agent.id, ["test"], reason);
+			const described = describeReason(reason);
+			log.info(`agent ${agent.id} skipped: ${described}`);
+			writeAgentReport(agentDirectory, testing, {
+				skipped: `${MISCONFIG_SKIP_PREFIX}${described}`,
+			});
+		} else {
+			writeAgentReport(agentDirectory, testing, {
+				skipped: `testing failed: ${testingResult.error}`,
+			});
+		}
 	} else {
 		await tryHook(
 			"beforeJudgeAgent",
