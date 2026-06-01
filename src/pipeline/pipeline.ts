@@ -103,6 +103,9 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		runDirectory,
 		iterations,
 		scenarios: runScenarios,
+		// Live view of skipped-as-misconfigured agents; Task 10 wires the run's
+		// ledger snapshot in here. Empty until then, matching the clean-run contract.
+		misconfigured: {},
 	};
 
 	const tracker = new ProgressTracker(
@@ -505,6 +508,8 @@ async function runScenario(
 		runDirectory: args.runDirectory,
 		iterations: args.iterations,
 		scenarios: args.scenarios,
+		// Empty until Task 10 threads the run's ledger snapshot through here.
+		misconfigured: {},
 		scenario,
 	};
 

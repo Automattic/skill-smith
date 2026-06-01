@@ -149,6 +149,8 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		runDirectory,
 		iterations,
 		scenarios,
+		// Empty until Task 10 threads the run's ledger snapshot through here.
+		misconfigured: {},
 		scenario,
 		agent,
 		agentWorkspace,

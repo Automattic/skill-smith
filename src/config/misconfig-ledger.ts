@@ -1,4 +1,5 @@
 import { describeReason, type MisconfigReason } from "./misconfig";
+import type { MisconfiguredEntry } from "./types";
 
 /**
  * The role an agent fills in a run. A single agent id can fill more than one
@@ -20,16 +21,6 @@ export interface SkippedAgent {
 	id: string;
 	roles: AgentRole[];
 	reason: MisconfigReason;
-}
-
-/**
- * The per-id shape the hook context and CLI roster consume: a human-readable
- * reason string plus the full role list. Produced by {@link MisconfigLedger.snapshot};
- * Task 3 formally types this as `MisconfiguredEntry`.
- */
-export interface MisconfiguredEntry {
-	reason: string;
-	roles: AgentRole[];
 }
 
 /**

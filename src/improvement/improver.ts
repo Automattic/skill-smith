@@ -94,6 +94,8 @@ export async function runImprovement(
 		runDirectory,
 		iterations,
 		scenarios,
+		// Empty until Task 10 threads the run's ledger snapshot through here.
+		misconfigured: {},
 		iteration,
 		iterationDirectory,
 		pass: iterationReport.pass,

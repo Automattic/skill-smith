@@ -141,12 +141,32 @@ export interface IterationInfo {
 	directory: string;
 }
 
+/**
+ * The per-id shape every hook context carries for an agent the harness skipped
+ * as misconfigured: a human-readable `reason` string plus the full list of
+ * roles that id filled in the run. This is the canonical definition; the
+ * misconfig ledger imports it so its `snapshot()` return type and
+ * `RunContext.misconfigured` are the exact same type.
+ */
+export interface MisconfiguredEntry {
+	reason: string;
+	roles: ("test" | "judge" | "improver")[];
+}
+
 export interface RunContext {
 	runId: string;
 	config: SkillsmithConfig;
 	runDirectory: string;
 	iterations: IterationInfo[];
 	scenarios: RunScenario[];
+	/**
+	 * A live view, keyed by agent id, of every agent the harness skipped as
+	 * misconfigured — backed by the run's misconfig ledger. Pre-flight entries
+	 * are present from `beforeAll`; runtime entries accumulate so the full set
+	 * is present by `afterAll`. Always present: a clean run carries an empty
+	 * object `{}`, so consumers never need a presence check.
+	 */
+	misconfigured: Readonly<Record<string, MisconfiguredEntry>>;
 }
 
 export interface RunScenario {
