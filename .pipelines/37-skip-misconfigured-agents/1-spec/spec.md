@@ -90,28 +90,73 @@ Misconfiguration must be detected in both of these ways:
 
 (The exact breadth of the runtime classifier is **Open Decision 2**.)
 
+When misconfiguration is discovered at runtime, an agent may already have
+produced results earlier in the same run (e.g. a tester that PASSed an earlier
+scenario before failing with an auth error on a later one). Whether those
+already-recorded results are **purged** from pass/fail accounting (retroactive
+exclusion) or **kept** (forward-only — only subsequent work is skipped) is
+**Open Decision 7**. Regardless of which is chosen, the following invariant
+holds: no result produced *by a misconfigured agent on or after the invocation
+that triggered detection* is ever counted, and no further work is dispatched
+for that agent (see R2). The accounting-scope invariant in R4 below is stated
+so that it holds under either resolution of Open Decision 7.
+
 ### R4 — Pass/fail accounting excludes misconfigured agents
 
-A misconfigured agent must NOT count as a failure and must NOT count toward the
-pass denominator. It is excluded from the matrix verdict entirely. The run's
-pass/fail is computed over the surviving, well-configured agents only.
+A misconfigured agent must NOT count as a failure anywhere in the run's
+pass/fail computation. The firm, resolution-independent invariant is:
 
-This is a required change regardless of how a skipped agent is surfaced:
-today a skipped/errored cell counts as a failure, and that accounting must
-change so misconfigured agents are neither in the numerator nor the
-denominator of any scenario's or the run's pass/fail computation.
+- The act of being misconfigured (a skipped testing phase, a skipped paired
+  judge review, or any invocation that failed with a misconfiguration-class
+  error) is **never** counted as a failure in any scenario's or the run's
+  pass/fail math. Today such a cell counts as a failure; that accounting must
+  change.
+- For any (scenario, iteration) in which a misconfigured agent does no counted
+  work, that agent contributes **neither** to the numerator **nor** to the
+  denominator of that scenario's pass/fail computation.
 
-(Whether a skipped agent is wholly absent from the matrix or present-but-marked
-is **Open Decision 4**; either way, the verdict math must exclude it.)
+The run's pass/fail is therefore computed over the surviving, well-configured
+results only. This change is required regardless of how a skipped agent is
+surfaced.
 
-### R5 — Degenerate case: all testing agents misconfigured
+The one case where the two readings of Open Decision 7 differ is a result the
+agent *successfully recorded before* runtime detection (e.g. an earlier PASS).
+Under retroactive exclusion that earlier result is purged from accounting too;
+under forward-only it remains counted. Either way the invariant above holds —
+the misconfiguration itself is never a failure, and the agent is absent from
+the denominator of every scenario where it did no counted work. (Whether a
+skipped agent is wholly absent from the matrix or present-but-marked is **Open
+Decision 4**; either way, the verdict math excludes the misconfiguration as a
+failure.)
 
-When every testing agent for a scenario, or for the whole run, is
-misconfigured, the run must reach a **clearly-defined, explicit, surfaced
-outcome** — not silently "pass" on an empty set, and not fail merely as an
-empty-set artifact. The specific outcome (abort / inconclusive / fail) is
-**Open Decision 3**; the firm requirement is that the outcome is explicit and
-clearly communicated.
+### R5 — Degenerate case: empty surviving tester set
+
+R4 removes misconfigured testers from a scenario's denominator. This can leave
+a scenario, or the whole run, with **no surviving testers** — an empty
+denominator. Two distinct scopes exist and must both be covered:
+
+- **R5a — Per-scenario empty set.** A single scenario whose entire tester
+  denominator is excluded (its only testers are all misconfigured) while other
+  scenarios still have surviving testers.
+- **R5b — Whole-run empty set.** Every testing agent in the run is
+  misconfigured, so no scenario has any surviving tester.
+
+In **both** scopes the firm, resolution-independent invariant is: an
+empty-denominator scope must reach a **clearly-defined, explicit, surfaced
+outcome** — it must NOT silently report a "pass" over an empty set, and must
+NOT be reported as an ordinary failure indistinguishable from a real
+test failure. The empty set is a consequence of misconfiguration and must be
+surfaced as such.
+
+What that explicit outcome is — and at which *granularity* it applies — is
+**Open Decision 3**, which now covers two coupled choices: (i) the outcome
+*type* (abort / inconclusive / fail), and (ii) the *granularity* for the
+per-scenario case (R5a): does a single all-misconfigured scenario abort the
+whole run, or mark just that scenario (e.g. inconclusive) while other scenarios
+proceed and roll up normally? The firm requirement, holding regardless, is that
+neither R5a nor R5b produces a silent empty-set pass and that the
+empty-set condition is explicitly communicated with the misconfigured agent
+ids and reasons.
 
 ### R6 — Single-instance roles (judge, improver)
 
@@ -190,8 +235,14 @@ having silently settled them.
    not fully cover the prompt's explicit "invalid API token" example. This
    determines the runtime branch of R3 and which entries of R1 are honored.
 
-3. **All-testers-misconfigured outcome.** The explicit outcome required by R5
-   — abort, inconclusive, or fail — is the design's choice.
+3. **Empty surviving-tester-set outcome and granularity.** The explicit
+   outcome required by R5 has two coupled choices. (i) The outcome *type* —
+   abort, inconclusive, or fail. (ii) The *granularity* for the per-scenario
+   case (R5a): does one all-misconfigured scenario abort the whole run, or mark
+   only that scenario (e.g. inconclusive) while sibling scenarios proceed and
+   roll up normally? Today an empty tester list makes a scenario fail and an
+   all-empty run fail; both readings change that. R5's no-silent-pass invariant
+   holds regardless of either choice.
 
 4. **Tester skip surface representation.** True-absence (no row, no workspace
    for the agent) vs present-but-marked (`skipped: misconfigured`). R4's
@@ -208,6 +259,17 @@ having silently settled them.
    recommended: misconfigured judge → fail-fast/abort; misconfigured improver →
    degrade to test-only — is the design's choice to confirm with the
    maintainer.
+
+7. **Runtime-detected exclusion: retroactive vs forward-only.** When an agent
+   is discovered misconfigured at runtime *after* it already recorded a result
+   (e.g. PASSed an earlier scenario), are those earlier results purged from
+   pass/fail accounting (retroactive) or kept while only future work is skipped
+   (forward-only)? R2/R3 stop all *future* work either way; R4's failure-never-
+   counted and empty-denominator invariants hold either way. This decision only
+   governs the treatment of results successfully recorded before detection. The
+   prompt's flagship "invalid API token" example most often surfaces on a live
+   call that may be the second or third scenario, so this is a realistic path
+   and its resolution changes the verdict for affected runs.
 
 ## Out of Scope
 
@@ -232,8 +294,15 @@ regardless of which option is chosen*, and notes the decision it defers to.
 - **Then** the run completes; the pass/fail accounting for every scenario and
   for the run includes only the N-1 well-configured agents; the misconfigured
   agent appears in no scenario's pass/fail numerator or denominator; and the
-  run's verdict is computed exactly as if only the N-1 agents had been
-  configured.
+  run's pass/fail *result* (the overall PASS/FAIL verdict and each scenario's
+  pass math) is identical to a run configured with only the N-1
+  well-configured agents.
+- *Note:* this AC constrains the verdict **math** (which R4 fixes regardless of
+  surface). It does NOT constrain the matrix shape or CLI artifact: under the
+  present-but-marked-skipped option the artifact has an extra visibly-distinct
+  skipped row (R8/AC4 require it), so it is not literally "as if only N-1 were
+  configured." Whether the skipped agent is wholly absent or present-but-marked
+  is **Open Decision 4**.
 
 ### AC2 — Misconfigured tester is excluded from re-selection
 - **Given** the run from AC1 with more than one iteration,
@@ -281,12 +350,28 @@ regardless of which option is chosen*, and notes the decision it defers to.
   error,
 - **When** the run continues across remaining scenarios and iterations,
 - **Then** after that first failure the agent is treated as misconfigured and
-  does no further work in any phase, is excluded from pass/fail accounting, and
-  is not re-selected.
+  does no further work in any phase; the triggering failure is not counted as a
+  test failure; the agent contributes to no numerator or denominator for any
+  scenario where it did no counted work; and it is not re-selected.
 - *Note:* whether an invalid-token-on-call is classified as misconfiguration at
   all depends on **Open Decision 2** (full vs minimal classifier). If design
   chooses the minimal classifier, this case instead behaves per AC5 (ordinary
   failure); the test for this AC must be written against the resolved decision.
+
+### AC7b — Results recorded before runtime detection are handled per the decision
+- **Given** a testing agent that PASSes scenario A and then, on scenario B,
+  fails with a misconfiguration-class error and is declared misconfigured,
+- **When** the run completes,
+- **Then** scenario A's earlier PASS is accounted for consistently with the
+  resolution of **Open Decision 7**: under retroactive exclusion the agent
+  contributes to neither A's nor B's accounting; under forward-only the agent's
+  A PASS still counts while its B work and all later work are excluded. In
+  either case the misconfiguration on scenario B is never counted as a test
+  failure, and the agent does no further work after detection.
+- *Note:* retroactive vs forward-only is **Open Decision 7**; the test asserts
+  the invariant common to both (the triggering failure and all later work are
+  never counted; no silent failure for the misconfiguration), refined to the
+  exact accounting once the decision is made.
 
 ### AC8 — Hooks can read the misconfigured set, keyed by agent id
 - **Given** a run with at least one pre-flight-misconfigured agent and a hook
@@ -316,15 +401,31 @@ regardless of which option is chosen*, and notes the decision it defers to.
   as an improver it degrades per R6), and the hooks-exposed entry for that id
   reflects all roles it fills.
 
-### AC11 — All testers misconfigured reaches an explicit outcome
-- **Given** a run in which every testing agent (for a scenario or the whole
-  run) is misconfigured,
+### AC11a — A single all-misconfigured scenario reaches an explicit outcome
+- **Given** a multi-scenario run in which one scenario's only testers are all
+  misconfigured (empty surviving denominator for that scenario) while at least
+  one other scenario has surviving well-configured testers,
+- **When** the run executes,
+- **Then** the empty-denominator scenario reaches a clearly-defined,
+  explicitly-surfaced outcome — it does NOT silently report a pass over its
+  empty agent set, and is not reported as an ordinary test failure
+  indistinguishable from a real failure; the empty-set condition is surfaced
+  with the misconfigured agent ids and reasons.
+- *Note:* the specific outcome *type* (abort / inconclusive / fail) and the
+  *granularity* — whether this aborts the whole run or marks only this scenario
+  while siblings proceed — are **Open Decision 3**. The test asserts the
+  no-silent-empty-pass invariant (R5a), refined once the decision is made.
+
+### AC11b — A whole-run all-misconfigured set reaches an explicit outcome
+- **Given** a run in which every testing agent is misconfigured (no scenario
+  has any surviving tester),
 - **When** the run executes,
 - **Then** the run reaches a clearly-defined, explicitly-surfaced outcome and
-  does not silently report a pass over an empty agent set.
+  does not silently report a pass over an empty agent set; the misconfigured
+  agent ids and reasons are surfaced.
 - *Note:* the specific outcome (abort / inconclusive / fail) is **Open
-  Decision 3**; the test asserts the outcome is explicit and surfaced, refined
-  once the decision is made.
+  Decision 3**; the test asserts the no-silent-empty-pass invariant (R5b),
+  refined once the decision is made.
 
 ### AC12 — Misconfigured judge terminates the run clearly
 - **Given** a run whose judge agent is misconfigured,
