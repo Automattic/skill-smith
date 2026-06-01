@@ -347,6 +347,87 @@ test("an id already ledgered (in any role) is dropped, so its runtime record nev
 	}
 });
 
+test("a surviving tester's before/afterTestAgent hooks see the misconfigured roster (KD5/Task 3)", async () => {
+	// RunContext.misconfigured must reach every hook context, including the
+	// AgentContext built for a *surviving* tester, via the live ledger snapshot.
+	// A pre-flighted misconfiguration in another role (so the id isn't dropped
+	// from this scenario) must be visible to a hook on the surviving agent,
+	// keyed by id with its rendered reason and role list.
+	const seen: Record<string, AgentContext["misconfigured"]> = {};
+	const capture =
+		(name: string) =>
+		(ctx: AgentContext): void => {
+			seen[`${name}:${ctx.agent.id}`] = ctx.misconfigured;
+		};
+	const h = makeHarness(["ok"], {
+		beforeTestAgent: capture("beforeTestAgent"),
+		afterTestAgent: capture("afterTestAgent"),
+	});
+	const ledger = new MisconfigLedger();
+	ledger.record("bad-judge", ["judge"], {
+		kind: "unknown-provider",
+		provider: "nope",
+	});
+
+	try {
+		await runAgents({
+			scenario: h.scenario,
+			scenarioDirectory: h.scenarioDirectory,
+			config: h.config,
+			runId: "t9",
+			runDirectory: h.config.paths.base,
+			iterations: [],
+			projectRoot: h.config.paths.base,
+			log: h.log,
+			tracker: h.tracker,
+			scenarios: [],
+			ledger,
+		});
+
+		const expected = {
+			"bad-judge": {
+				reason: 'unknown-provider "nope"',
+				roles: ["judge"],
+			},
+		};
+		assert.deepEqual(seen["beforeTestAgent:ok"], expected);
+		assert.deepEqual(seen["afterTestAgent:ok"], expected);
+	} finally {
+		h.cleanup();
+	}
+});
+
+test("with no ledger, a tester's hook context carries an empty misconfigured map (AC14)", async () => {
+	// Pre-misconfiguration path: no ledger means no misconfiguration handling,
+	// so the AgentContext.misconfigured view stays `{}` byte-for-byte.
+	const seen: Record<string, AgentContext["misconfigured"]> = {};
+	const h = makeHarness(["ok"], {
+		beforeTestAgent: (ctx: AgentContext): void => {
+			seen[ctx.agent.id] = ctx.misconfigured;
+		},
+	});
+
+	try {
+		await runAgents({
+			scenario: h.scenario,
+			scenarioDirectory: h.scenarioDirectory,
+			config: h.config,
+			runId: "t9",
+			runDirectory: h.config.paths.base,
+			iterations: [],
+			projectRoot: h.config.paths.base,
+			log: h.log,
+			tracker: h.tracker,
+			scenarios: [],
+			// no ledger
+		});
+
+		assert.deepEqual(seen.ok, {});
+	} finally {
+		h.cleanup();
+	}
+});
+
 test("a transient testing error keeps the unchanged FAIL row and no ledger entry", async () => {
 	const h = makeHarness(["mock-fail-testing"]);
 	const ledger = new MisconfigLedger();

@@ -183,8 +183,11 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		runDirectory,
 		iterations,
 		scenarios,
-		// Empty until Task 10 threads the run's ledger snapshot through here.
-		misconfigured: {},
+		// The live misconfigured roster (KD5/Task 3): RunContext.misconfigured
+		// reaches every hook context — including this AgentContext — so a
+		// before/afterTestAgent hook on a surviving tester can read it. `{}` when
+		// no ledger is supplied (no misconfiguration handling).
+		misconfigured: ledger?.snapshot() ?? {},
 		scenario,
 		agent,
 		agentWorkspace,
