@@ -267,6 +267,9 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 					iterationReport: outcome.report,
 					allScenarios,
 					log: outcome.log,
+					// Thread the run's ledger snapshot so the improver's
+					// RunContext.misconfigured carries the live roster (KD5/Task 3).
+					misconfigured: ledger.snapshot(),
 				});
 			}
 

@@ -4,6 +4,7 @@ import type {
 	AgentDefinition,
 	IterationCompleteHookContext,
 	IterationInfo,
+	MisconfiguredEntry,
 	RunScenario,
 	SkillsmithConfig,
 } from "../config/types";
@@ -52,6 +53,13 @@ export interface RunImprovementParams {
 	iterationReport: IterationReport;
 	allScenarios: EnumeratedScenario[];
 	log: RunLog;
+	/**
+	 * Snapshot of the run's misconfiguration ledger (id -> entry), threaded in
+	 * from the pipeline so `RunContext.misconfigured` reaches the improver's
+	 * hook contexts (KD5/Task 3). The improver runs between sweeps, so a
+	 * call-time snapshot is sufficient. Defaults to `{}` when absent.
+	 */
+	misconfigured?: Record<string, MisconfiguredEntry>;
 }
 
 export interface ImprovementResult {
@@ -84,6 +92,7 @@ export async function runImprovement(
 		runDirectory,
 		iterations,
 		scenarios,
+		misconfigured,
 	} = params;
 
 	log.section(`improvement (after iteration ${iteration})`);
@@ -94,8 +103,10 @@ export async function runImprovement(
 		runDirectory,
 		iterations,
 		scenarios,
-		// Empty until Task 10 threads the run's ledger snapshot through here.
-		misconfigured: {},
+		// The live misconfigured roster (KD5/Task 3): RunContext.misconfigured
+		// reaches every hook context — including the improver's — via the ledger
+		// snapshot threaded in from the pipeline. `{}` when none was supplied.
+		misconfigured: misconfigured ?? {},
 		iteration,
 		iterationDirectory,
 		pass: iterationReport.pass,
