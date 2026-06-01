@@ -37,8 +37,15 @@ export default defineConfig({
 	// the key appears in directory names and reports. Each entry takes
 	// `provider` and `model`; extra keys (e.g. `effort`) flow through
 	// to the provider that interprets them.
+	//
+	// A misconfigured agent is skipped per-agent, never aborting the run:
+	// if its credential env var is missing/empty or invalid (HTTP 401/403),
+	// or its `provider` id is unknown, that agent is marked SKIPPED once and
+	// the rest of the matrix proceeds. An unknown `provider` no longer fails
+	// config-load either — it's caught here and skips just that agent.
 	agents: {
-		// Anthropic via Claude Code CLI (uses your local CC auth).
+		// Anthropic via Claude Code CLI (uses your local CC auth; no
+		// API-key env var, so it's never skipped for a missing credential).
 		"cc-haiku": {
 			provider: "claude-code",
 			model: "claude-haiku-4-5",
@@ -48,20 +55,24 @@ export default defineConfig({
 			model: "claude-opus-4-7",
 		},
 
-		// Anthropic via the public API (uses ANTHROPIC_API_KEY).
+		// Anthropic via the public API. Reads ANTHROPIC_API_KEY; if it's
+		// unset/empty (or rejected as invalid) this agent is skipped.
 		"anthropic-sonnet": {
 			provider: "anthropic-api",
 			model: "claude-sonnet-4-6",
 		},
 
-		// OpenAI via the public API (uses OPENAI_API_KEY).
+		// OpenAI via the public API. Reads OPENAI_API_KEY; if it's
+		// unset/empty (or rejected as invalid) this agent is skipped.
 		"openai-nano": {
 			provider: "openai-api",
 			model: "gpt-5.4-nano",
 		},
 
-		// OpenAI via the Codex SDK. Supports `effort: "low"|"medium"|
-		// "high"|"xhigh"` to set reasoning effort on the model call.
+		// OpenAI via the Codex SDK (uses your local Codex auth; no
+		// API-key env var, so it's never skipped for a missing credential).
+		// Supports `effort: "low"|"medium"|"high"|"xhigh"` to set reasoning
+		// effort on the model call.
 		"codex-mini": {
 			provider: "codex",
 			model: "gpt-5.4-mini",
@@ -72,7 +83,8 @@ export default defineConfig({
 			effort: "xhigh",
 		},
 
-		// Google Gemini via the public API (uses GEMINI_API_KEY).
+		// Google Gemini via the public API. Reads GOOGLE_GENERATIVE_AI_API_KEY;
+		// if it's unset/empty (or rejected as invalid) this agent is skipped.
 		"gemini-flash": {
 			provider: "gemini-api",
 			model: "gemini-2.5-flash",
