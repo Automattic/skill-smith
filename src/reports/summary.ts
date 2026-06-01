@@ -1,5 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isMisconfiguredSkipReason } from "../config/misconfig";
+import type { MisconfiguredEntry } from "../config/types";
 import { paint, shouldUseColor } from "../util/ansi";
 import { type Cell, classifyVerdict } from "./verdict";
 
@@ -24,6 +26,14 @@ interface Row {
 	scenarioError?: string;
 	cells: Record<string, Cell>;
 	metrics: Record<string, Metrics>;
+	/**
+	 * The scenario's `inconclusive` marker (Task 6), copied verbatim from
+	 * `report.json` when present. A scenario carrying this reached no verdict
+	 * because every tester present was a misconfigured-skip cell (or none was
+	 * present): it is non-PASS but routes to the inconclusive path rather than
+	 * the red FAIL block.
+	 */
+	inconclusive?: { reason: "all-testers-misconfigured"; agents: string[] };
 }
 
 /** One rendered line of the long-format table. */
@@ -48,6 +58,27 @@ interface DisplayRow {
  * the agent's verdict plus the testing agent's wall-clock duration and
  * total token usage. The scenario name is shown only on the first of
  * its rows.
+ *
+ * Misconfigured-skip cells (a `SKIPPED` cell whose reason is recognized by
+ * {@link isMisconfiguredSkipReason}) are excluded from the pass/fail math —
+ * neither numerator nor denominator — so a row of surviving-PASS plus
+ * misconfigured-skip cells passes and a misconfigured id is never a phantom
+ * failure. A scenario with no surviving cells (every tester present was a
+ * misconfigured skip, surfaced by the `inconclusive` marker) is non-PASS but
+ * routes to a distinct INCONCLUSIVE path rather than the red FAIL block. The
+ * three verdicts and their exit codes are:
+ *
+ *   - PASS (exit 0): every scenario passes over its surviving set and none is
+ *     inconclusive.
+ *   - FAIL (exit 1): at least one genuine FAIL (a real failure dominates); any
+ *     inconclusive scenarios are still listed distinctly.
+ *   - INCONCLUSIVE (exit 1): non-PASS, at least one inconclusive scenario, and
+ *     no genuine FAIL.
+ *
+ * The run's misconfiguration roster (`report.json` field `misconfigured`, the
+ * ledger snapshot Task 10 persists) drives a single dedicated SKIPPED-AGENTS
+ * announcement emitted once per run, replacing the N identical per-(scenario,
+ * iteration) failure rows.
  */
 export function prepareSummary(params: PrintSummaryParams): PreparedSummary {
 	const { runDirectory } = params;
@@ -61,19 +92,71 @@ export function prepareSummary(params: PrintSummaryParams): PreparedSummary {
 		return { consoleLines: missingLines, exitCode: 1 };
 	}
 
-	const rows = loadRows(reportPath);
+	const { rows, misconfigured } = loadReport(reportPath);
 	const sortedAgents = collectAgentIds(rows);
-	const allPass =
-		rows.length > 0 && rows.every((r) => isRowPass(r, sortedAgents));
+	const misconfiguredIds = new Set(Object.keys(misconfigured));
+	const verdict = computeVerdict(rows, sortedAgents, misconfiguredIds);
 
 	const useColor = shouldUseColor(process.stdout);
-	const rendered = renderSummaryLines(rows, sortedAgents, allPass, useColor);
+	const rendered = renderSummaryLines(
+		rows,
+		sortedAgents,
+		verdict,
+		misconfigured,
+		useColor,
+	);
 	const plain = useColor
-		? renderSummaryLines(rows, sortedAgents, allPass, false)
+		? renderSummaryLines(rows, sortedAgents, verdict, misconfigured, false)
 		: rendered;
 	writeRunSummary(runDirectory, plain);
 
-	return { consoleLines: ["", ...rendered], exitCode: allPass ? 0 : 1 };
+	return { consoleLines: ["", ...rendered], exitCode: verdict.exitCode };
+}
+
+/**
+ * The run-level verdict over the loaded rows. `kind` decides which result
+ * banner and which sections render; `exitCode` is what the process exits
+ * with (carried unchanged through {@link emitSummary} to pipeline.ts). A
+ * clean run is `{ kind: "PASS", exitCode: 0 }`; both FAIL and INCONCLUSIVE
+ * exit 1.
+ */
+interface RunVerdict {
+	kind: "PASS" | "FAIL" | "INCONCLUSIVE";
+	exitCode: number;
+}
+
+/**
+ * Reduce the rows to a single run verdict. A row that genuinely fails (any
+ * non-excluded cell that is not PASS, or a scenario error) makes the run FAIL.
+ * A row that is inconclusive — its `inconclusive` marker is set or it has no
+ * surviving (non-misconfigured-skip) cells — contributes INCONCLUSIVE only
+ * when no genuine FAIL dominates. PASS requires every row to pass over its
+ * surviving set with no inconclusive scenarios. An empty run (no rows) is FAIL,
+ * matching today's `rows.length > 0` guard rather than a silent pass.
+ *
+ * `misconfiguredIds` is the run's roster of misconfigured agent ids; a cell for
+ * such an id is excluded from the math in every scenario — including one where
+ * the id is simply absent — so a misconfigured tester never becomes a phantom
+ * `missing` failure in a healthy sibling scenario (AC11a).
+ */
+function computeVerdict(
+	rows: Row[],
+	sortedAgents: string[],
+	misconfiguredIds: Set<string>,
+): RunVerdict {
+	if (rows.length === 0) return { kind: "FAIL", exitCode: 1 };
+	let anyFail = false;
+	let anyInconclusive = false;
+	for (const row of rows) {
+		if (isRowInconclusive(row, sortedAgents, misconfiguredIds)) {
+			anyInconclusive = true;
+			continue;
+		}
+		if (!isRowPass(row, sortedAgents, misconfiguredIds)) anyFail = true;
+	}
+	if (anyFail) return { kind: "FAIL", exitCode: 1 };
+	if (anyInconclusive) return { kind: "INCONCLUSIVE", exitCode: 1 };
+	return { kind: "PASS", exitCode: 0 };
 }
 
 /** Print previously prepared console lines and return the exit code. */
@@ -82,7 +165,18 @@ export function emitSummary(prepared: PreparedSummary): number {
 	return prepared.exitCode;
 }
 
-function loadRows(reportPath: string): Row[] {
+/**
+ * Parse `${runDirectory}/report.json` into the rows the summary renders plus
+ * the run's misconfiguration roster. The roster is read from the top-level
+ * `misconfigured` field (Task 10's channel) — the ledger snapshot keyed by
+ * agent id — defaulting to `{}` for older reports that predate the field, so
+ * the announcement code never needs a presence check. Each scenario's
+ * `inconclusive` marker (Task 6) is carried onto its row.
+ */
+function loadReport(reportPath: string): {
+	rows: Row[];
+	misconfigured: Record<string, MisconfiguredEntry>;
+} {
 	const parsed = (JSON.parse(readFileSync(reportPath, "utf8")) ?? {}) as Record<
 		string,
 		unknown
@@ -102,14 +196,26 @@ function loadRows(reportPath: string): Row[] {
 			cells[agentId] = classifyAgentReport(agentReport);
 			metrics[agentId] = extractMetrics(agentReport);
 		}
+		const inconclusive = (
+			scenarioReport as {
+				inconclusive?: { reason: "all-testers-misconfigured"; agents: string[] };
+			}
+		).inconclusive;
 		rows.push({
 			scenario: name,
 			scenarioError: (scenarioReport as { error?: string }).error,
 			cells,
 			metrics,
+			...(inconclusive !== undefined ? { inconclusive } : {}),
 		});
 	}
-	return rows;
+
+	const misconfigured =
+		parsed.misconfigured !== null && typeof parsed.misconfigured === "object"
+			? (parsed.misconfigured as Record<string, MisconfiguredEntry>)
+			: {};
+
+	return { rows, misconfigured };
 }
 
 function collectAgentIds(rows: Row[]): string[] {
@@ -120,39 +226,153 @@ function collectAgentIds(rows: Row[]): string[] {
 	return Array.from(ids).sort();
 }
 
+/**
+ * True iff a cell is a misconfigured-skip — a `SKIPPED` cell whose reason was
+ * produced via the misconfigured marker (Task 1's {@link isMisconfiguredSkipReason}).
+ */
+function isMisconfiguredSkipCell(cell: Cell | undefined): boolean {
+	return (
+		cell !== undefined &&
+		cell.kind === "SKIPPED" &&
+		isMisconfiguredSkipReason(cell.reason)
+	);
+}
+
+/**
+ * True iff the (id, cell) pair is excluded from the pass/fail math entirely —
+ * it neither fails a row nor counts toward it, and it never appears in the red
+ * FAIL block (it may still render in the table for transparency). A pair is
+ * excluded when the cell is a misconfigured-skip *or* the id is on the run's
+ * misconfigured roster. The roster clause matters for scenarios where a
+ * misconfigured agent has no cell at all: without it, the id would surface as a
+ * phantom `missing` failure in a sibling scenario where it was never run.
+ */
+function isExcludedCell(
+	id: string,
+	cell: Cell | undefined,
+	misconfiguredIds: Set<string>,
+): boolean {
+	return misconfiguredIds.has(id) || isMisconfiguredSkipCell(cell);
+}
+
 function renderSummaryLines(
 	rows: Row[],
 	sortedAgents: string[],
-	allPass: boolean,
+	verdict: RunVerdict,
+	misconfigured: Record<string, MisconfiguredEntry>,
 	color: boolean,
 ): string[] {
+	const misconfiguredIds = new Set(Object.keys(misconfigured));
 	const lines: string[] = [];
-	pushTable(lines, rows, sortedAgents, color);
+	pushTable(lines, rows, sortedAgents, misconfiguredIds, color);
 	lines.push("");
-	if (allPass) {
+
+	if (verdict.kind === "PASS") {
 		lines.push("RUN RESULT: PASS");
+		pushMisconfiguredAnnouncement(lines, misconfigured, color);
 		return lines;
 	}
+
+	const inconclusiveRows = rows.filter((r) =>
+		isRowInconclusive(r, sortedAgents, misconfiguredIds),
+	);
+
+	if (verdict.kind === "INCONCLUSIVE") {
+		// Non-PASS, at least one inconclusive scenario, and no genuine FAIL: a
+		// distinct yellow banner (reusing the SKIPPED paint), separate from the
+		// red FAIL block, listing the inconclusive scenarios and their reasons.
+		const banner = `RUN RESULT: INCONCLUSIVE (${inconclusiveRows.length} ${
+			inconclusiveRows.length === 1 ? "scenario" : "scenarios"
+		}: all testers misconfigured)`;
+		lines.push(color ? paint(banner, "yellow", true) : banner);
+		pushInconclusiveSection(lines, inconclusiveRows, color);
+		pushMisconfiguredAnnouncement(lines, misconfigured, color);
+		return lines;
+	}
+
+	// FAIL: a real failure dominates. Render the red FAIL block over the
+	// genuinely-failing rows (misconfigured-skip cells already excluded from
+	// `failureLines`), then list any inconclusive scenarios distinctly.
 	lines.push(
 		color ? paint("RUN RESULT: FAIL", "red", true) : "RUN RESULT: FAIL",
 	);
 	lines.push("");
-	const failingRows = rows.filter((r) => !isRowPass(r, sortedAgents));
+	const failingRows = rows.filter(
+		(r) =>
+			!isRowPass(r, sortedAgents, misconfiguredIds) &&
+			!isRowInconclusive(r, sortedAgents, misconfiguredIds),
+	);
 	failingRows.forEach((row, i) => {
 		const header = color ? paint(row.scenario, "red", true) : row.scenario;
 		lines.push(header);
-		for (const line of failureLines(row, sortedAgents)) {
+		for (const line of failureLines(row, sortedAgents, misconfiguredIds)) {
 			lines.push(`  ${line}`);
 		}
 		if (i < failingRows.length - 1) lines.push("");
 	});
+	pushInconclusiveSection(lines, inconclusiveRows, color);
+	pushMisconfiguredAnnouncement(lines, misconfigured, color);
 	return lines;
+}
+
+/**
+ * List the inconclusive scenarios in their own yellow section (reusing the
+ * SKIPPED paint), distinct from the red FAIL block. Each scenario names the
+ * misconfigured-skip ids that were excluded, when the marker carries them. A
+ * no-op when there are no inconclusive scenarios.
+ */
+function pushInconclusiveSection(
+	lines: string[],
+	inconclusiveRows: Row[],
+	color: boolean,
+): void {
+	if (inconclusiveRows.length === 0) return;
+	lines.push("");
+	const heading = "INCONCLUSIVE SCENARIOS (all testers misconfigured):";
+	lines.push(color ? paint(heading, "yellow", true) : heading);
+	for (const row of inconclusiveRows) {
+		const ids = row.inconclusive?.agents ?? [];
+		const detail = ids.length > 0 ? ` — ${ids.join(", ")}` : "";
+		lines.push(`  ${row.scenario}${detail}`);
+	}
+}
+
+/**
+ * Emit the one-time SKIPPED-AGENTS announcement (R8, AC3): one line per
+ * misconfigured agent in the run's roster, carrying its id, the roles it
+ * filled, and its reason — painted yellow (distinct from the red FAIL block).
+ * This replaces the N identical per-(scenario, iteration) failure rows. A
+ * no-op for a clean run (empty roster), keeping a clean run's output
+ * byte-for-byte identical (AC14).
+ */
+function pushMisconfiguredAnnouncement(
+	lines: string[],
+	misconfigured: Record<string, MisconfiguredEntry>,
+	color: boolean,
+): void {
+	const entries = Object.entries(misconfigured).sort(([a], [b]) =>
+		a < b ? -1 : a > b ? 1 : 0,
+	);
+	if (entries.length === 0) return;
+	lines.push("");
+	const heading = "SKIPPED AGENTS (misconfigured):";
+	lines.push(color ? paint(heading, "yellow", true) : heading);
+	const idWidth = Math.max(...entries.map(([id]) => id.length));
+	const rolesWidth = Math.max(
+		...entries.map(([, entry]) => entry.roles.join(", ").length),
+	);
+	for (const [id, entry] of entries) {
+		const roles = entry.roles.join(", ");
+		const line = `  ${id.padEnd(idWidth)}  ${roles.padEnd(rolesWidth)}  ${entry.reason}`;
+		lines.push(color ? paint(line, "yellow", true) : line);
+	}
 }
 
 function pushTable(
 	lines: string[],
 	rows: Row[],
 	sortedAgents: string[],
+	misconfiguredIds: Set<string>,
 	color: boolean,
 ): void {
 	const displayRows: DisplayRow[] = [];
@@ -169,6 +389,11 @@ function pushTable(
 			});
 			continue;
 		}
+		// Only a genuine failure paints the scenario cell red; an inconclusive
+		// row (all testers misconfigured) is non-PASS but not a red failure.
+		const failing =
+			!isRowPass(row, sortedAgents, misconfiguredIds) &&
+			!isRowInconclusive(row, sortedAgents, misconfiguredIds);
 		sortedAgents.forEach((agentId, i) => {
 			const cell = row.cells[agentId];
 			displayRows.push({
@@ -178,7 +403,7 @@ function pushTable(
 				resultKind: cell?.kind ?? "missing",
 				duration: fmtDuration(row.metrics[agentId]?.duration),
 				tokens: fmtTokens(row.metrics[agentId]?.totalTokens),
-				failing: !isRowPass(row, sortedAgents),
+				failing,
 			});
 		});
 	}
@@ -306,23 +531,66 @@ function classifyAgentReport(agentReport: unknown): Cell {
 	return classifyVerdict(body.review);
 }
 
-function isRowPass(row: Row, sortedAgents: string[]): boolean {
+/**
+ * A row passes iff it has no scenario error and every *surviving* cell (after
+ * excluding misconfigured-skip cells) is PASS. A row whose only cells are
+ * misconfigured skips has no survivors and is therefore not a pass — it is
+ * inconclusive (see {@link isRowInconclusive}), so this returns `false` rather
+ * than vacuously passing over an empty survivor set.
+ */
+function isRowPass(
+	row: Row,
+	sortedAgents: string[],
+	misconfiguredIds: Set<string>,
+): boolean {
 	if (row.scenarioError !== undefined) return false;
-	if (sortedAgents.length === 0) return false;
+	let survivors = 0;
 	for (const a of sortedAgents) {
 		const cell = row.cells[a];
+		if (isExcludedCell(a, cell, misconfiguredIds)) continue;
+		survivors++;
 		if (cell === undefined || cell.kind !== "PASS") return false;
 	}
+	return survivors > 0;
+}
+
+/**
+ * A row is inconclusive when it reached no verdict because every tester present
+ * was a misconfigured-skip cell (or none was present): it is non-PASS but not a
+ * red FAIL. Recognized either by the persisted `inconclusive` marker (Task 6)
+ * or by a row that has no surviving (non-misconfigured-skip) cells and carries
+ * no scenario error. A scenario error is always a genuine FAIL, never
+ * inconclusive.
+ */
+function isRowInconclusive(
+	row: Row,
+	sortedAgents: string[],
+	misconfiguredIds: Set<string>,
+): boolean {
+	if (row.scenarioError !== undefined) return false;
+	if (row.inconclusive !== undefined) return true;
+	for (const a of sortedAgents) {
+		if (!isExcludedCell(a, row.cells[a], misconfiguredIds)) return false;
+	}
+	// No surviving cells: either no agents at all, or all excluded.
 	return true;
 }
 
-function failureLines(row: Row, sortedAgents: string[]): string[] {
+function failureLines(
+	row: Row,
+	sortedAgents: string[],
+	misconfiguredIds: Set<string>,
+): string[] {
 	const out: string[] = [];
 	if (row.scenarioError !== undefined) {
 		out.push(`scenario error: ${row.scenarioError}`);
 	}
 	for (const a of sortedAgents) {
 		const cell = row.cells[a];
+		// Excluded cells (misconfigured-skips or roster ids) never appear in the
+		// red FAIL block; they are surfaced once in the dedicated SKIPPED-AGENTS
+		// announcement instead.
+		if (isExcludedCell(a, cell, misconfiguredIds)) continue;
 		if (cell === undefined) {
 			out.push(`${a}: missing`);
 			continue;

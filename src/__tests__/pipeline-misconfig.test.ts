@@ -200,6 +200,49 @@ test("RunContext.misconfigured is a live view: pre-flight at beforeAll, runtime 
 	rmSync(baseDir, { recursive: true, force: true });
 });
 
+// --- T11 AC11b / AC3 / AC4: end-to-end rendered summary + exit code ----------
+
+test("a whole-run all-misconfigured set renders INCONCLUSIVE with a one-time announcement and exit 1 (AC11b, AC3, AC4)", async () => {
+	// `misconfig-hook-project` has two testers, both misconfigured: `bad-multi`
+	// (pre-flight unknown-provider, dropped before dispatch) and
+	// `mock-misconfig-testing` (runtime HTTP 401 sentinel). With no surviving
+	// tester the scenario is inconclusive, so the run renders INCONCLUSIVE and
+	// exits 1 — never a silent pass over the empty set.
+	const projectRoot = join(fixtures, "misconfig-hook-project");
+	const baseDir = join(projectRoot, ".skillsmith");
+	rmSync(baseDir, { recursive: true, force: true });
+
+	const exitCode = await silentRun(projectRoot);
+	assert.equal(exitCode, 1, "an all-misconfigured run exits 1 (inconclusive)");
+
+	const runDir = soleRunDir(baseDir);
+	const summary = readFileSync(join(runDir, "summary.txt"), "utf8");
+
+	// Distinct INCONCLUSIVE banner, not PASS and not a red FAIL.
+	assert.match(summary, /RUN RESULT: INCONCLUSIVE/);
+	assert.doesNotMatch(summary, /RUN RESULT: PASS/);
+	assert.doesNotMatch(summary, /RUN RESULT: FAIL/);
+
+	// The one-time SKIPPED-AGENTS announcement names both misconfigured ids with
+	// their reasons, each exactly once (AC3), not once per scenario/iteration.
+	assert.match(summary, /SKIPPED AGENTS \(misconfigured\):/);
+	assert.match(summary, /mock-misconfig-testing.*invalid-credential \(HTTP 401\)/);
+	assert.match(summary, /bad-multi.*unknown-provider/);
+	const sentinelReasonLines = summary
+		.split("\n")
+		.filter((l) => l.includes("invalid-credential (HTTP 401)"));
+	assert.equal(
+		sentinelReasonLines.length,
+		1,
+		`the sentinel reason appears once per run:\n${summary}`,
+	);
+
+	// summary.txt is plain text (no ANSI escapes).
+	assert.equal(summary.includes(String.fromCharCode(27)), false);
+
+	rmSync(baseDir, { recursive: true, force: true });
+});
+
 // --- AC14: clean run unchanged ----------------------------------------------
 
 test("a clean run carries an empty roster and behaves as before (AC14)", async () => {
