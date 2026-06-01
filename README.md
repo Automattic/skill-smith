@@ -57,7 +57,7 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
 4. **Scenario loop — parallel.** For each scenario:
    1. **Init scenario.** Create the scenario directory inside the current iteration, load testing agents from `config.roles.test.agents` and the judge from `config.roles.judge` (both resolved against the top-level `config.agents` registry).
    2. **`beforeScenario({ config, runId, scenario })`**.
-   3. **Agent loop — parallel.** For each testing agent:
+   3. **Agent loop — parallel.** For each testing agent that is not skipped as misconfigured (see [Misconfigured agents](#misconfigured-agents)):
       1. **Init agent.** Create the agent directory and `agentWorkspace`.
       2. **`beforeTestAgent({ config, runId, scenario, agentId, agentWorkspace })`**.
       3. **Testing agent.** Receives `scenario.prompt`, `scenario.skills`, and `agentWorkspace`; writes its output into the workspace.
@@ -84,6 +84,19 @@ Projects opt into the hooks they need. Two examples from the WordPress reference
 A **rubric** is prose reference material the judge LLM consults — describing standards or best-practices — reusable across scenarios. Each scenario references one or more rubrics plus an inline `acceptance` list of per-scenario expectations.
 
 **The judge does not read the skill.** The agent learns from the skill; the judge grades from the rubrics. Keeping them epistemically separate is what lets the harness catch a regression in the skill itself — if the judge consulted the same skill the agent did, a bad skill edit would simultaneously redefine "correct" and the regression would slip through.
+
+### Misconfigured agents
+
+An agent is **misconfigured** when it has a config or credential defect that would fail identically on every attempt — a missing or invalid API key, or a provider id that doesn't exist — rather than a transient or test-specific failure. (The full list of what counts, and how detection reads provider errors, lives in [`examples/skillsmith.config.ts`](./examples/skillsmith.config.ts).)
+
+A misconfigured testing agent is **identified once and then skipped everywhere for the rest of the run**. The skip is not a failure: it never counts against a scenario or the run.
+
+- **Detected two ways.** Before any phase work runs, the harness probes each agent for a defect it can know without making a call (e.g. an env-var credential that is absent). At runtime, the first invocation that fails with a misconfiguration-class error marks the agent from that point on. Either way, once marked the agent stays marked for the rest of the run.
+- **Does no further work.** A pre-flight-skipped tester is dropped before the agent loop reaches it: no workspace, no `beforeTestAgent`/`afterTestAgent`, no testing, no judge, no row — as if it were never configured. A tester first found misconfigured at runtime stops there: its paired judge is skipped and no later scenario or iteration dispatches it again.
+- **Not graded, not counted.** The triggering failure is not graded and does not count as a test failure. The agent contributes to neither the numerator nor the denominator of any scenario where it did no counted work, so one defective agent cannot fail an otherwise-passing run. (A tester that genuinely fails its tests is still a real failure and still counts — it is reported distinctly from a misconfigured skip.)
+- **Excluded from re-selection.** Across iterations the agent is never re-selected to retry, including the final full pass (see [How the Self-Improvement works](#how-the-self-improvement-works)).
+
+A run in which no agent is misconfigured is unchanged: the matrix, the verdict, the hook firing, and the CLI output are exactly as they were before this handling existed.
 
 ## How the Self-Improvement works
 
@@ -118,8 +131,8 @@ Every run lives under `${paths.base}/<runId>/`. Each iteration owns its own subd
    - `failed-pairs` — only (scenario, agent) pairs that failed last iteration.
    - `failed-scenarios` *(default)* — every agent of every failing scenario.
    - `all` — the full matrix.
-   A scenario-level verification failure (no specific agent named) re-runs that scenario's full agent matrix. Scenarios that were not re-evaluated keep their previous verdict in the merged matrix.
-5. The loop exits early on all-pass. If `finalPass: true` and the last iteration ran a subset, the harness runs one extra full sweep at the end so the final report reflects the current state of every (scenario, agent) pair.
+   A scenario-level verification failure (no specific agent named) re-runs that scenario's full agent matrix. Scenarios that were not re-evaluated keep their previous verdict in the merged matrix. An agent skipped as [misconfigured](#misconfigured-agents) is never re-selected — its non-passing cell is not treated as a failure to retry.
+5. The loop exits early on all-pass. If `finalPass: true` and the last iteration ran a subset, the harness runs one extra full sweep at the end so the final report reflects the current state of every (scenario, agent) pair. A misconfigured agent stays excluded from this final pass too.
 
 The improver is the only agent that writes, and only inside `paths.skills`. The harness never commits, pushes, or captures a diff — your edits live in the working tree for human review. Set `roles.improver.prompt` to a string (or load one from disk) to replace the built-in improver instructions with a project-specific edit strategy.
 
