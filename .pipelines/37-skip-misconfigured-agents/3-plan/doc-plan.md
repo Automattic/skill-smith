@@ -56,9 +56,11 @@ covered by a task below.
    primary surface.
 2. **`examples/skillsmith.config.ts`** — the annotated reference config. Its
    inline comments document, per provider, which credential each agent uses
-   (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ambient
-   `claude-code`/`codex` auth) and the `beforeTestAgent`/`beforeAll` hook
-   examples — exactly the credential and hook surfaces the feature touches.
+   (one comment per env-var provider, plus ambient `claude-code`/`codex` auth)
+   and the `beforeTestAgent`/`beforeAll` hook examples — exactly the credential
+   and hook surfaces the feature touches. Note: the Gemini credential comment is
+   currently **stale** (it names a credential the harness does not read); D6
+   corrects it from the shipped code.
 3. **`docs/index.html`** (GitHub-Pages landing page, linked from README line 3).
    Illustrative only: shows a sample `RUN RESULT: PASS` line and a sample
    pass/fail matrix, and mentions judge/improver/hooks/verdict at a marketing
@@ -260,14 +262,20 @@ config-load.
 project who need to know what happens when a credential or provider id is wrong.
 
 **Files to change.** `examples/skillsmith.config.ts` — the per-provider
-credential comments (the `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` /
-`GEMINI_API_KEY` / ambient-auth lines) and, where relevant, the `provider`
-field comment.
+credential comments (one per env-var provider, plus the ambient-auth lines)
+and, where relevant, the `provider` field comment.
 
 **Sections-scope.** Inline comments on the `agents` entries and provider lines.
 Add a short, accurate note that a missing/invalid credential or an unknown
 provider skips that agent (not the whole run); keep it terse to match the file's
 comment style. Do not change the config's executable shape or add new fields.
+Source each provider's exact credential env-var name from the shipped code (the
+classifier's `CREDENTIAL_ENV_VAR` map / the provider modules introduced by code
+task 1) — do not copy literals from this plan or from the file's existing
+comments. In particular, the current Gemini credential comment
+(`examples/skillsmith.config.ts:75`) is **stale** and names a credential the
+harness never reads; it must be corrected to match the env var the Gemini
+provider actually probes in the shipped code.
 
 **Depends on.** Confirm against code tasks 1, 4, 5, 10 (which env vars are
 probed, unknown-provider demotion).
