@@ -6,6 +6,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { isMisconfiguredSkipReason } from "../config/misconfig";
 import { isDirectorySafe } from "../util/fs";
 import { classifyVerdict } from "./verdict";
 
@@ -33,15 +34,38 @@ export interface ScenarioReport {
 	pass: boolean;
 	agents: Record<string, ScenarioAgentEntry>;
 	error?: string;
+	/**
+	 * Set only when the scenario reached no verdict because every tester that
+	 * was present was a misconfigured-skip cell (or no tester was present at
+	 * all), with no enumeration `error`. Such a scenario is neither a silent
+	 * pass nor an ordinary FAIL: `pass` is `false`, but consumers branch on
+	 * this field rather than treating it as a failure. `agents` lists the ids
+	 * of the misconfigured-skip cells that were excluded (empty when the
+	 * scenario simply had zero agent directories).
+	 */
+	inconclusive?: { reason: "all-testers-misconfigured"; agents: string[] };
 }
 
 /**
  * Aggregate `${scenarioDirectory}/<agent>/report.json` into
- * `${scenarioDirectory}/report.json`. The scenario passes only when
- * every agent's review is `{ pass: true }`. Missing report →
+ * `${scenarioDirectory}/report.json`. Missing report →
  * `error: "missing agent report"` for that agent and a failing
  * scenario. Each agent report carries a `testing` block and a
  * `review` block verbatim.
+ *
+ * Pass math excludes misconfigured-skip cells from both numerator and
+ * denominator: an agent whose `review` classifies to `SKIPPED` with a
+ * reason recognized by {@link isMisconfiguredSkipReason} neither fails the
+ * scenario nor counts toward it. The scenario passes only when there is at
+ * least one surviving (non-excluded) agent and every survivor's review
+ * classifies `PASS`.
+ *
+ * When the surviving set is empty (no agent directories, or every present
+ * tester was a misconfigured-skip cell) and there is no enumeration
+ * `error`, the scenario is neither a silent pass nor a FAIL: `pass` is
+ * `false` and the `inconclusive` marker is set, listing the excluded
+ * misconfigured-skip ids. A genuine enumeration `error` keeps today's
+ * behavior — `pass: false`, `error` set, and no `inconclusive` marker.
  */
 export function aggregateScenarioReport(
 	params: AggregateScenarioReportParams,
@@ -79,11 +103,32 @@ export function aggregateScenarioReport(
 		}
 	}
 
-	const agentsList = Object.values(agents);
+	// Partition the agent entries: misconfigured-skip cells are excluded from
+	// the vote entirely (neither numerator nor denominator); everything else is
+	// a "survivor" that the scenario pass/fail rule applies to.
+	const misconfiguredSkipIds: string[] = [];
+	const survivors: ScenarioAgentEntry[] = [];
+	for (const [id, entry] of Object.entries(agents)) {
+		const verdict =
+			entry.error === undefined &&
+			entry.review !== null &&
+			typeof entry.review === "object"
+				? classifyVerdict(entry.review)
+				: undefined;
+		if (
+			verdict?.kind === "SKIPPED" &&
+			isMisconfiguredSkipReason(verdict.reason)
+		) {
+			misconfiguredSkipIds.push(id);
+			continue;
+		}
+		survivors.push(entry);
+	}
+
 	const allPass =
 		scenarioError === undefined &&
-		agentsList.length > 0 &&
-		agentsList.every((entry) => {
+		survivors.length > 0 &&
+		survivors.every((entry) => {
 			if (entry.error !== undefined) return false;
 			if (entry.review === null || typeof entry.review !== "object") {
 				return false;
@@ -97,6 +142,15 @@ export function aggregateScenarioReport(
 		agents,
 	};
 	if (scenarioError !== undefined) body.error = scenarioError;
+	// An empty surviving set with no enumeration error is inconclusive, not a
+	// silent pass or an ordinary FAIL: every present tester (if any) was a
+	// misconfigured skip. An enumeration error stays a real scenario error.
+	if (scenarioError === undefined && survivors.length === 0) {
+		body.inconclusive = {
+			reason: "all-testers-misconfigured",
+			agents: misconfiguredSkipIds,
+		};
+	}
 
 	mkdirSync(scenarioDirectory, { recursive: true });
 	const target = join(scenarioDirectory, "report.json");
