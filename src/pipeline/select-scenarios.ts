@@ -29,18 +29,31 @@ export interface ScenarioSelection {
  * Scenarios that have a pre-run `error` (enumeration failure, e.g.
  * malformed scenario.yaml) always stay in selection so the harness
  * keeps surfacing them.
+ *
+ * `isMisconfigured` is the run-scoped predicate (e.g. the misconfig
+ * ledger's `has`) identifying agent ids that were skipped for
+ * misconfiguration. A misconfigured agent's non-PASS cell must never
+ * cause re-selection: its id is dropped before any failing set is built,
+ * so it appears in no returned `agentFilter` and a scenario whose only
+ * failing agents were misconfigured contributes no failing entry on their
+ * account (scenario-level `error` re-selection is unaffected). The default
+ * no-op predicate reproduces the legacy selection byte-for-byte.
  */
 export function selectScenarios(
 	iteration: number,
 	allScenarios: EnumeratedScenario[],
 	prevScenarioReports: Record<string, ScenarioReport | { error: string }>,
 	mode: EvaluationScope,
+	isMisconfigured: (agentId: string) => boolean = () => false,
 ): ScenarioSelection {
 	if (iteration <= 1 || mode === "all") {
 		return { scenarios: allScenarios };
 	}
 
-	const failingAgentsByScenario = collectFailingAgents(prevScenarioReports);
+	const failingAgentsByScenario = collectFailingAgents(
+		prevScenarioReports,
+		isMisconfigured,
+	);
 
 	const filtered = allScenarios.filter((s) => {
 		if (s.error !== undefined) return true;
@@ -67,6 +80,7 @@ export function selectScenarios(
 
 function collectFailingAgents(
 	scenarios: Record<string, ScenarioReport | { error: string }>,
+	isMisconfigured: (agentId: string) => boolean,
 ): Map<string, Set<string>> {
 	const out = new Map<string, Set<string>>();
 	for (const [name, body] of Object.entries(scenarios)) {
@@ -79,6 +93,10 @@ function collectFailingAgents(
 		}
 		const failed = new Set<string>();
 		for (const [agentId, entry] of Object.entries(body.agents)) {
+			// A misconfigured agent's non-PASS cell is not a genuine failure,
+			// so it must never re-select the agent: skip it before it can
+			// enter this scenario's failing set.
+			if (isMisconfigured(agentId)) continue;
 			if (entry.error !== undefined) {
 				failed.add(agentId);
 				continue;
