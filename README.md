@@ -75,9 +75,20 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
 
 Projects opt into the hooks they need. Two examples from the WordPress reference project:
 
-**`beforeTestAgent` — scaffold the artifact the agent will edit.** Generates a plugin skeleton inside `agentWorkspace` with a deterministic slug (`plugin-${scenario.name}-${agentId}`) so the e2e specs can activate it later.
+**`beforeTestAgent` — scaffold the artifact the agent will edit.** Generates a plugin skeleton inside `agentWorkspace` with a deterministic slug (`plugin-${scenario.name}-${agentId}`) so the e2e specs can activate it later. This provisioning never fires for an agent skipped as [misconfigured](#misconfigured-agents): a pre-flight-skipped tester is dropped before the agent loop reaches it, so no setup is wasted scaffolding state for an agent that will never run.
 
 **`afterAllScenarios` — run e2e tests against the artifacts this iteration produced.** Walks the iteration directory for the plugins built this iteration, writes a `.wp-env.json` listing them, then boots `wp-env`. wp-env auto-activates every listed plugin on start, so the hook sets `lifecycleScripts.afterStart` to `wp plugin deactivate --all` — leaving each spec a clean slate. It then invokes Playwright for the scenario specs that ran; each spec runs across the configured testing-agent projects, activates its own plugin, sets up its fixtures (e.g. a post containing the block under test), and tears them down. Finally it stops `wp-env`, removes the generated `.wp-env.json`, and maps each failing spec back to its `(scenario, agent)` pair — returned as `failures` so a green judge but red e2e still fails the iteration. (For more on the loop this feeds, see [How the Self-Improvement works](#how-the-self-improvement-works).)
+
+### Reading the skipped agents from a hook
+
+Every hook context carries the set of agents skipped as [misconfigured](#misconfigured-agents) as a `misconfigured` field on the run context. It is **passive read-only data, not a callback** — a hook that does not need it ignores it, and no hook is required to implement anything new to opt out. The field is keyed by agent id; each entry carries the reason the agent was skipped and the list of role(s) that id filled in the run (so an id used as both tester and improver appears once, with both roles). The exact field shape is documented in the harness runtime contract alongside the type — see the `misconfigured` field on `RunContext` in [`src/config/types.ts`](./src/config/types.ts).
+
+The set is **progressively available**: it grows as the run discovers more skips, and which entries a given hook sees depends on when that hook fires.
+
+- **`beforeAll`** (and every later hook) sees the pre-flight skips — every agent the harness probed and rejected before any phase ran. A per-agent provisioning hook can read this to confirm an agent will run before scaffolding state for it, though it does not need to: the harness already drops a pre-flight-skipped tester before `beforeTestAgent` fires, so that hook is simply never called for a skipped agent (see the `beforeTestAgent` example above).
+- **`afterAll`** (and other end-of-run / reporting hooks) sees the full set: pre-flight skips plus every agent found misconfigured at runtime during the sweep. This is the timing to read for a complete skipped-agents report.
+
+On a run with no misconfigured agents the field is an empty object and changes nothing — every hook fires exactly as it did before this handling existed, with `misconfigured` present but inert.
 
 ### Rubrics and the judge
 
@@ -271,3 +282,5 @@ The base hooks (`beforeAll`, `beforeScenario`, ...) still fire. The iteration ad
 | `afterIteration` | last, after the improver — so it sees the post-improve state |
 
 Each receives the iteration number, the iteration directory, and (for `afterImprove`) `improvementPath`. `afterAllScenarios` is the only hook whose return value the harness consumes; the rest are fire-and-forget.
+
+Every hook context — base and iteration alike — also carries the passive `misconfigured` set of skipped agents, keyed by agent id with their roles; see [Reading the skipped agents from a hook](#reading-the-skipped-agents-from-a-hook).
