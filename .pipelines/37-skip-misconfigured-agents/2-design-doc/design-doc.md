@@ -146,19 +146,21 @@ keyed-by-id surface hooks read (R7) and the CLI summarizes (R8).
 | Tester exclusion | `src/pipeline/agent-loop.ts` | Filter ledger ids before dispatch; record runtime detections; do not count the triggering failure. |
 | Provider error enrichment | `src/providers/lib/vercel-runner.ts`, `anthropic-api.ts`, `openai-api.ts`, `gemini-api.ts` | Surface HTTP status into the error string in a parseable form. |
 | Re-selection | `src/pipeline/select-scenarios.ts` | Drop ledger ids from the re-selected agent set. |
-| Pass/fail math | `src/reports/scenario-report.ts`, `iteration-report.ts`, `reports/verdict.ts` | Exclude misconfigured-skip from numerator AND denominator. |
-| Empty-set outcome | `scenario-report.ts` + summary | Surface explicit "all testers misconfigured" outcome (Decision 3). |
+| Pass/fail math (in-memory) | `src/reports/scenario-report.ts`, `iteration-report.ts`, `reports/verdict.ts` | Exclude misconfigured-skip from numerator AND denominator (`aggregateScenarioReport`, `agentsAllPass`, `scenariosAllPass`). |
+| Pass/fail math (on-disk verdict + exit code) | `src/reports/summary.ts` | Fourth, independent verdict computation: `isRowPass`/`prepareSummary` must apply the same exclusion and emit `inconclusive` exit code, not FAIL. |
+| Empty-set outcome | `scenario-report.ts`, `iteration-report.ts`, `summary.ts` | Surface explicit "all testers misconfigured" inconclusive outcome (Decision 3) at both verdict-computing layers. |
 | Hook context | `src/config/types.ts` (`RunContext`) | Add a passive, keyed-by-id misconfigured-set field. |
 | CLI surfacing | `src/reports/summary.ts`, `src/progress/*` | One-time per-run announcement; visually distinct from a real FAIL. |
-| Config validation | `src/config/validate.ts` | Demote unknown-provider from hard abort to a skippable case (Decision 1). |
+| Config validation | `src/config/validate.ts` | Remove ONLY the `isProviderId` branch (`validate.ts:80-84`) from `validateAgentEntry`; empty-`model`, role-reference, mode/scope checks stay hard aborts (Decision 1). |
 
 ## Interfaces and Data Flow
 
 ```
-loadConfig ─► (Decision 1) validate.ts no longer aborts on unknown provider
-   │
+loadConfig ─► (Decision 1) validate.ts drops ONLY the isProviderId branch;
+   │           other structural checks still hard-abort
 runPipeline
    ├─ build ledger; preflightMisconfig over every distinct role agent id
+   │     (detects unknown-provider via isProviderId/PROVIDER_IDS, NEVER getProvider)
    │     ├─ judge id in ledger?  ──► fail-fast: PreconditionError naming judge+reason (AC12)
    │     └─ improver id in ledger? ─► mark degrade-to-test-only (AC13)
    ├─ put ledger on RunContext  ──► all hooks read RunContext.misconfigured (AC8/AC9/AC10)
@@ -167,6 +169,7 @@ runPipeline
      selectScenarios(...) ─► drop ledger ids from agent filter (AC2)
      for each scenario:
        runAgents ─► agents = role.test.agents \ ledger ids          (R2/AC1/AC6)
+                    (ledger filter short-circuits BEFORE getProvider; KD1)
          for each surviving agent:
            beforeTestAgent fires (skipped agents never reach here)  (AC9)
            runTestingAgent ─► provider.invoke
@@ -177,8 +180,13 @@ runPipeline
                 └─ transient ─► ordinary FAIL row, counted           (AC5)
        aggregateScenarioReport ─► pass math excludes misconfigured-skip rows
          empty surviving denominator? ─► explicit outcome (Decision 3)  (AC11a/AC11b)
+   writeRunReport/scenariosAllPass ─► in-memory run verdict, same exclusion
    afterAll fires ─► RunContext.misconfigured now includes runtime finds (AC8)
-   prepareSummary ─► one-time misconfigured announcement, distinct styling (AC3/AC4/AC8)
+   prepareSummary (reads report.json) ─► RECOMPUTES verdict + exit code:
+       isRowPass excludes misconfigured-skip cells (num+denom);             (AC1/AC4/AC7/AC7b)
+       all-skip/empty row ─► inconclusive exit, not FAIL;                   (AC11a/AC11b)
+       one-time misconfigured announcement, distinct styling                (AC3/AC4/AC8)
+   emitSummary ─► returns prepared.exitCode as the process exit code (pipeline.ts:265)
 ```
 
 ### Hook-context shape (R7, AC8)
@@ -217,8 +225,10 @@ configured." The single exception is the **runtime-detected** tester that fails
 on scenario B: at that moment a workspace dir already exists for scenario B,
 so the agent-loop writes a sentinel `{ skipped: "misconfigured: <reason>" }`
 row for that one cell instead of a row that would count. The pass-math change
-below treats that sentinel as excluded, so the representation difference is
-invisible to the verdict.
+below (KD8) treats that sentinel as excluded at all four verdict surfaces —
+including the on-disk `summary.ts` reader that re-derives the verdict and exit
+code — so the representation difference is invisible to the verdict and the
+sentinel cannot flip the run to FAIL/exit-1.
 
 ## Key Decisions
 
@@ -227,6 +237,39 @@ invisible to the verdict.
 - **Choice**: Demote an unknown `provider` id from a whole-run
   `PreconditionError` abort to a per-agent skip (`unknown-provider` reason),
   recorded in the ledger like any other misconfiguration.
+- **Exactly what changes in load-time validation**: the **only** part removed
+  from `collectConfigErrors` is the `isProviderId` branch inside
+  `validateAgentEntry` (`validate.ts:80-84`). Every sibling check in the same
+  function and its callers stays a hard `PreconditionError` abort: the
+  empty/non-string `model` branch (`validate.ts:77-79`) in the *same*
+  `validateAgentEntry`, the role-reference checks (`validateRoles` →
+  `validateTestRole`/`validateSingleRole`, including "references unknown agent",
+  duplicate-id, and empty-id), and mode/scope/`selfImprovement` validation. An
+  unknown provider is the single structural check that becomes a skip; nothing
+  else is loosened, and nothing becomes silent.
+- **Why this does not crash at dispatch**: `provider` is typed `ProviderId` on
+  `AgentDefinitionInput`, and removing the load-time guard lets a non-`ProviderId`
+  string flow through `normalizeConfig` into a runtime `AgentDefinition.provider`
+  that `getProvider(id)` would throw on (`registry.ts:23-29`). The design
+  forecloses that path: the **pre-flight probe** detects unknown-provider
+  *structurally*, before any provider is resolved, by testing the id with
+  `isProviderId` / membership in `PROVIDER_IDS` (`registry.ts:21,31-33`) —
+  **never** by calling `getProvider`. The agent is recorded in the ledger at
+  pre-flight, and from then on `getProvider` is never reached for it:
+  - **As a tester**, the agent-loop filters ledger ids out of `agents` *before*
+    the dispatch loop (so before `runTestingAgent` → `provider.invoke` →
+    `getProvider`); the short-circuit is the `has(id)` ledger check, which runs
+    ahead of any provider resolution (R2/AC1/AC6).
+  - **As the judge**, the judge fail-fast (KD6) fires from the same pre-flight
+    probe and terminates with a `PreconditionError` *before* the first judge
+    dispatch, so the judge's `getProvider` is never called for an unknown-provider
+    id (AC12).
+  - **As the improver**, the degrade-to-test-only path (KD6) attempts no edits,
+    so the improver's provider is never resolved (AC13).
+  Because the unknown-provider id is deterministic and caught in the pre-flight
+  probe, no role's runtime path ever passes a ledgered unknown-provider id to
+  `getProvider`; the raw `Error` thrown by `registry.ts:26` is unreachable for
+  these agents.
 - **Alternatives**: (a) Keep fail-fast — treat a typo'd provider as an author
   error that aborts. (b) Hybrid — abort only if *every* agent has an unknown
   provider, else skip.
@@ -236,10 +279,8 @@ invisible to the verdict.
   agent with a typo lets the rest of a multi-agent run complete — the precise
   derailment this feature removes. The cost is that a config-wide typo (all
   agents) no longer aborts loudly at load; it now surfaces via the empty-set
-  outcome (KD3), which is still explicit and non-silent, so no failure is
-  hidden. `validate.ts` keeps every other structural check (empty model,
-  unresolved role reference, bad mode/scope) as hard aborts — only the
-  provider-id check is demoted, and only to a *skip*, never to silence.
+  inconclusive outcome (KD3), which is still explicit and non-silent, so no
+  failure is hidden.
 - **Traces-to**: R1 (in-scope set), R2, Open Decision 1; the empty-set path
   ties to R5/AC11b.
 
@@ -273,20 +314,58 @@ invisible to the verdict.
   *every* scenario is inconclusive because every tester is misconfigured (R5b),
   the run's overall verdict is a non-PASS, explicitly-surfaced "inconclusive"
   result (exit code 1) listing the misconfigured ids and reasons.
+- **Concrete data-model representation (single, unambiguous home)**:
+  `inconclusive` is a **scenario-level** state, so it lives on `ScenarioReport`
+  — **not** on the per-(scenario, agent) `Cell` union (`verdict.ts:9-12`),
+  which keeps its existing three kinds (PASS / FAIL / SKIPPED) unchanged.
+  Specifically:
+  - `ScenarioReport` (`scenario-report.ts:31-36`) gains one optional discriminator,
+    `inconclusive?: { reason: "all-testers-misconfigured"; agents: string[] }`,
+    set by `aggregateScenarioReport` exactly when the surviving denominator is
+    empty (≥0 agents present, but every present agent is a misconfigured-skip
+    cell, or no agents at all after exclusion). When `inconclusive` is set,
+    `pass` is `false` (it is not a pass), and the scenario is **not** a FAIL —
+    consumers branch on the `inconclusive` field, which is the distinguisher.
+  - `report.json` for the run therefore carries, per scenario, either
+    `{ pass: true }`, `{ pass: false }` (real failure), or
+    `{ pass: false, inconclusive: {...} }`. The third shape is what makes
+    AC11a "distinguishable from a real failure" verifiable on disk.
+  - **`scenariosAllPass`** (`iteration-report.ts:166-177`) already returns
+    non-PASS for any `pass !== true` scenario, so an inconclusive scenario
+    correctly fails the run-level PASS — but the run verdict reported to the
+    user must be rendered "inconclusive," not "FAIL," when *every* non-pass
+    scenario is inconclusive (R5b). The run-level distinction is derived (run is
+    inconclusive iff it is non-PASS and at least one scenario is inconclusive
+    and no scenario is a genuine FAIL), not stored as a fourth run state.
+  - **`summary.ts`** (the authoritative verdict/exit-code computer, KD8) reads
+    the per-scenario `inconclusive` field from `report.json` and renders the
+    run line as `RUN RESULT: INCONCLUSIVE (N scenarios: all testers
+    misconfigured)` with **exit code 1** (non-PASS, AC11b) in its own
+    visually-distinct section, separate from the red FAIL block. A run that has
+    both genuine FAILs and inconclusive scenarios renders FAIL (a real failure
+    dominates) but still lists the inconclusive scenarios distinctly. The empty
+    `rows.length > 0` guard (`summary.ts:67`) is reconciled here: an
+    all-misconfigured run is not "no rows" — the scenarios still exist with an
+    `inconclusive` marker — so it is neither a silent pass (guard) nor an
+    ordinary FAIL.
 - **Alternatives**: (a) Abort the whole run on the first all-misconfigured
-  scenario. (b) Mark the empty-set scenario a plain FAIL.
+  scenario. (b) Mark the empty-set scenario a plain FAIL. (c) Reuse a per-cell
+  `SKIPPED` marker to stand in for scenario-level inconclusiveness — rejected
+  because `Cell` is per-agent and an empty surviving set has *no* agent cell to
+  carry the state, so the marker would have no home.
 - **Trade-offs**: Abort throws away every sibling scenario's results — the
   opposite of "one bad agent must not derail the run," and indistinguishable
   from the derailment this feature removes. Plain FAIL violates R5's "must NOT
   be reported as an ordinary failure indistinguishable from a real test
   failure" and AC11a's "not indistinguishable from a real failure." A distinct
-  `inconclusive` state satisfies the no-silent-pass invariant (it is never a
-  pass over an empty set), is explicit, and is visually separable in the CLI.
-  The cost is one new verdict state threaded through `verdict.ts`,
-  `scenario-report.ts`, `iteration-report.ts`, and the summary — but it reuses
-  the existing SKIPPED rendering machinery (a non-PASS, non-FAIL state already
-  exists in `Cell`). Whole-run all-misconfigured naturally rolls up as "every
-  scenario inconclusive → run non-PASS," so R5b needs no separate code path.
+  `inconclusive` field on `ScenarioReport` satisfies the no-silent-pass
+  invariant (it is never a pass over an empty set), is explicit, and is
+  visually separable in the CLI. The cost is one new optional field on
+  `ScenarioReport` plus the rendering branch in `summary.ts` — the per-agent
+  `Cell` union is untouched, so the existing SKIPPED rendering path for
+  individual cells is unaffected. Whole-run all-misconfigured naturally rolls up
+  as "every non-pass scenario inconclusive → run inconclusive," so R5b needs no
+  separate stored run state.
 - **Traces-to**: R5, R5a, R5b, AC11a, AC11b, Open Decision 3. Note: an empty
   set caused by an all-agents unknown-provider typo (KD1) lands here, keeping
   that case explicit.
@@ -382,28 +461,68 @@ invisible to the verdict.
   announced once as misconfigured (R8) so the picture is not misleading.
 - **Traces-to**: R3, R4, AC7, AC7b, Open Decision 7.
 
-### KD8 — Pass/fail math excludes misconfigured-skip from numerator and denominator (load-bearing, holds across KD4/KD7)
+### KD8 — Pass/fail math excludes misconfigured-skip from numerator and denominator, across all FOUR verdict-computing surfaces (load-bearing, holds across KD4/KD7)
 
-- **Choice**: Change `aggregateScenarioReport` / `agentsAllPass` /
-  `scenariosAllPass` so a misconfigured-skip cell (the runtime sentinel, and an
-  `inconclusive` scenario) is excluded from both numerator and denominator,
-  rather than counting as a FAIL as today. A scenario passes iff it has ≥1
-  surviving tester and every surviving tester PASSes; an empty surviving set is
-  `inconclusive` (KD3), not a pass.
+- **Context — there are four independent verdict computations, not three.**
+  The codebase derives a PASS/FAIL judgment from the matrix in four places that
+  do **not** share a code path; all four must apply the same exclusion or the
+  feature leaks. (1) `aggregateScenarioReport` (`scenario-report.ts:82-92`)
+  computes a scenario's boolean `pass` while writing `<scenario>/report.json`.
+  (2) `scenariosAllPass` (`iteration-report.ts:166-177`) computes the run's
+  boolean `pass` while `writeRunReport` writes `report.json`; `agentsAllPass`
+  (`:179-188`) is the per-scenario helper. (3) and (4) **`summary.ts`
+  recomputes the verdict and the process exit code from scratch by re-reading
+  `report.json`** — `prepareSummary` derives `allPass = rows.length > 0 &&
+  rows.every((r) => isRowPass(r, ...))` (`summary.ts:66-67`), `isRowPass` fails
+  the row on any non-PASS cell including a `SKIPPED` one (`:309-317`), and the
+  returned `exitCode` (`:76`) is what the pipeline ultimately exits with via
+  `return emitSummary(prepared)` (`pipeline.ts:265`). `summary.ts` calls none
+  of the three functions in (1)/(2); it is a fourth, co-equal verdict computer
+  and the *authoritative* one for the user-visible RUN RESULT line and the
+  process exit code.
+- **Choice**: Apply one exclusion rule at all four surfaces — a
+  misconfigured-skip cell (the runtime sentinel `{ skipped: "misconfigured:
+  ..." }`, KD4) and any `inconclusive` scenario (KD3) are excluded from both
+  numerator and denominator rather than counting as a FAIL. A scenario passes
+  iff it has ≥1 surviving tester and every surviving tester PASSes; an empty
+  surviving set is `inconclusive` (KD3), not a pass.
+  - **In-memory (surfaces 1–2)**: `aggregateScenarioReport` / `agentsAllPass`
+    skip a cell whose `classifyVerdict` yields `SKIPPED` with a reason matching
+    the misconfigured marker before applying `every(... PASS)`; `scenariosAllPass`
+    treats an `inconclusive` scenario as non-PASS-but-not-FAIL per KD3.
+  - **On-disk verdict + exit code (surfaces 3–4, `summary.ts`)**: this is the
+    fix the prior revision omitted. `isRowPass` (`:309-317`) must **skip**
+    misconfigured-skip cells when scanning `sortedAgents` (so a row of
+    surviving-PASS + misconfigured-skip cells passes), and must not let the
+    misconfigured cell flip the row to fail. `failureLines` (`:319-338`) must
+    not list a misconfigured-skip cell under the red FAIL block (it belongs in
+    the one-time SKIPPED announcement, KD-CLI). The misconfigured cell is also
+    excluded from `collectAgentIds`/`sortedAgents` membership for verdict
+    purposes so it is not a phantom denominator entry. The empty-row guard
+    `rows.length > 0` (`:67`) and the `sortedAgents.length === 0` /
+    all-misconfigured-row case must map to KD3's **inconclusive exit** path
+    (`exitCode` non-zero, distinct rendering — see KD3), **not** to today's
+    plain `RUN RESULT: FAIL` and **not** to a silent pass. The result: the
+    on-disk verdict in `summary.ts` agrees cell-for-cell with the in-memory
+    verdict in `iteration-report.ts`, and the process exit code honors AC1/AC7.
 - **Alternatives**: Leave `classifyVerdict`'s SKIPPED counting as FAIL (today's
   behavior) and rely only on absence — but that fails the runtime-sentinel cell
-  and the present-but-marked option.
+  and the present-but-marked option, and (critically) leaves `summary.ts`
+  flipping the visible verdict and exit code to FAIL on any misconfigured-skip
+  cell regardless of what the in-memory layers computed.
 - **Trade-offs**: This is the one change R4 requires "regardless of surface
-  representation." Today `classifyVerdict` returns a `SKIPPED` kind that the
-  pass math treats as non-PASS → FAIL; this design distinguishes a
+  representation." Today `classifyVerdict` returns a `SKIPPED` kind that every
+  pass-math surface treats as non-PASS → FAIL; this design distinguishes a
   *misconfiguration* skip (excluded) from any other skip. Concretely, the
   sentinel review uses a recognizable marker (`skipped: "misconfigured: ..."`)
   that the math filters out before computing `every(... PASS)`. The cost is
-  touching three pass-computing functions; the benefit is that KD4 and KD7 both
-  reduce to "is this cell excluded?" with no further special-casing.
-- **Traces-to**: R4, AC1, AC4, AC7, AC7b, AC14 (clean run: no
-  misconfigured-skip cells exist, so the filter is a no-op and math is
-  identical).
+  touching four pass-computing functions across two files instead of three in
+  one; the benefit is that KD4 and KD7 both reduce to "is this cell excluded?"
+  with no further special-casing, and the authoritative exit code can no longer
+  contradict the in-memory verdict.
+- **Traces-to**: R4, AC1, AC4, AC7, AC7b, AC11a, AC11b (inconclusive exit code
+  in `summary.ts`), AC14 (clean run: no misconfigured-skip cells exist, so the
+  filter is a no-op at all four surfaces and math/exit code are identical).
 
 ## Dependencies
 
@@ -411,9 +530,11 @@ invisible to the verdict.
   `@ai-sdk/*` and `@openai/codex-sdk`; no new SDK surface is used.
 - **Internal**: `providers/registry.ts` (`isProviderId`, `PROVIDER_IDS`) for
   the unknown-provider check; `config/types.ts` for `RunContext`/`AgentContext`;
-  `reports/verdict.ts` `Cell` type (extended with an `inconclusive`-equivalent
-  or reusing SKIPPED with a marker); `progress/types.ts` for the dashboard
-  counters. The pre-flight probe depends only on `process.env` and the static
+  `reports/verdict.ts` `Cell` type (read unchanged — the new `inconclusive`
+  state lives on `ScenarioReport`, not on the per-agent `Cell` union; KD3);
+  `reports/scenario-report.ts` `ScenarioReport` (gains the optional
+  `inconclusive` field); `progress/types.ts` for the dashboard counters. The
+  pre-flight probe depends only on `process.env` and the static
   `CREDENTIAL_ENV_VAR` map.
 - **Ordering constraint** (not an implementation plan, a data dependency): the
   ledger must exist and be seeded before `runOneIteration` so `beforeAll` and
@@ -422,9 +543,12 @@ invisible to the verdict.
 
 ## Failure Modes and Observability
 
-- **CLI one-time announcement (R8, AC3, AC4)**: `prepareSummary` reads
-  `RunContext.misconfigured` (via the report or a passed-through ledger
-  snapshot) and emits a dedicated block, e.g.:
+- **CLI one-time announcement (R8, AC3, AC4)**: `prepareSummary` today reads
+  only `report.json` from disk and has no `RunContext` access, so the
+  misconfigured roster must be available to it either persisted into
+  `report.json` (the ledger snapshot written alongside the matrix at run end)
+  or passed through `PrintSummaryParams`. `prepareSummary` emits a dedicated
+  block from that roster, e.g.:
 
   ```
   SKIPPED AGENTS (misconfigured):
@@ -445,9 +569,13 @@ invisible to the verdict.
 - **Judge fail-fast (AC12)**: a single clear line naming the judge id and reason
   (e.g. `Judge agent "j1" is misconfigured: ANTHROPIC_API_KEY is not set`),
   exit code 1, no partial matrix.
-- **Empty-set / inconclusive (AC11a/AC11b)**: the scenario/run summary states
-  the inconclusive outcome and lists the misconfigured ids and reasons — never a
-  silent pass.
+- **Empty-set / inconclusive (AC11a/AC11b)**: an all-misconfigured scenario
+  carries the `ScenarioReport.inconclusive` field (KD3); `summary.ts` renders it
+  as `RUN RESULT: INCONCLUSIVE` (or, when genuine FAILs co-exist, FAIL with the
+  inconclusive scenarios still listed distinctly) with exit code 1, lists the
+  misconfigured ids and reasons, and never reports a silent pass over the empty
+  set. The `rows.length > 0` guard (`summary.ts:67`) does not fire because the
+  inconclusive scenarios are present as rows.
 - **Logs**: each ledger record is logged once (`log.info("agent X skipped:
   <reason>")`) for the evidence trail; runtime detection logs at the point of
   classification.
@@ -457,14 +585,15 @@ invisible to the verdict.
 
 ## Coverage of every acceptance criterion
 
-- **AC1** — pre-flight tester absent from dispatch (KD4) and from pass math
-  (KD8); verdict equals the N-1 run. ✔
+- **AC1** — pre-flight tester absent from dispatch (KD4) and from pass math at
+  all four surfaces including `summary.ts`'s exit code (KD8); verdict equals the
+  N-1 run. ✔
 - **AC2** — `selectScenarios` drops ledger ids, so no re-selection/re-dispatch
   (ledger consulted in re-selection). ✔
 - **AC3** — single CLI announcement from the ledger, not per (scenario,
   iteration). ✔
-- **AC4** — distinct SKIPPED styling vs red FAIL; genuine failure still counts,
-  misconfigured does not (KD8). ✔
+- **AC4** — distinct SKIPPED styling vs red FAIL; genuine failure still counts
+  (and still flips `summary.ts` exit code), misconfigured does not (KD8). ✔
 - **AC5** — `classifyRuntimeError` returns `undefined` for transient errors →
   ordinary counted FAIL (KD2 allowlist). ✔
 - **AC6** — pre-flight probe runs before phase work; surviving-set filter means
@@ -481,10 +610,12 @@ invisible to the verdict.
 - **AC10** — detection per agent id; ledger entry lists all roles; tester
   reference excluded (KD4), improver reference degrades (KD6); hook entry
   reflects all roles. ✔
-- **AC11a** — single all-misconfigured scenario → `inconclusive`, siblings
-  proceed (KD3). ✔
-- **AC11b** — whole-run all-misconfigured → every scenario inconclusive → run
-  non-PASS, explicit, ids+reasons surfaced (KD3). ✔
+- **AC11a** — single all-misconfigured scenario → `ScenarioReport.inconclusive`
+  field (distinct from a FAIL on disk and in `summary.ts`), siblings proceed
+  (KD3). ✔
+- **AC11b** — whole-run all-misconfigured → every non-pass scenario inconclusive
+  → `summary.ts` renders RUN RESULT: INCONCLUSIVE, exit code 1, explicit,
+  ids+reasons surfaced (KD3, KD8). ✔
 - **AC12** — misconfigured judge fail-fast, names judge + reason, no partial
   matrix (KD6). ✔
 - **AC13** — misconfigured improver degrades to test-only, valid matrix, no
@@ -511,10 +642,15 @@ invisible to the verdict.
   `Provider` interface with a `credentialEnvVar()` method. If providers later
   diverge in env-var handling this map must track them — a one-line maintenance
   point flagged here.
-- **New `inconclusive` verdict state** widens the `Cell` union and touches every
-  pass-computing function and the summary. Risk is contained by reusing the
-  existing SKIPPED rendering path; the math change (KD8) is the same change R4
-  mandates anyway.
+- **New `inconclusive` verdict state** is a scenario-level field on
+  `ScenarioReport` (KD3) — it does **not** widen the per-agent `Cell` union. It
+  touches all four pass-computing surfaces (KD8: `aggregateScenarioReport`,
+  `agentsAllPass`/`scenariosAllPass`, and `summary.ts`'s `isRowPass`/
+  `prepareSummary`) and the run-result rendering in `summary.ts`. Risk is
+  contained because the per-agent SKIPPED rendering path is untouched and the
+  math change (KD8) is the same change R4 mandates anyway; the residual risk is
+  keeping the on-disk verdict in `summary.ts` in agreement with the in-memory
+  verdict, addressed by applying the identical exclusion rule at both layers.
 - **Live hook field semantics** (KD5): a hook that caches `misconfigured` early
   will not see later runtime additions. Documented on the field; this is the
   intended progressive contract, not a bug.
