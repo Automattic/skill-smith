@@ -288,8 +288,9 @@ Decision, the criterion is written to assert the *invariant that holds
 regardless of which option is chosen*, and notes the decision it defers to.
 
 ### AC1 — One misconfigured tester among several does not derail the run
-- **Given** a run with N testing agents where exactly one has a missing or
-  invalid credential and the remaining N-1 are well-configured,
+- **Given** a run with N testing agents where exactly one has a missing
+  credential (deterministically detected pre-flight, before any phase work) and
+  the remaining N-1 are well-configured,
 - **When** the run executes,
 - **Then** the run completes; the pass/fail accounting for every scenario and
   for the run includes only the N-1 well-configured agents; the misconfigured
@@ -302,7 +303,11 @@ regardless of which option is chosen*, and notes the decision it defers to.
   present-but-marked-skipped option the artifact has an extra visibly-distinct
   skipped row (R8/AC4 require it), so it is not literally "as if only N-1 were
   configured." Whether the skipped agent is wholly absent or present-but-marked
-  is **Open Decision 4**.
+  is **Open Decision 4**. This AC is scoped to the missing-credential
+  (pre-flight) case so total absence holds unconditionally; the runtime-detected
+  invalid-credential path — where an agent may have recorded an earlier PASS
+  before detection — is covered by AC7/AC7b, whose accounting depends on **Open
+  Decision 7**.
 
 ### AC2 — Misconfigured tester is excluded from re-selection
 - **Given** the run from AC1 with more than one iteration,
