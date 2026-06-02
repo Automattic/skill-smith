@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "skillsmith";
+import { defineConfig } from "@automattic/skillsmith";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
