@@ -55,7 +55,7 @@ Two design-level substitutions are baked into this plan and are traced to design
   - `package-lock.json`
 - **Changes:**
   - Run `npm install` at the repo root. Do not pass `--ignore-scripts` unless needed for sandboxing. Do not delete the existing lockfile manually — let `npm install` update it in place so unrelated diffs are minimised.
-  - Verify that `npm ci` succeeds after the install (this is the contract Task 8 and Task 9 will exercise on CI).
+  - Verify that `npm ci` succeeds after the install (this is the contract Tasks 7 and 8 will exercise on CI).
   - Do not edit any other file as part of this task. If `node_modules/` exists in the worktree, leave it untracked.
 - **Depends on:** Task 1.
 - **Traces to:** R8.3, A3, design "New devDependencies" section.
@@ -63,7 +63,7 @@ Two design-level substitutions are baked into this plan and are traced to design
   - `package-lock.json` contains entries for `node_modules/@changesets/cli` and `node_modules/@changesets/changelog-github` at versions satisfying `^2.31.0` and `^0.7.0` respectively.
   - `package-lock.json:packages[""].name === "@automattic/skillsmith"` (i.e. the lockfile root reflects the rename from Task 1).
   - `npm ci` exits 0 against the resulting `package.json` + `package-lock.json` pair.
-  - `package-lock.json:lockfileVersion` is unchanged from the existing value (regeneration should not bump the lockfile schema unless npm did so on its own).
+  - `package-lock.json:lockfileVersion` remains at its current value `3` UNLESS the installed npm CLI bumps the schema on its own (e.g. npm 11 vs npm 10); a CLI-driven bump is acceptable, but the code-writer must surface it in the PR description for the reviewer's awareness. Do not manually revert a CLI-driven bump.
 
 ### Task 3: Add `.changeset/config.json` with the canonical Changesets configuration
 
@@ -139,9 +139,9 @@ Two design-level substitutions are baked into this plan and are traced to design
 
 ### Task 5: Add the `none`-bump starter changeset
 
-- **Goal:** Ship one starter changeset at `.changeset/<random>.md` so (a) this PR's own merge passes the gate (`changeset status` sees a changeset that covers the release-relevant diff in `package.json`), and (b) when the maintainer runs `release.yml` post-merge, `changesets/action` v1.4.0+'s `hasNonEmptyChangesets` check passes (because the starter has `releases.length === 1`), the action opens the Version Packages PR, and `changeset version` consumes the entry into the exact D2 diff (delete the starter, no version bump, no `CHANGELOG.md` change).
+- **Goal:** Ship one starter changeset at `.changeset/<file>.md` so (a) this PR's own merge passes the gate (`changeset status` sees a changeset that covers the release-relevant diff in `package.json`), and (b) when the maintainer runs `release.yml` post-merge, `changesets/action` v1.4.0+'s `hasNonEmptyChangesets` check passes (because the starter has `releases.length === 1`), the action opens the Version Packages PR, and `changeset version` consumes the entry into the exact D2 diff (delete the starter, no version bump, no `CHANGELOG.md` change).
 - **Files to change:**
-  - `.changeset/<random>.md` (new) — the implementation may use the canonical `npx changeset add` random filename (e.g. `chilly-melons-cheer.md`) or pin a deterministic name like `initial-scaffolding.md`. Either satisfies R8.6 / A6 substance; the design's OQ-3 leaves the choice to the implementer.
+  - `.changeset/initial-scaffolding.md` (new) — write the file directly with the literal contents below. **Do NOT invoke `npx changeset add`**: the interactive CLI cannot produce a `none`-bump entry and would write a `patch` or `minor` bump that the code-writer would then have to hand-edit. The deterministic filename `initial-scaffolding.md` keeps the diff readable and the acceptance check trivial; the `npx changeset add` random-name convention is not load-bearing for any downstream tool (the action enumerates `.changeset/*.md` regardless of name).
 - **Changes:**
   - Create the file with exactly the following contents:
 
@@ -166,11 +166,14 @@ Two design-level substitutions are baked into this plan and are traced to design
 
 ### Task 6: Implement `scripts/validate-changesets.ts` with B1–B8 unit tests and a CLI smoke test
 
-- **Goal:** Ship the shape validator + pre-1.0 guard as a TypeScript script under `scripts/`, factored into a pure `validateChangesetFile(file, raw, pkgName, version) → Err[]` function and an entry-guarded `main(): number` orchestrator so the per-rule unit tests can import the pure function without executing I/O. Cover all of B1–B8 plus a CRLF-tolerance case in `src/__tests__/validate-changesets.test.ts`. Add a child-process smoke test in the same test file that spawns the script via `npx tsx scripts/validate-changesets.ts` against a temporary directory with a seeded `package.json` and `.changeset/` directory, asserting the exit code and stderr-prefix format.
+- **Goal:** Ship the shape validator + pre-1.0 guard as a TypeScript script under `scripts/`, factored into a pure `validateChangesetFile(file, raw, pkgName, version) → Err[]` function and an entry-guarded `main(): number` orchestrator so the per-rule unit tests can import the pure function without executing I/O. Cover all of B1–B8 plus a CRLF-tolerance case in `src/__tests__/validate-changesets.test.ts`. Add a child-process smoke test in the same test file that spawns the script via `node --import tsx scripts/validate-changesets.ts` against a temporary directory with a seeded `package.json` and `.changeset/` directory, asserting the exit code and stderr-prefix format.
+
 - **Files to change:**
   - `scripts/validate-changesets.ts` (new)
   - `src/__tests__/validate-changesets.test.ts` (new)
+
 - **Changes:**
+
   - **`scripts/validate-changesets.ts`** — implement to the contract in design section "`scripts/validate-changesets.ts` input/output contract" and "Validator pseudocode (illustrative, not production code)":
     - Module type is ESM (project already uses `"type": "module"`); the script is loaded by `tsx` so it does not need a build step.
     - Import `readFileSync` and `readdirSync` from `node:fs`, `pathToFileURL` from `node:url`, and `parse as parseYaml` from `yaml`. Do NOT add a new YAML dependency; reuse the existing `yaml@^2.8.3` already in `package.json:dependencies`.
@@ -178,11 +181,11 @@ Two design-level substitutions are baked into this plan and are traced to design
     - Define `const VALID = new Set(["patch", "minor", "major", "none"]);`.
     - Define `const FENCE_RE = /^---\r?\n([\s\S]*?)(?:\r?\n)?---\r?\n?([\s\S]*)$/;` — the corrected regex from design section "Empirical verification of the regex fix" (the prior `/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/` rejected the canonical empty form and must NOT be used).
     - Export `validateChangesetFile(file: string, raw: string, pkgName: string, version: string): Err[]`. Implementation MUST:
-      - Compute `const preRelease = String(version).startsWith("0.")`.
+      - Compute `const preRelease = String(version).startsWith("0.");`.
       - Match `raw` against `FENCE_RE`. On no match, push `{ file, line: 1, msg: "missing or unterminated front matter (expected two '---' fences)" }` and return.
       - Extract `[, fmRaw, body]` from the match.
       - R-shape-2 short-circuit: if `fmRaw.trim() === "" && body.trim() === ""`, return an empty array (the empty-changeset case passes).
-      - R-shape-3: if `body.trim() === ""` (and front matter is non-empty), push `{ file, line: 4, msg: "empty body (changeset has front matter but no summary)" }` (note: the line constants 1/2/4 are pseudocode placeholders per OQ-2; the contract is "line-numbered errors" and a stable `:<n>:` separator — the test assertions check `Err.msg` substrings, not line numbers).
+      - R-shape-3: if `body.trim() === ""` (and front matter is non-empty), push `{ file, line: 4, msg: "empty body (changeset has front matter but no summary)" }`. **Note on line constants:** the integers `1` / `2` / `4` are deliberate canonical values for the validator's three error sites (fence error → `1`, front-matter error → `2`, body error → `4`). They are contract for source-stability — the test assertions intentionally check `Err.msg` substrings rather than `Err.line` values, but the constants must be present and stable so the stderr-printed `:<n>:` separator (per the design's "line-numbered errors" contract) emits a non-empty integer. OQ-2 leaves the exact integer choice open; this plan settles it as `1/2/4` to match the design's pseudocode.
       - Wrap `parseYaml(fmRaw)` in a `try`/`catch`; on parse failure push `{ file, line: 2, msg: \`YAML parse error: ${(e as Error).message}\` }` and return.
       - If the parsed front matter is `null` or not a `typeof === "object"`, push `{ file, line: 2, msg: "front matter must be a YAML mapping of package name to bump" }` and return.
       - For each `[name, bump]` of `Object.entries(fm)`:
@@ -203,29 +206,99 @@ Two design-level substitutions are baked into this plan and are traced to design
       }
       ```
     - Target ~50 LOC. Do not add `console.log` calls (stdout must be empty for piping). Do not call `process.exit` from `validateChangesetFile`.
-  - **`src/__tests__/validate-changesets.test.ts`** — use `node:test` and `node:assert/strict` (the existing convention; see `src/__tests__/scenarios.test.ts`). Test cases:
+
+  - **`src/__tests__/validate-changesets.test.ts`** — use `node:test` and `node:assert/strict` (the existing convention; see `src/__tests__/scenarios.test.ts` and `src/__tests__/smoke.test.ts`).
+
+    **Import statement (load-bearing for typecheck).** The test file MUST start with:
+
+    ```ts
+    import { validateChangesetFile, type Err } from "../../scripts/validate-changesets";
+    ```
+
+    Use the relative path `"../../scripts/validate-changesets"` with **no `.ts` extension** — this matches the existing import style in `src/__tests__/*.test.ts` (e.g. `import { run } from "../runner"` at `src/__tests__/smoke.test.ts:7`) and works under `tsx`'s ESM resolution with `verbatimModuleSyntax: true`. Do NOT write `"../../scripts/validate-changesets.ts"` (the explicit extension may be rejected under the project's `verbatimModuleSyntax` setting in some `tsx` versions) and do NOT write a dynamic `import()` (eager static import is what makes the test file the typecheck path for the script).
+
+    This import is the **load-bearing typecheck path** for `scripts/validate-changesets.ts` per the design's "Untouched but contract-relevant components" section (design-doc.md:137): because `tsconfig.json:include` is `["src/**/*", "skillsmith.config.ts", "examples/**/*"]` (i.e. `scripts/**` is OUT of `include`), the script itself is not directly typechecked. The static `import` in this test file pulls the script's exported surface into the typechecker's reachable graph through the test file (which IS in `include`), so any type error in the exported signatures of `validateChangesetFile` or `Err` surfaces under `npm run typecheck`. The implementer MUST verify `npm run typecheck` passes after writing both files.
+
+    **Path-resolution helper for the CLI smoke test.** Near the top of the file (after the imports), compute the absolute path to the validator script using the codebase convention `fileURLToPath(new URL(..., import.meta.url))`:
+
+    ```ts
+    import { fileURLToPath } from "node:url";
+    // ... other imports ...
+    const VALIDATOR_PATH = fileURLToPath(new URL("../../scripts/validate-changesets.ts", import.meta.url));
+    ```
+
+    This matches the existing convention in `src/__tests__/scenarios.test.ts:8–9` and `src/__tests__/smoke.test.ts:9` (both compute paths via `fileURLToPath(import.meta.url)` + path joining). The `new URL(..., import.meta.url)` form is the cleanest one-step expression for "relative to this test file". The result is an absolute filesystem path. **Do NOT use `path.resolve(process.cwd(), ...)`** — the CLI smoke test below sets the spawn `cwd` to a tmpdir, so a cwd-relative path would not resolve correctly.
+
+    **Test cases:**
+
     - **B1 (passes valid changeset).** Construct `raw = '---\n"@automattic/skillsmith": minor\n---\n\nAdd a feature.\n'`; assert `validateChangesetFile("test.md", raw, "@automattic/skillsmith", "0.1.0")` returns an empty array.
     - **B2 (passes canonical empty changeset).** Construct `raw = '---\n---\n'`; assert the function returns an empty array. Also cover the no-trailing-newline variant `raw = '---\n---'`.
     - **B3 (fails missing closing fence).** Construct `raw = '---\n"@automattic/skillsmith": minor\n'` (no closing `---`); assert the result contains an error whose `msg` includes `"missing or unterminated front matter"`.
     - **B4 (fails invalid bump).** Construct `raw = '---\n"@automattic/skillsmith": superminor\n---\n\nBody.\n'`; assert the result contains an error whose `msg` includes `'invalid bump "superminor"'`.
     - **B5 (fails wrong package name).** Construct `raw = '---\nsome-other-package: minor\n---\n\nBody.\n'`; assert the result contains an error whose `msg` includes `'unknown package "some-other-package"'` AND `'expected "@automattic/skillsmith"'`.
-    - **B6 (fails empty body with non-empty front matter).** Construct `raw = '---\n"@automattic/skillsmith": minor\n---\n\n\n'`; assert the result contains an error whose `msg` includes `"empty body"`.
+    - **B6 (fails empty body with non-empty front matter).** Construct `raw = '---\n"@automattic/skillsmith": minor\n---\n\n\n'`; assert the result contains an error whose `msg` includes `"empty body"`. (Note: this input produces exactly one error — the front matter is well-formed and per-entry rules push no further errors. The assertion just looks for the "empty body" substring; do not assert a specific error count.)
     - **B7 (fails major bump while pre-1.0).** Construct `raw = '---\n"@automattic/skillsmith": major\n---\n\nBreaking change.\n'`; call with `version === "0.1.0"`; assert the result contains an error whose `msg` includes `"'major' is forbidden while pre-1.0"` AND `"CONTRIBUTING.md#pre-10-policy"`. Additionally, call the same `raw` with `version === "1.0.0"` and assert the result is empty (the pre-1.0 guard only fires while `version` starts with `0.`).
     - **B8 (`main()` exit codes).** Exercise `main()` indirectly via the CLI smoke test below; do not call `main()` from a unit test (the unit-test file should not have side-effects on the worktree's own `.changeset/`).
     - **CRLF tolerance.** Construct `raw = '---\r\n"@automattic/skillsmith": minor\r\n---\r\n\r\nAdd thing.\r\n'`; assert the function returns an empty array.
-    - **CLI smoke test (covers B8 + the `.changeset/<file>:<line>:` printed format).** Use `node:child_process`'s `spawnSync` with `node` and the args `[ "--import", "tsx", "<absolute path to scripts/validate-changesets.ts>" ]`, set `cwd` to a temporary directory created via `node:fs.mkdtempSync(os.tmpdir() + path.sep + "validate-changesets-smoke-")`. Inside the tmpdir, write a `package.json` containing `{"name": "@automattic/skillsmith", "version": "0.1.0"}` and a `.changeset/` directory with two files: one passing (`---\n"@automattic/skillsmith": patch\n---\n\nFix bug.\n`) and one failing (`---\n"@automattic/skillsmith": superminor\n---\n\nBody.\n`). Assert: `status === 1`, `stderr.toString()` matches the regex `/\.changeset\/[^:]+:\d+: invalid bump/`, and `stdout.toString() === ""`. Run a second invocation with only the passing changeset and assert `status === 0` and `stderr.toString() === ""`.
+
+    **CLI smoke test (covers B8 + the `.changeset/<file>:<line>:` printed format).** Use `node:child_process`'s `spawnSync`. Construction (concrete, no placeholders):
+
+    ```ts
+    import { spawnSync } from "node:child_process";
+    import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+    import { tmpdir } from "node:os";
+    import path from "node:path";
+
+    // VALIDATOR_PATH computed earlier via fileURLToPath(new URL(..., import.meta.url)).
+
+    function setupTmpDir(changesets: Record<string, string>): string {
+      const dir = mkdtempSync(path.join(tmpdir(), "validate-changesets-smoke-"));
+      writeFileSync(
+        path.join(dir, "package.json"),
+        JSON.stringify({ name: "@automattic/skillsmith", version: "0.1.0" }),
+      );
+      mkdirSync(path.join(dir, ".changeset"));
+      for (const [name, body] of Object.entries(changesets)) {
+        writeFileSync(path.join(dir, ".changeset", name), body);
+      }
+      return dir;
+    }
+
+    // Spawn:
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", VALIDATOR_PATH],
+      { cwd: tmpDir, encoding: "utf8" },
+    );
+    ```
+
+    Use `process.execPath` rather than the literal string `"node"` for portability across CI runners and developer environments (it resolves to the absolute path of the current Node binary, e.g. `/usr/bin/node`). The `VALIDATOR_PATH` constant is the absolute path computed earlier — independent of `cwd`.
+
+    **Failing-case assertions.** Seed the tmpdir with two files: one passing (`---\n"@automattic/skillsmith": patch\n---\n\nFix bug.\n`) and one failing (`---\n"@automattic/skillsmith": superminor\n---\n\nBody.\n`). Assert:
+    - `result.status === 1`.
+    - `result.stderr.toString()` matches the regex `/\.changeset\/[^:]+:\d+: invalid bump/`.
+    - `result.stdout.toString() === ""`.
+
+    **Passing-case assertions.** Run a second invocation with only the passing changeset and assert:
+    - `result.status === 0`.
+    - `result.stderr.toString() === ""`.
+
   - Wire the new test file into the existing `npm test` invocation: it already globs `src/__tests__/*.test.ts` (see `package.json:test` script — `node --import tsx --test src/__tests__/*.test.ts`), so no script edit is needed.
-- **Depends on:** Task 1 (the validator reads `package.json:name`), Task 3 (so the tree has a `.changeset/` directory the smoke test can model against), Task 5 (so `npm test` against the worktree's actual `.changeset/` passes cleanly; the unit tests do not depend on Task 5 but the smoke test verifying behaviour on the real tree benefits from it).
-- **Traces to:** R2.5, R2.6, R3.4, R8.9, A9, A10, B1, B2, B3, B4, B5, B6, B7, B8, C4, design section "Validation rules mapped to acceptance criteria", design decision "Validator pseudocode shape — pure function + entry-guarded main", design decision "Test strategy — unit tests for the validator's pure function, smoke test for the CLI entry".
+
+- **Depends on:** Task 1 (the validator reads `package.json:name` and `package.json:version` in `main()`, which is exercised by Task 6's worktree-root acceptance smoke check), Task 3 (so the worktree has a `.changeset/` directory `main()` can `readdirSync` when run from the repo root for the acceptance smoke check), Task 5 (so the worktree's `.changeset/` contains a valid starter and the acceptance smoke check exits 0). **The unit tests in `src/__tests__/validate-changesets.test.ts` themselves have no runtime dependency on Tasks 3 or 5** — they exercise `validateChangesetFile` against in-memory strings — and the CLI smoke test exercises a freshly-seeded `.changeset/` in a tmpdir. The Tasks 3 and 5 dependencies exist solely so the worktree-root acceptance check `Running npx tsx scripts/validate-changesets.ts from the worktree root exits 0` (see Acceptance below) holds when the code-writer runs it as a one-off post-implementation sanity check. The acceptance check `npm test` passes is satisfied as soon as Task 6 itself is complete, regardless of whether Tasks 3 and 5 have landed.
+
+- **Traces to:** R2.5, R2.6, R3.4, R8.9, A9, A10, B1, B2, B3, B4, B5, B6, B7, B8, C4, design section "Validation rules mapped to acceptance criteria", design decision "Validator pseudocode shape — pure function + entry-guarded main", design decision "Test strategy — unit tests for the validator's pure function, smoke test for the CLI entry", design section "Untouched but contract-relevant components" (specifically the `tsconfig.json:include` and load-bearing test-import note at design-doc.md:137).
+
 - **Acceptance:**
   - `scripts/validate-changesets.ts` exists and is loadable by `tsx`.
   - The script exports `validateChangesetFile`, `main`, and the `Err` type.
   - Calling `validateChangesetFile("x.md", '---\n---\n', "@automattic/skillsmith", "0.1.0")` returns `[]`.
   - Calling `validateChangesetFile("x.md", '---\n"@automattic/skillsmith": major\n---\n\nbody\n', "@automattic/skillsmith", "0.1.0")` returns an error mentioning `'major' is forbidden while pre-1.0` and `CONTRIBUTING.md#pre-10-policy`.
-  - Running `npx tsx scripts/validate-changesets.ts` from the worktree root exits `0` (because Task 5's starter is valid).
+  - `npm test` passes with the new test file included. (This acceptance criterion is independent of Tasks 3 and 5 — the unit and CLI smoke tests are self-contained.)
+  - `npm run typecheck` passes. The test file's static `import { validateChangesetFile, type Err } from "../../scripts/validate-changesets"` is the load-bearing typecheck path for the script per the design's `tsconfig.json:include` decision; this acceptance is the explicit verification of that contract.
   - Spawning the script from a tmpdir with a malformed changeset exits `1` and writes a line matching `.changeset/<file>:<n>: <msg>` to stderr, and writes nothing to stdout.
-  - `npm test` passes with the new test file included.
   - `src/__tests__/validate-changesets.test.ts` covers every B1–B8 case: B1–B7 each have a dedicated `test()` block exercising `validateChangesetFile`, B8 is covered by the CLI smoke test asserting both the exit-zero (clean) and exit-one (failure) paths, and a CRLF-tolerance case is also present.
+  - **Worktree-root smoke check (depends on Tasks 3 and 5).** After Tasks 3 and 5 are complete, running `npx tsx scripts/validate-changesets.ts` from the worktree root exits `0` (because Task 5's starter is a valid `none`-bump entry and Task 3's `.changeset/` directory exists). This is a one-off post-implementation sanity check the code-writer runs at the terminal; it does NOT need to be wired into the test suite. If this acceptance fails before Tasks 3/5 are complete, the failure is a Task-3 or Task-5 problem, not a Task-6 problem.
 
 ### Task 7: Add `.github/workflows/changeset-gate.yml`
 
@@ -266,6 +339,7 @@ Two design-level substitutions are baked into this plan and are traced to design
 
   - Use `pull_request` (NOT `pull_request_target`). No secrets are needed and the gate must run against PR-head untrusted code.
   - Use `actions/checkout@v6` and `actions/setup-node@v6` with the exact `fetch-depth: 0` and `node-version: 22` / `cache: npm` shown.
+  - **Action-version caveat (design-acknowledged):** the spec and design pin `actions/checkout@v6` and `actions/setup-node@v6`. The design's "Open Questions" section flagged that the current published majors on GitHub Marketplace are `v4` and `v4` respectively at design time. The plan inherits the spec/design pin. **If at code-write time `v6` is not yet released** for either action (verify with a quick `gh api repos/actions/checkout/releases` lookup), substitute `v4` for both and surface the deviation in a one-line PR description note; the substantive contract (`fetch-depth: 0`, `node-version: 22`, `cache: npm`) does not depend on the action major.
   - Validator runs BEFORE `changeset status` (R2.6) so a shape error surfaces with the validator's line-numbered message before `changeset status`'s misleading "no changesets found".
   - Concurrency uses `head_ref || ref` so PR-head pushes cancel prior in-progress runs; `cancel-in-progress: true` saves CI time on rapid pushes.
   - Permissions are exactly `contents: read` and `pull-requests: read`. No write permissions.
@@ -274,7 +348,7 @@ Two design-level substitutions are baked into this plan and are traced to design
 - **Acceptance:**
   - `.github/workflows/changeset-gate.yml` exists and is valid YAML.
   - `on.pull_request.branches === ["trunk"]`.
-  - The job has exactly the steps in order: `actions/checkout@v6` (with `fetch-depth: 0`), `actions/setup-node@v6` (with `node-version: 22`, `cache: npm`), `npm ci`, `npx tsx scripts/validate-changesets.ts`, `npx changeset status --since=origin/${{ github.event.pull_request.base.ref }}`.
+  - The job has exactly the steps in order: `actions/checkout@v6` (with `fetch-depth: 0`), `actions/setup-node@v6` (with `node-version: 22`, `cache: npm`), `npm ci`, `npx tsx scripts/validate-changesets.ts`, `npx changeset status --since=origin/${{ github.event.pull_request.base.ref }}`. (If the published-major deviation above is applied, substitute `v4` for both `@v6` references.)
   - Permissions are exactly `contents: read` and `pull-requests: read`.
   - Concurrency group is `changeset-gate-${{ github.head_ref || github.ref }}` with `cancel-in-progress: true`.
   - The validator step name contains "Validate" or "validate" (so `C4`'s "fails the gate at the validator step" claim is traceable in the Actions log).
@@ -344,8 +418,8 @@ Two design-level substitutions are baked into this plan and are traced to design
   - Use the inverted-ternary expression `${{ !inputs.skip_publish && 'npx changeset publish' || '' }}` for the `publish:` input. Do NOT use the naive form `${{ inputs.skip_publish && '' || 'npx changeset publish' }}` — the naive form is a no-op due to the GitHub Actions ternary trap (empty string is falsy in `||`).
   - Permissions are exactly the three lines `contents: write`, `pull-requests: write`, `id-token: write`. Do NOT add `packages: write` or `issues: write`.
   - Use `concurrency: ${{ github.workflow }}-${{ github.ref }}` with NO `cancel-in-progress` (release runs must serialize, not cancel).
-  - Use `actions/checkout@v6` with `fetch-depth: 0` (required by `@changesets/changelog-github`'s `git log` call for PR/author enrichment).
-  - Use `actions/setup-node@v6` with `node-version: 22` and `cache: npm`.
+  - Use `actions/checkout@v6` with `fetch-depth: 0` (required by `@changesets/changelog-github`'s `git log` call for PR/author enrichment). Apply the Task-7 action-version caveat if `v6` is not yet published at code time.
+  - Use `actions/setup-node@v6` with `node-version: 22` and `cache: npm`. Apply the Task-7 action-version caveat if `v6` is not yet published at code time.
   - Pre-publish steps run sequentially in this order: `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`. Then the `changesets/action@v1` step runs.
   - `GITHUB_TOKEN` is passed via `env:` on the `changesets/action@v1` step.
   - Do NOT add any `--provenance` flag explicitly; OIDC publishing is automatic at npm CLI v11.5.1+ and the action handles it.
@@ -359,6 +433,6 @@ Two design-level substitutions are baked into this plan and are traced to design
   - The `publish:` input on the `changesets/action@v1` step uses the expression `${{ !inputs.skip_publish && 'npx changeset publish' || '' }}` (inverted ternary, with the leading `!`).
   - Permissions are exactly the three lines `contents: write`, `pull-requests: write`, `id-token: write`.
   - Concurrency is `${{ github.workflow }}-${{ github.ref }}` with no `cancel-in-progress` key.
-  - The job steps appear in this order: `actions/checkout@v6` (with `fetch-depth: 0`), `actions/setup-node@v6` (with `node-version: 22`, `cache: npm`), `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `changesets/action@v1`.
+  - The job steps appear in this order: `actions/checkout@v6` (with `fetch-depth: 0`), `actions/setup-node@v6` (with `node-version: 22`, `cache: npm`), `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `changesets/action@v1`. (If the Task-7 published-major deviation is applied, substitute `v4` for both `@v6` references.)
   - The `changesets/action@v1` step has `env.GITHUB_TOKEN === ${{ secrets.GITHUB_TOKEN }}`.
   - No `NPM_TOKEN` or `--provenance` flag is present anywhere in the file.
