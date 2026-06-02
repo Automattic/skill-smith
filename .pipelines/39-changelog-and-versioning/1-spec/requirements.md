@@ -161,6 +161,225 @@ A deliberate maintainer action, with checklist criteria documented in `CONTRIBUT
 - Skillsmith source anchors: `src/providers/types.ts:36-41`, `src/config/self-improvement.ts:17-25`, `src/config/types.ts:144-287`, `bin/skillsmith.mjs:14-39`, `README.md:139-165, 213-224`
 - Empirical scratch repo: `/tmp/changesets-test-39` — `0.1.0 + major → 1.0.0`; `0.1.0 + minor → 0.2.0`; `0.1.0 + patch → 0.1.1`; `changeset status --since=main` exits 1 on a feature branch without a changeset; empty-changeset on disk is just `---\n---`.
 
+## Q3 — Release workflow and publishing
+
+### CRITICAL: npm name `skillsmith` is not ours (flagged for maintainer)
+
+Empirical finding (via `npm view skillsmith`): the existing `skillsmith` 0.0.1 on npm is owned by `jonschlinkert <github@sellside.com>`, license MIT, repo `git+https://github.com/jonschlinkert/skillsmith.git` — **a different, unrelated package**, likely a name-squat or abandoned scaffold (single 519-byte file, never updated since 2024-11-15).
+
+This blocks publishing under the unscoped name `skillsmith`. Three paths:
+
+1. **`@automattic/skillsmith` (recommended).** Empirically available (`npm view @automattic/skillsmith` → 404); scope is active for Automattic (~50 existing `@automattic/*` packages with `read-write` access). Lowest friction. Requires `"publishConfig": { "access": "public" }` in `package.json` and `"access": "public"` in `.changeset/config.json`.
+2. Dispute the unscoped name with npm Support (https://docs.npmjs.com/policies/disputes). Slow, uncertain — only valid grounds are trademark/squat.
+3. Publish under a different unscoped name (e.g. `skillsmith-harness`). Worst option — naming-search SEO penalty, package vs. CLI-bin-name divergence.
+
+**This is an owner-level decision.** Spec assumes `@automattic/skillsmith` as the working assumption; design-doc phase must confirm with the maintainer before workflow files reference a final name.
+
+### Q3a — Workflow shape
+
+**Decision: (i) `changesets/action` "Version Packages" PR pattern.**
+
+On every push to `trunk`, the action checks for pending changesets. If any exist, it opens (or updates) a PR titled "Version Packages" on a release branch named `changeset-release/trunk`. Merging that PR triggers tag/release/publish in the same workflow.
+
+Confirmed behaviour of `changesets/action` v1.8.0 (source: https://github.com/changesets/action/blob/main/action.yml):
+
+| Input | Default | Note |
+|---|---|---|
+| `github-token` | `${{ github.token }}` | Auto. |
+| `publish` | (none) | Set to `npx changeset publish` to enable publishing. |
+| `version` | `changeset version` | Default fine. |
+| `commit`, `title` | `Version Packages` | Default fine. |
+| `setupGitUser` | `true` | Leave on. |
+| `createGithubReleases` | `true` | Default-on — auto-creates a GitHub Release per published version. |
+| `commitMode` | `git-cli` | Default fine. |
+| `branch` | `github.ref_name` | Resolves to `trunk` on a `push: trunk` event. |
+
+- The action **only opens/updates the PR when at least one non-README `.changeset/*.md` exists** — routine pushes generate no PR noise.
+- If a Version Packages PR is already open and a new changeset lands, the action **force-pushes the release branch and regenerates the PR body / `CHANGELOG.md`** — no duplicate PRs, no conflicts.
+- For `trunk` to work, **both** `.changeset/config.json:baseBranch = "trunk"` *and* the workflow's `on: push: branches: [trunk]` trigger must be set. Empirically verified: `changeset init` defaults `baseBranch` to `"main"`.
+
+### Q3b — Publishing target
+
+**Decision: (γ) Tag + GitHub Release + npm publish, as `@automattic/skillsmith`.**
+
+- The CLI in `bin/skillsmith.mjs` is documented in `README.md` as the canonical entry (`skillsmith` / `npx skillsmith counter`); the `exports` field exposes `./src/index.ts` for programmatic use. Both imply `npm install -D <name>` is the intended consumption path — tag-only ((β)) would leave the documented UX broken.
+- Scope rename to `@automattic/skillsmith` (per the npm finding above); add `"publishConfig": { "access": "public" }` (scoped packages default to `restricted`).
+
+**Authentication: npm Trusted Publishing (OIDC), not a long-lived `NPM_TOKEN`.**
+
+- npm Trusted Publishing went GA on 2025-07-31 (https://github.blog/changelog/2025-07-31-npm-trusted-publishing-with-oidc-is-generally-available/).
+- Workflow needs `id-token: write` permission.
+- Requires npm CLI **v11.5.1+** at publish time.
+- When configured, `npm publish` runs with **no env-var token** and **auto-generates provenance attestations** — no `--provenance` flag needed (https://docs.npmjs.com/trusted-publishers/).
+- Provenance attaches only to public packages — fine here.
+- **2026-05-20 change:** Trusted publishers created after that date must explicitly select the allowed action (`npm publish`) in the npm web UI. Today is past that date, so the new-regime selection is required at setup.
+
+**Fallback:** `NPM_TOKEN` automation token with explicit `--provenance` flag. Less preferred — long-lived tokens are an attack surface.
+
+**Ownership / setup:** `npm access list packages automattic` confirms ~50 `@automattic/*` packages exist with `read-write` access — the org → GitHub-team binding is already in place. Claiming `@automattic/skillsmith` is a normal "new scoped package within an existing org" flow. **Open follow-up for the maintainer:** confirm the npm `@automattic` admin doesn't gate creation of new package names within the scope.
+
+### Q3c — Tagging & GitHub Releases
+
+- **Use `createGithubReleases: true`** (the action's default).
+- **Tag format:** accept the action's default `@automattic/skillsmith@<version>` (e.g. `@automattic/skillsmith@0.2.0`). Verbose but functional; tooling (`git describe`, etc.) handles both forms, and the action expects the package-name-prefixed form when reading existing tags to dedupe. Trying to override (custom `version:` script) is heavy for cosmetic gain.
+- **Release notes:** auto-populated from the matching `CHANGELOG.md` section by the action (Keep-a-Changelog style: "Major/Minor/Patch Changes").
+- **Use `@changesets/changelog-github`** v0.7.0 instead of the default changelog plugin — it enriches each entry with PR links and author handles, making both `CHANGELOG.md` and the GitHub Release notes much more readable.
+
+  ```json
+  {
+    "changelog": [
+      "@changesets/changelog-github",
+      { "repo": "Automattic/skillsmith" }
+    ]
+  }
+  ```
+
+### Q3d — Permissions, secrets, merge access
+
+**Workflow permissions (minimal):**
+
+```yaml
+permissions:
+  contents: write       # commit version bump, create tags, create GitHub Releases
+  pull-requests: write  # create/update the Version Packages PR
+  id-token: write       # npm OIDC trusted publishing
+```
+
+- **Do not add `packages: write`** — that's for GitHub's own registry, not public npm.
+- **Do not add `issues: write`** — `changesets/action` doesn't post issue comments; only the separate `@changesets/bot` GitHub App does, and it has its own auth.
+
+**Repo prerequisite:** "Allow GitHub Actions to create and approve pull requests" must be **enabled** (Repo Settings → Actions → General → Workflow permissions). It's off by default in some Automattic-managed repos. Open follow-up for the maintainer to verify before launch.
+
+**Authentication:** OIDC trusted publisher per Q3b; `NPM_TOKEN` is the fallback.
+
+**Merge access:**
+
+- The action *opens* the Version Packages PR; **a human merges it** — that merge is the load-bearing release gate.
+- **Branch protection on `trunk`:** require PR review (1 approval), require status checks (the test/lint/typecheck job), allow `github-actions[bot]` to push the release branch `changeset-release/trunk` but not bypass protection on `trunk` itself.
+- Self-approval should be prohibited by default. The bot opens; a human reviews.
+- Open follow-up: pull current `Automattic/skillsmith` branch-protection rules and confirm they match this model.
+
+**Tests before publish — Pattern A (sequential in one workflow), recommended:**
+
+```yaml
+jobs:
+  release:
+    steps:
+      - actions/checkout@v6 (fetch-depth: 0)
+      - actions/setup-node@v6 (node-version: 22, cache: npm)
+      - npm ci
+      - npm run lint
+      - npm run typecheck
+      - npm test
+      - changesets/action@v1 (publish: npx changeset publish)
+```
+
+- Cost: ~30s extra CI per release. Value: never ship a broken `npm publish` because of a flaky dep or post-merge regression.
+- **`fetch-depth: 0` is required** even though the canonical README doesn't mention it: the action calls `git log` to attribute changesets to commits for Release notes; without full history, notes lose context. Multiple community sources document this gap.
+
+### Q3e — Branch model
+
+- **Single-track from `trunk`** — no maintenance/release branches.
+  - Pre-1.0 by Q2 policy (no parallel-major scenario by construction).
+  - Post-1.0, if needed: Changesets supports prerelease branches and the `changeset pre` command (https://github.com/changesets/changesets/blob/main/docs/prereleases.md). Cross that bridge then.
+- **Trigger:** `on: push: branches: [trunk]`, not `pull_request: closed`.
+  - Captures all paths to `trunk` (PR merges, direct admin pushes for hotfix-reverts).
+  - Matches every canonical Changesets example.
+- **Concurrency guard required:** `concurrency: ${{ github.workflow }}-${{ github.ref }}` to prevent two simultaneous merges from racing the Version Packages PR or double-publishing.
+
+### Working-assumption files (design-doc starting point)
+
+`.github/workflows/release.yml`:
+
+```yaml
+name: Release
+on:
+  push:
+    branches: [trunk]
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - id: changesets
+        uses: changesets/action@v1
+        with:
+          publish: npx changeset publish
+```
+
+`.changeset/config.json` (consolidated with Q1/Q2 decisions):
+
+```json
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.1.4/schema.json",
+  "changelog": ["@changesets/changelog-github", { "repo": "Automattic/skillsmith" }],
+  "commit": false,
+  "fixed": [],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "trunk",
+  "updateInternalDependencies": "patch",
+  "ignore": [],
+  "changedFilePatterns": [
+    "src/**",
+    "bin/**",
+    "package.json",
+    "examples/**",
+    "README.md",
+    "!src/__tests__/**"
+  ]
+}
+```
+
+`package.json` additions:
+
+```json
+{
+  "name": "@automattic/skillsmith",
+  "publishConfig": { "access": "public" },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.0",
+    "@changesets/changelog-github": "^0.7.0"
+  },
+  "scripts": {
+    "changeset": "changeset",
+    "release": "changeset publish"
+  }
+}
+```
+
+### Open follow-ups flagged for the maintainer
+
+1. **Package-name decision is owner-level.** Spec assumes `@automattic/skillsmith`. Confirm before design-doc workflow files reference a final name.
+2. **Repo setting "Allow GitHub Actions to create and approve PRs"** — verify enabled before first release attempt.
+3. **`Automattic/skillsmith` branch-protection rules on `trunk`** — verify they allow the bot to push to `changeset-release/trunk` while still requiring human review on the release PR.
+4. **npm trusted-publisher setup** — needs a maintainer with `@automattic` npm-org admin to bind `Automattic/skillsmith` + `release.yml` as a trusted publisher (one-time, on npmjs.com).
+
+### Sources
+
+- changesets/action: https://github.com/changesets/action (action.yml, README)
+- npm Trusted Publishing GA: https://github.blog/changelog/2025-07-31-npm-trusted-publishing-with-oidc-is-generally-available/
+- npm Trusted Publishers docs: https://docs.npmjs.com/trusted-publishers/
+- npm provenance docs: https://docs.npmjs.com/generating-provenance-statements/
+- 2026-05-20 trusted-publisher action-selection change: https://philna.sh/blog/2026/01/28/trusted-publishing-npm/
+- GitHub Actions create-PR setting reference: https://github.com/orgs/community/discussions/25305
+- Empirical: `npm view skillsmith --json` → `jonschlinkert`/MIT, not Automattic. `npm view @automattic/skillsmith` → 404. `npm access list packages automattic` → ~50 `read-write` packages. `gh repo view Automattic/skillsmith` → `defaultBranchRef.name = "trunk"`, `viewer permission ADMIN`.
+
 ## Open requirements (running record)
 
 _(further topics populated as Q&A proceeds)_
