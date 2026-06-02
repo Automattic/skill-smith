@@ -380,6 +380,233 @@ jobs:
 - GitHub Actions create-PR setting reference: https://github.com/orgs/community/discussions/25305
 - Empirical: `npm view skillsmith --json` → `jonschlinkert`/MIT, not Automattic. `npm view @automattic/skillsmith` → 404. `npm access list packages automattic` → ~50 `read-write` packages. `gh repo view Automattic/skillsmith` → `defaultBranchRef.name = "trunk"`, `viewer permission ADMIN`.
 
+## Q4 — Contributor UX, changeset authoring, documentation
+
+### Q4a — Where the policy lives
+
+**Decision: split — `CONTRIBUTING.md` (full policy) + `.changeset/README.md` (project-specific cheat sheet replacing the Changesets-seeded boilerplate).**
+
+#### `CONTRIBUTING.md` skeleton (sections)
+
+1. Intro / link to `README.md`.
+2. Project layout (brief pointer to `src/`, `bin/`, `examples/`, etc.).
+3. Running tests and checks locally (mirrors `package.json` scripts).
+4. **Adding a changeset (when and how)** — the load-bearing section:
+   1. **When you need a changeset** — Q1 cut: (a)-(f) categories require, (g)-(h) don't, the empty-changeset escape hatch.
+   2. **Choosing a bump type** — Q2a table verbatim.
+   3. **Pre-1.0 policy: no major bumps until 1.0** — Q2b: write `minor` for breaks + `BREAKING:` prefix; CI enforces; 1.0.0 cut criteria.
+   4. **How to add a changeset** — interactive (`npx changeset`) and direct-file authoring; both equally documented.
+   5. **Empty changesets** (`npx changeset --empty`) — file format on disk: `---\n---`.
+   6. **Changeset summary format** — Q4c conventions.
+   7. **Writing summaries from the consumer's perspective** — Q4d guidance + edge cases.
+   8. **What `CHANGELOG.md` looks like to consumers** — worked example with `@changesets/changelog-github` enrichment.
+5. Release process — cross-link to the design doc / `release.yml`. Maintainer-only; brief.
+6. Code style — biome handles it.
+
+Target length ~150 lines, generous with examples. Prose drafting happens in design / docs phases.
+
+#### `.changeset/README.md` — replace the seeded boilerplate
+
+The Changesets-seeded `.changeset/README.md` is generic upstream-docs link bait; replace it. Proposed content (lives in `.changeset/`, points at `../CONTRIBUTING.md`):
+
+```md
+# Changesets
+
+This folder holds *changesets* — small Markdown files describing changes
+for the next release of `@automattic/skillsmith`. Each has YAML front
+matter declaring the bump type and a Markdown body with the summary that
+lands in `CHANGELOG.md`.
+
+See **[CONTRIBUTING.md](../CONTRIBUTING.md#adding-a-changeset)** for the
+full policy: when to add a changeset, how to pick a bump type, and the
+pre-1.0 rule (no `major` while `version` starts with `0.`).
+
+## Quick start
+
+    npx changeset           # interactive: pick bump type and write a summary
+    npx changeset --empty   # for PRs that intentionally don't ship anything
+
+## Anatomy of a changeset
+
+    ---
+    "@automattic/skillsmith": minor
+    ---
+
+    Add `--scope failed-pairs` CLI flag to control re-evaluation scope.
+
+Detailed policy → [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
+External docs → [github.com/changesets/changesets](https://github.com/changesets/changesets).
+```
+
+The cross-link uses the stable anchor `#adding-a-changeset` — pin the heading in `CONTRIBUTING.md` to match.
+
+### Q4b — `README.md` updates
+
+**Minimum-viable set, ~10 lines total.**
+
+1. **After the intro paragraph (line 5) — `## Installation` subsection:**
+   ```md
+   ## Installation
+
+       npm install -D @automattic/skillsmith
+
+   Requires Node.js ≥ 20.17.
+   ```
+
+2. **New bottom-of-README sections (after `Hooks`):**
+   ```md
+   ## Releases
+
+   See [`CHANGELOG.md`](./CHANGELOG.md) for the full version history, or the
+   [GitHub Releases page](https://github.com/Automattic/skillsmith/releases)
+   for tagged release notes.
+
+   ## Contributing
+
+   See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for how to run the test suite,
+   the changeset policy, and the release workflow.
+   ```
+
+No release/contributor content beyond these three pointers. `README.md` stays focused on what the harness *is*; `CONTRIBUTING.md` carries the workflow.
+
+### Q4c — Changeset summary format and prefix conventions
+
+1. **Voice/tense — imperative present.** "Add ...", "Fix ...", "Remove ...". Not "Added", not "New ...". Matches Keep-a-Changelog convention for the body items (we don't control the `### Patch Changes` header — Changesets writes it).
+2. **No conventional-commits prefixes.** No `feat:`, `fix:`, `perf:`, `chore:`, `refactor:` — the bump type already encodes category. Consumers don't care which internal label we used.
+3. **`BREAKING:` prefix required for pre-1.0 breaks.** Example:
+
+   ```
+   ---
+   "@automattic/skillsmith": minor
+   ---
+
+   BREAKING: Rename `RunOptions.cwd` to `RunOptions.projectRoot`.
+   Migration: change `run({ cwd })` to `run({ projectRoot })` in callers.
+   ```
+
+   Greppable, concise, renders cleanly via `@changesets/changelog-github`. The `Migration:` second line is encouraged for non-trivial breaks, not strictly required.
+4. **Length:** ~120 chars per summary line (soft cap, not CI-enforced). Multi-line bodies allowed but rarely needed — prefer splitting into multiple changesets so each bump is its own scannable bullet.
+5. **No manual PR/author references.** `@changesets/changelog-github` auto-appends `(#PR, by @author)`. Manual `(#123)` or `@user` in the summary produces visibly-broken duplicate suffixes. (Exception: linking a *related* but separate issue in the body is OK, but rare; the PR description is the better home.)
+
+### Q4d — `CHANGELOG.md` reading audience
+
+**Confirmed:** `CHANGELOG.md` is for **consumers of `@automattic/skillsmith`** — humans running `npm install -D @automattic/skillsmith` who want to know what changed between their installed version and the latest. Not an internal dev log.
+
+Edge cases to surface in `CONTRIBUTING.md`:
+
+- **Type-only changes that don't affect runtime** still get changesets (per Q2a). Write them in *consumer-impact* terms.
+  - **Wrong:** "Refactor `Hooks` interface to use generics."
+  - **Right:** "Narrow `Hooks.afterScenario` parameter type to require a `Scenario`-shaped argument. Callers passing untyped objects will see a TypeScript error."
+- **Bug fixes the user may not have observed** still get changesets, written in *symptom* terms. "Fix race condition where two concurrent `run()` calls would corrupt the `report.json` aggregate." Searchable, useful retroactively.
+- **Example file updates** (`examples/skillsmith.config.ts`): the changeset describes the *new public API* the example demonstrates, not "update example".
+- **Negative space:** if a contributor writes a changeset for a refactor with zero consumer-visible effect, that's a signal they should have used `--empty`. Flag in review.
+
+### Q4e — Interactive vs. direct-file authoring + shape validation
+
+#### Empirical finding: `changeset status` does NOT validate shape
+
+Five malformed-changeset tests (verified in `/tmp/changesets-test-39` against `@changesets/cli` 2.31.0 on a branch with non-doc file changes):
+
+| Malformation | `changeset status` | `changeset version` |
+|---|---|---|
+| Missing closing `---` fence | **silently treated as nonexistent** → exits 1 with "no changesets found" (misleading) | Catches it: parse error, exit 1 |
+| Invalid bump type (e.g. `superminor`) | **silently ignored** → "no changesets found" | Catches it: `Valid version types are: major, minor, patch, none`, exit 1 |
+| Package name not in workspace | **silently ignored** → "no changesets found" | Catches it: `Found changeset for package … which is not in the workspace`, exit 1 |
+| Empty body (front matter only) | **PASSES** as valid | **PASSES** → produces a literal `- ` empty bullet in `CHANGELOG.md` (footgun) |
+| No front matter at all | **silently ignored** → "no changesets found" | Catches it: `missing or invalid frontmatter`, exit 1 |
+
+The CI gate `changeset status --since=...` cannot distinguish "no changeset" from "malformed changeset" — both surface as the same misleading error. And an empty-body changeset silently ships a stub bullet.
+
+#### Decision: add a lightweight custom shape validator, fold the pre-1.0 guard into it
+
+Create `scripts/validate-changesets.ts`. Uses `yaml@2.8.3` which skillsmith already depends on (`package.json:46`) — no new dependency.
+
+Responsibilities (combines what would otherwise be two separate scripts from Q2b and Q4e):
+
+1. For each `.changeset/*.md` (skip `README.md`):
+   - Require two `---` fences with parseable YAML between them.
+   - Allow the empty-changeset case (`---\n---` with no front matter and no body).
+   - Otherwise: require a non-empty body.
+   - Front-matter keys must equal `package.json:name` (working assumption `@automattic/skillsmith`).
+   - Front-matter values must be in `{patch, minor, major, none}`.
+2. While `package.json:version` starts with `0.`: reject any `major` bump with a clear error pointing at `CONTRIBUTING.md`'s pre-1.0 section.
+
+Surface line-numbered errors to stdout, exit 1 on any failure. Hook into CI as the **first** step of the changeset job, before `changeset status --since=...`.
+
+Pseudocode sketch (design doc fleshes out):
+
+```ts
+// scripts/validate-changesets.ts
+import { readFileSync, readdirSync } from "node:fs";
+import { parse as parseYaml } from "yaml";
+
+const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+const PKG_NAME = pkg.name;
+const PRE_1_0 = String(pkg.version).startsWith("0.");
+const VALID = new Set(["patch", "minor", "major", "none"]);
+const errors: string[] = [];
+
+for (const f of readdirSync(".changeset").filter(n => n.endsWith(".md") && n !== "README.md")) {
+  const raw = readFileSync(`.changeset/${f}`, "utf8");
+  const m = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  if (!m) { errors.push(`${f}: missing or unterminated front matter`); continue; }
+  const [, fmRaw, body] = m;
+  if (fmRaw.trim() === "" && body.trim() === "") continue; // empty changeset
+  if (body.trim() === "") errors.push(`${f}: empty body (changeset has no summary)`);
+  try {
+    const fm = parseYaml(fmRaw) as Record<string, string>;
+    for (const [name, bump] of Object.entries(fm)) {
+      if (name !== PKG_NAME) errors.push(`${f}: unknown package "${name}" (expected "${PKG_NAME}")`);
+      if (!VALID.has(bump)) errors.push(`${f}: invalid bump "${bump}" (expected ${[...VALID].join("|")})`);
+      if (PRE_1_0 && bump === "major") {
+        errors.push(`${f}: 'major' is forbidden while pre-1.0 (version=${pkg.version}). Use 'minor' with a 'BREAKING:' summary prefix; see CONTRIBUTING.md#pre-10-policy.`);
+      }
+    }
+  } catch (e) { errors.push(`${f}: YAML parse error: ${(e as Error).message}`); }
+}
+if (errors.length) { console.error(errors.join("\n")); process.exit(1); }
+```
+
+#### Authoring guidance for `CONTRIBUTING.md`
+
+- Document **both** modes with equal billing.
+- **Suggest interactive (`npx changeset`)** for first-time contributors.
+- **Document direct-write** as the standard for repeat contributors and AI-assisted PRs (interactive is awkward for multi-line summaries — see [changesets#346](https://github.com/changesets/changesets/issues/346)).
+- The shape validator above runs in CI for both modes — same safety net.
+
+### Q4f — Renovate / Dependabot interaction
+
+**Defer the auto-bot decision to the design-doc / follow-up PR. Document the manual fallback now.**
+
+Skillsmith has neither Renovate nor Dependabot configured today. The Q1 cut means a future bot PR for `@ai-sdk/anthropic` (etc.) would need a changeset. Two-part guidance:
+
+1. **Immediate (in `CONTRIBUTING.md`):** "Dependency-bump PRs require a changeset like any other PR. If you're a maintainer merging a bot PR, add the changeset to the bot's branch before merging — `npx changeset` works against any branch."
+2. **Forward-looking (design-doc / follow-up TODO):** when a dep bot is wired up, evaluate `mscharley/dependency-changesets-action@v1.2.4` (Mar 2026). Lowest config burden, supports both Renovate and Dependabot, actively maintained. Runs on `pull_request_target` (security-review item — needs a dedicated `DEPENDENCY_UPDATE_GITHUB_TOKEN` PAT or GitHub App token).
+
+**Do not** add `package.json` to `changedFilePatterns`' exclusion list — dep bumps with real consumer impact (e.g. an AI SDK that changes token-shape) must trigger the gate.
+
+Alternative tools considered:
+
+- `@scaleway/changesets-renovate` 3.0.2 (May 2026) — installable npm package, Renovate-focused, also viable.
+- Backstage's hand-rolled `sync_renovate-changesets.yml` — production-proven; would copy the pattern only if the off-the-shelf actions disappoint.
+
+### Other Q4 surfacing for the design doc
+
+1. **The pre-1.0 guard and the shape validator are one script** (`scripts/validate-changesets.ts`). One CI step, two policies. Cleaner than two separate workflow steps.
+2. **`@changesets/changelog-github` needs `GITHUB_TOKEN` for the version step**, not just publish, to fetch PR/author metadata. `changesets/action` injects this automatically when the workflow has the permissions from Q3d.
+3. **Retroactive changesets:** if a contributor forgot a changeset, a follow-up PR can add one. `@changesets/changelog-github` may attribute the link to the *follow-up* PR rather than the original — minor cosmetic wart, document and live with it. (Q5 will cover the broader "we forgot a changeset" recovery story.)
+
+### Sources
+
+- Empirical: `/tmp/changesets-test-39` malformed-changeset tests; verified that `changeset status` silently drops malformed files while `changeset version` rejects them (except for empty bodies, which slip through both).
+- Empirical: seeded `.changeset/README.md` content from a fresh `changeset init` of `@changesets/cli@2.31.0`.
+- Keep-a-Changelog convention: https://keepachangelog.com/en/1.1.0/
+- `@scaleway/changesets-renovate`: https://www.npmjs.com/package/@scaleway/changesets-renovate
+- `mscharley/dependency-changesets-action`: https://github.com/mscharley/dependency-changesets-action
+- Backstage Renovate-sync workflow reference: https://github.com/backstage/backstage/blob/master/.github/workflows/sync_renovate-changesets.yml
+- Interactive `changeset add` multi-line UX issue: https://github.com/changesets/changesets/issues/346
+- `yaml@2.8.3` already in skillsmith deps: `package.json:46`.
+
 ## Open requirements (running record)
 
 _(further topics populated as Q&A proceeds)_
