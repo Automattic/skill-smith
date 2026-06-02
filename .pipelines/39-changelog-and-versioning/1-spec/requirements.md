@@ -607,6 +607,238 @@ Alternative tools considered:
 - Interactive `changeset add` multi-line UX issue: https://github.com/changesets/changesets/issues/346
 - `yaml@2.8.3` already in skillsmith deps: `package.json:46`.
 
-## Open requirements (running record)
+## Q5 — Edge cases, rollout, safety nets
 
-_(further topics populated as Q&A proceeds)_
+### Q5a — Recovery: contributor forgot a changeset
+
+**Procedure: file a follow-up PR on `trunk` with the missing changeset.** Do not amend the open Version Packages PR — the action force-pushes the release branch on every `trunk` push, so it auto-updates with the backfilled changeset.
+
+`CONTRIBUTING.md` text:
+
+> **I forgot a changeset**
+>
+> 1. Open a new PR against `trunk` that adds only the missing changeset.
+> 2. Write the summary as if it had been in the original PR. Include a `> Backfilled from PR #<original-PR>` line at the bottom of the body so reviewers can trace the lineage.
+> 3. Merge as usual. The Version Packages PR auto-updates.
+
+**Known cosmetic wart:** `@changesets/changelog-github` attributes the entry to the PR that introduced the changeset file — which for a backfilled changeset is the follow-up PR, not the original. The `> Backfilled from PR #<original>` line propagates into `CHANGELOG.md` (the plugin appends its `(#... by @...)` after the body) so the original is still discoverable. Live with it; don't write tooling.
+
+### Q5b — Recovery: Version Packages PR sits open
+
+- **Cadence is cultural, not mandated.** `CONTRIBUTING.md` describes the principle: "release when accumulated changesets justify the version bump", not a calendar rule. Maintainer judgment, no hard threshold.
+- **Divergence is not a concern**: the action force-pushes the release branch on every push to `trunk`, so the Version Packages PR is always current.
+- **Optional visibility for design-doc phase:** a separate scheduled workflow (e.g. weekly cron) that comments on the Version Packages PR after it's been open for >7 days, reporting accumulated-changeset count. Pure visibility, no enforcement. Defer to design doc.
+- **Explicit release delay** (waiting for co-landed feature): just **don't merge** the Version Packages PR until ready. Auto-updates with each `trunk` push.
+- **Excluding a particular changeset from the next release:** revert the changeset file on `trunk` in a follow-up PR. The release PR auto-updates to drop it. (The source change can stay or be reverted separately — independent decisions.)
+
+### Q5c — Recovery: bad publish
+
+**Canonical procedure: cut a fix release + deprecate the bad version. Unpublish only as a last resort.**
+
+#### npm policy (confirmed)
+
+- **Unpublish window:** 72 hours after publish, only if no other registry packages depend on the version. After 72 hours, all of: no dependents, fewer than 300 downloads/week, single maintainer.
+- **Once published, a `<package>@<version>` can never be reused** — even after unpublish, `@automattic/skillsmith@0.3.0` is burned forever.
+- **Unpublishing all versions** triggers a 24-hour cooldown before any new publish to the package name.
+- **`npm deprecate <pkg>@<version> "<message>"`** is the recommended alternative — no removal, just a warning surfaced during `npm install`. No 72-hour or 300-download limits.
+
+#### Procedure for skillsmith (to embed in `CONTRIBUTING.md` "Release process → Rollback")
+
+1. **Decide what's broken** — unusable (install/runtime crash), partially broken (one feature regressed), or just suboptimal.
+2. **Cut a fix release.** PR with the revert/fix and a `patch` changeset summarizing what broke. Merge through the normal release flow → next Version Packages PR ships `0.3.1`.
+3. **Deprecate the bad version** (run from a maintainer's machine, requires npm publish rights):
+   ```bash
+   npm deprecate @automattic/skillsmith@0.3.0 \
+     "Withdrawn — contained <bug summary>. Use 0.3.1 or later."
+   ```
+   OIDC trusted-publishing doesn't help here (it's a workflow-only mechanism); a maintainer needs npm auth locally.
+4. **Edit the GitHub Release for 0.3.0:** mark as pre-release; prepend "**WITHDRAWN — see [0.3.1](link)**" to the body. **Do not delete the Release** (preserves history and tag).
+5. **Unpublish only if** within 72 hours AND no known consumers AND the version is dangerous (leaked secret, malware, PII). Otherwise deprecate. Unpublish burns the version number forever and confuses anyone whose cache or lockfile has the tarball.
+
+#### `changesets/action` rollback support
+
+**None.** Action is publish-forward only by design. Rolling back is purely manual via `npm deprecate` / `npm unpublish` and editing the GitHub Release.
+
+#### `latest` dist-tag rescue
+
+If you can't ship a clean `0.3.1` quickly and want `latest` to point back at `0.2.9`:
+
+```bash
+npm dist-tag add @automattic/skillsmith@0.2.9 latest
+```
+
+Maintainer-rescue valve; document in the rollback section.
+
+### Q5d — Safety nets and manual overrides
+
+#### Manual publish escape hatch
+
+Document in `CONTRIBUTING.md` under "Release process → Manual publish (emergency only)":
+
+```bash
+# Clean clone of trunk:
+git fetch origin && git checkout trunk && git pull --ff-only
+npm ci
+
+# Drive the version bump locally:
+npx changeset version
+# Inspect the diff; `git restore .` to abort.
+
+# Commit and push directly to trunk (needs branch-protection bypass):
+git add -A
+git commit -m "Version Packages"
+git push origin trunk
+
+# Publish from your machine:
+npm publish --access public
+
+# Create the GitHub Release:
+gh release create "@automattic/skillsmith@<new-version>" \
+  --title "<new-version>" --notes-from-tag
+```
+
+**Auth for manual publish:** OIDC trusted-publishers are workflow-only. Manual publish needs either:
+
+- **Maintainer's personal automation token** in `~/.npmrc` (or `npm login` interactively).
+- **2FA OTP at publish time** (`npm publish --otp=<6-digit-code>`); modern `npm publish` prompts interactively if 2FA is enabled — recommend this path.
+
+**Trade-off:** manual publish does **not** produce npm provenance attestations (provenance requires OIDC + GitHub Actions). Consumers still install fine; metadata just lacks the attestation for that version. Acceptable for emergency-only.
+
+#### Workflow disable / kill switch
+
+Recommend a `workflow_dispatch` boolean input for "draft mode":
+
+```yaml
+on:
+  push:
+    branches: [trunk]
+  workflow_dispatch:
+    inputs:
+      skip_publish:
+        description: "Run Version PR step only; don't publish"
+        type: boolean
+        default: false
+
+# In the publish step:
+- uses: changesets/action@v1
+  with:
+    publish: ${{ inputs.skip_publish && '' || 'npx changeset publish' }}
+```
+
+For "halt all releases entirely": disable the workflow in the GitHub UI (Actions → Release → "..." → Disable). One-click, reversible.
+
+#### Re-running a failed release
+
+**`changesets/action` + `changeset publish` is idempotent at the per-package level.** Verified in the changesets source: `publishPackages.ts` calls `infoAllow404(packageJson)` to fetch published versions from npm, then `if (!publishedVersions.includes(localVersion))` skips already-published versions with the message `"is not being published because version [X] is already published on npm"`.
+
+Operational consequence: if a publish workflow run fails partway through (network blip, registry hiccup), the safe action is **re-run the same job from the Actions UI** ("Re-run failed jobs"). Do not manually publish unless the workflow itself is broken — re-run is the path of least surprise.
+
+Caveat (https://github.com/changesets/changesets/issues/1285): with custom dist-tags (not `latest`), the npm-info check can return empty and `publish` re-tries. Skillsmith uses `latest`, so this doesn't apply — flag for design-doc completeness only.
+
+#### Dry-run
+
+- **Version step (local):** `npx changeset version` → inspect with `git status` / `git diff` → `git restore .` to abort. No `--dry-run` flag exists, but this is the idiomatic flow.
+- **Publish step (local):** `npm publish --dry-run --access public`. Per npm docs, it does everything publish would do except actually publish, and **fails if the package@version already exists** in the registry — a useful sanity check.
+
+Document both in `CONTRIBUTING.md` under "Release process → Pre-release verification".
+
+### Q5e — Rollout order in this PR
+
+**Single PR. The npm rename and the release workflow are both safe to include because `changesets/action` no-ops when no real changesets exist.**
+
+#### Per-concern resolution
+
+- **Package rename (`skillsmith` → `@automattic/skillsmith`):** safe in the same PR. The rename is a `package.json` text edit; it only takes effect at publish time. No CI publishes today; `npm ci` / `npm test` / `npm run lint` / etc. are unaffected by the rename. Maintainer confirmation is the only blocker (a flagged follow-up from Q3).
+- **Workflows in this PR:** safe. When zero non-README `.changeset/*.md` files exist, `changesets/action` does nothing (Q3a). On *this* PR's merge there will be one **empty** changeset (per Q2c) — empirically verified to be consumed by `version` without bumping anything.
+
+#### First-merge sequence (what actually happens)
+
+1. PR merges → `trunk` advances.
+2. `release.yml` triggers.
+3. Action detects 1 changeset present (the empty one); opens a no-op Version Packages PR whose diff is just the deletion of the empty changeset (no version bump, no `CHANGELOG.md` change).
+4. A maintainer merges the no-op Version Packages PR.
+5. Publish step runs against the just-merged commit → tries to publish `@automattic/skillsmith@0.1.0`.
+
+Step 5 is where the **npm trusted-publisher prerequisite becomes load-bearing**. If not configured, publish fails (likely 401). Source tree is unaffected; GitHub Release just isn't created.
+
+**Two strategies:**
+
+1. **Preferred: configure the npm trusted publisher *before* merging this PR.** Treat it as a pre-merge gate (one of the four flagged maintainer follow-ups). Lowest friction post-launch.
+2. **Fallback: add the workflow with empty `publish:` input** on this PR, then a follow-up PR flips it on. Safer for the first merge but adds a "remember to flip" risk.
+
+**Recommendation: strategy 1.** Embed in the PR description as a pre-merge checklist.
+
+#### Suggested commit grouping (reviewable atomic commits, optional)
+
+| Commit | Files | Purpose |
+|---|---|---|
+| 1 | `package.json`, `package-lock.json` | Rename + new devDeps |
+| 2 | `.changeset/config.json`, `.changeset/README.md`, `.changeset/<random>.md` (empty) | Changesets setup |
+| 3 | `CHANGELOG.md` | Initial 0.1.0 entry |
+| 4 | `CONTRIBUTING.md` | Policy doc |
+| 5 | `README.md` | Pointer sections |
+| 6 | `scripts/validate-changesets.ts`, `.github/workflows/changeset-gate.yml` | CI gate + shape validator |
+| 7 | `.github/workflows/release.yml` | Release automation |
+
+Squash-merge to single commit at the end if preferred.
+
+#### `[skip ci]` gotcha (design-doc surfacing)
+
+The action's "Version Packages" commit message includes `[skip ci]` to avoid re-triggering itself on its own version commit (https://github.com/changesets/action/issues/198). For skillsmith with a single release workflow this is fine. **Flag for design-doc:** if/when other CI workflows are added (test/lint), confirm their trigger model doesn't conflict with `[skip ci]`.
+
+### Q5f — Definition of done for #39
+
+**Files in this PR:**
+
+1. `CHANGELOG.md` exists at repo root with the agreed `## 0.1.0` initial entry.
+2. `package.json` has name `@automattic/skillsmith`, `publishConfig: { access: "public" }`, devDeps `@changesets/cli` and `@changesets/changelog-github`, scripts `changeset` and `release`. `repository.url` and `homepage` unchanged (still point at `Automattic/skillsmith`).
+3. `package-lock.json` updated for the new devDeps.
+4. `.changeset/config.json` exists with `baseBranch: "trunk"`, `access: "public"`, `changelog: ["@changesets/changelog-github", { repo: "Automattic/skillsmith" }]`, and the agreed `changedFilePatterns`.
+5. `.changeset/README.md` replaced with the project-specific version.
+6. One empty changeset (`.changeset/<random>.md` containing `---\n---`) so the gate passes on merge.
+7. `CONTRIBUTING.md` exists with the agreed sections (Versioning policy, Bump-type table, Pre-1.0 policy, Adding a changeset, Summary format, Consumer-perspective guidance, Release process incl. manual escape hatch and rollback, Repo configuration prerequisites).
+8. `README.md` has Installation, Releases, Contributing pointer sections.
+9. `scripts/validate-changesets.ts` exists, passes on valid input, fails with line-numbered errors on malformed input, also enforces the pre-1.0 major-bump guard.
+10. `.github/workflows/changeset-gate.yml` (or a job in an existing CI workflow) runs `scripts/validate-changesets.ts` and `npx changeset status --since=origin/trunk`.
+11. `.github/workflows/release.yml` matches the Q3 shape: pre-publish lint/typecheck/test, `fetch-depth: 0`, the correct minimal permissions, optional `workflow_dispatch` kill switch.
+
+**Pre-merge checklist (in PR description, not buried in `CONTRIBUTING.md`):**
+
+12. Maintainer confirms package name `@automattic/skillsmith`.
+13. Repo Settings → Actions → "Allow GitHub Actions to create and approve pull requests" is enabled.
+14. Branch protection on `trunk` allows `github-actions[bot]` to update `changeset-release/trunk`.
+15. npm trusted publisher configured: org `Automattic`, repo `skillsmith`, workflow `release.yml`, action `npm publish` (post-2026-05-20 selection).
+16. *(Optional)* `@changesets/bot` GitHub App installed on the repo.
+
+**Post-merge verification:**
+
+17. First run of `release.yml` on this PR's merge commit succeeds (opens a no-op Version Packages PR with just the empty-changeset deletion).
+18. Merging that no-op Version Packages PR does not bump version or publish anything (empirically verified in `/tmp/changesets-test-39`).
+19. The first real feature PR after launch ships a release end-to-end successfully (verified manually with one cycle).
+
+**Out of scope (track as follow-up issues):**
+
+- `mscharley/dependency-changesets-action` wiring (Q4f).
+- Renovate/Dependabot configuration.
+- `@changesets/bot` install if not done in #16.
+- 1.0.0 cut procedure refinements (when the time comes).
+
+#### Long-lived `CONTRIBUTING.md` content (vs. PR-description checklist)
+
+The "Repo configuration prerequisites" section of `CONTRIBUTING.md` documents items 13, 14, 15 (with a paragraph describing the npm trusted-publisher binding) so future maintainers can audit/refresh. Item 12 (name decision) doesn't need ongoing docs once resolved. Item 16 is a per-repo install state — mention in passing.
+
+### Sources
+
+- npm unpublish policy: https://docs.npmjs.com/policies/unpublish (72-hour window, conditions, 24h cooldown after full-package unpublish)
+- `npm deprecate` man page: `npm help deprecate`
+- `npm publish --dry-run` (fails on existing version): https://docs.npmjs.com/cli/v11/commands/npm-publish/
+- `changeset publish` per-version skip (idempotent at per-package level): https://github.com/changesets/changesets/blob/main/packages/cli/src/commands/publish/publishPackages.ts — `infoAllow404` + `if (!publishedVersions.includes(localVersion))` skip path
+- `[skip ci]` follow-up workflow quirk: https://github.com/changesets/action/issues/198
+- Custom-dist-tag idempotency edge case: https://github.com/changesets/changesets/issues/1285
+- Empirical (`/tmp/changesets-test-39`): empty changeset consumed by `version` without bumping; action does nothing when zero non-README changesets exist.
+- Skillsmith repo: no `.github/` exists today; `.gitignore` excludes `.skillsmith/` runtime dir but does **not** exclude `.changeset/` (correct — directory must be tracked).
+- Researcher account: `viewerPermission: ADMIN` on `Automattic/skillsmith` (per Q3 verification).
+
+## Status
+
+Q&A is complete. Requirements doc is ready for hand-off to the spec-writer.
