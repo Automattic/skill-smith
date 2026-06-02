@@ -222,3 +222,18 @@ The base hooks (`beforeAll`, `beforeScenario`, ...) still fire. The iteration ad
 | `afterIteration` | last, after the improver — so it sees the post-improve state |
 
 Each receives the iteration number, the iteration directory, and (for `afterImprove`) `improvementPath`. `afterAllScenarios` is the only hook whose return value the harness consumes; the rest are fire-and-forget.
+
+## Installation
+
+`npm install -D @automattic/skillsmith`
+
+Requires Node.js ≥ 20.17.
+
+## Releases
+
+- Per-version changes: [`CHANGELOG.md`](./CHANGELOG.md).
+- All releases: <https://github.com/Automattic/skillsmith/releases>.
+
+## Contributing
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) — first-timers start at [Adding a changeset](./CONTRIBUTING.md#adding-a-changeset).
