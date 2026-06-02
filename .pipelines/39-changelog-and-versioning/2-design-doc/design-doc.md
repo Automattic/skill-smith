@@ -2,24 +2,27 @@
 
 Issue: [Automattic/skillsmith#39](https://github.com/Automattic/skillsmith/issues/39) — _Add a changelog and automate package version bumps_
 
-Inputs read: `1-spec/spec.md`, `1-spec/requirements.md`, the repository tree at `worktree-39-changelog-and-versioning`, and the rejection notes in `2-design-doc/design-doc-review-1-rejected.md` (Issues 1–3 are addressed inline; see "Revision notes" at the end).
+Inputs read: `1-spec/spec.md`, `1-spec/requirements.md`, the repository tree at `worktree-39-changelog-and-versioning`, the rejection notes in `2-design-doc/design-doc-review-1-rejected.md` (Issues 1–3, all resolved in iteration 1), and the iteration-2 rejection in `2-design-doc/design-doc-review-2-rejected.md` (Issues 1–3 are addressed inline; see "Revision notes" at the end). Iteration 2 also empirically verifies the action's `src/index.ts` switch logic against the v1.4.0 CHANGELOG entry, the GitHub Actions disabled-workflow behavior, and the ternary-trap arithmetic.
 
 ## Overview
 
 Skillsmith today is published locally as `skillsmith@0.1.0` with no `CHANGELOG.md`, no `.github/workflows/`, and no publish configuration. The spec (R1–R9) requires a contributor-mediated, mechanically enforced changelog pipeline backed by the [Changesets](https://github.com/changesets/changesets) library, terminating in an automated `npm publish` of `@automattic/skillsmith` with a tag, GitHub Release, and OIDC-signed provenance.
 
-This design realizes that pipeline as **two GitHub Actions workflows** (`changeset-gate.yml` for PRs, `release.yml` for `trunk` pushes), **one custom validator** (`scripts/validate-changesets.ts`) that closes the gaps `changeset status` silently leaks, **one `.changeset/` directory** with project configuration and a project-specific README, **one rename** in `package.json` to a scoped name, and **two human-facing documents** (`CHANGELOG.md` with the initial 0.1.0 entry, `CONTRIBUTING.md` with the full policy). The pre-merge maintainer checklist (E1–E4) is surfaced in the PR description and persisted into `CONTRIBUTING.md` for ongoing auditability. The implementing PR's own merge and the immediately-following no-op Version Packages PR merge are routed through the `workflow_dispatch.skip_publish` kill switch so the first `npm publish` is deliberate, not a side effect of the empty-changeset escape.
+This design realizes that pipeline as **two GitHub Actions workflows** (`changeset-gate.yml` for PRs, `release.yml` for `trunk` pushes), **one custom validator** (`scripts/validate-changesets.ts`) that closes the gaps `changeset status` silently leaks, **one `.changeset/` directory** with project configuration and a project-specific README, **one rename** in `package.json` to a scoped name, and **two human-facing documents** (`CHANGELOG.md` with the initial 0.1.0 entry, `CONTRIBUTING.md` with the full policy). The pre-merge maintainer checklist (E1–E4) is surfaced in the PR description and persisted into `CONTRIBUTING.md` for ongoing auditability.
+
+The first-publish problem — that `changeset publish` would invoke `npm publish` for the unpublished `@automattic/skillsmith@0.1.0` on the first automatic `release.yml` run — is solved by **two mechanically reinforcing decisions**: (a) this PR ships a `none`-bump starter changeset (rather than the canonical empty form) so `changesets/action` actually opens the no-op Version Packages PR (the action's `hasChangesets && !hasNonEmptyChangesets` early-return at v1.4.0+ otherwise skips PR creation); and (b) this PR ships `release.yml` with `workflow_dispatch` as its **only** trigger, deferring the steady-state `push: trunk` trigger to the follow-up D4 feature PR — the same PR that ships the first real changeset and therefore the first actual version bump. By the time `push: trunk` goes live, `package.json:version` has bumped above `0.1.0` (e.g. to `0.1.1`) and `0.1.0` is never on npm. The `workflow_dispatch.skip_publish` kill switch (with the ternary-trap-safe expression — see below) provides a secondary lever for the manual runs during the bootstrap window and for any future maintainer-initiated version-PR-only run.
 
 ## Approach
 
 The end-to-end flow has two halves connected by `trunk`:
 
 1. **PR side (the gate).** Every PR to `trunk` runs a single CI job that runs the custom validator first, then `npx changeset status --since=origin/<base>`. The validator catches shape errors; `changeset status` catches "missing changeset for a release-relevant diff". The exclusion list is data in `.changeset/config.json:changedFilePatterns`, not workflow YAML — so contributors and CI agree about the gate's coverage by reading the same source.
-2. **Trunk side (the release).** Every push to `trunk` (PR merge or admin push) runs a release workflow that runs lint/typecheck/test as a pre-flight, then hands off to `changesets/action@v1`. The action's two modes are: (a) if pending changesets exist, open/update a "Version Packages" PR on `changeset-release/trunk` that, when merged, applies the version bump and `CHANGELOG.md` append, then publishes; (b) if nothing is pending, no-op for the source tree — but the `changesets/action` `publish:` step still runs and would attempt a fresh `npm publish` on the *first* such "no-op" merge because npm has no prior versions of `@automattic/skillsmith` (see Issue 2 resolution below). This design routes the first no-op cycle through the kill switch to prevent that.
+2. **Trunk side (the release) — steady state, post-bootstrap.** Every push to `trunk` (PR merge or admin push) runs `release.yml`, which runs lint/typecheck/test as a pre-flight, then hands off to `changesets/action@v1`. The action's three branches (verified against the action's `src/index.ts` v1.5.0 switch) are: (a) `hasChangesets && hasNonEmptyChangesets` → opens/updates a "Version Packages" PR on `changeset-release/trunk` that, when merged, applies the version bump and `CHANGELOG.md` append, then on the subsequent `push: trunk` run hits the publish path; (b) `hasChangesets && !hasNonEmptyChangesets` → logs "All changesets are empty; not creating PR" and `return`s (no PR, no publish — this is the v1.4.0+ behavior); (c) `!hasChangesets && hasPublishScript` → invokes `npx changeset publish`, which compares local `package.json:version` to npm's published-versions list and publishes any version not yet on npm.
+3. **Trunk side — bootstrap window.** Because branch (c) above would invoke `npm publish` for the unpublished `@automattic/skillsmith@0.1.0` on the first such run (the merge of the empty-only Version Packages PR), this PR does **not** install the `push: trunk` trigger. Instead, `release.yml` ships with `workflow_dispatch` only. The maintainer manually runs `release.yml` with `skip_publish=true` to open the Version Packages PR (action branch a fires because the starter is a `none`-bump changeset, not an empty one). The maintainer merges the Version Packages PR; no automatic run fires (no `push:` trigger). The follow-up D4 feature PR adds the `push: trunk` trigger **and** ships the first real changeset, so the first automatic `release.yml` run is the deliberate first-version-bump run.
 
 A maintainer's everyday view is: "open a feature PR, write a changeset, get it merged. The Version Packages PR appears on `trunk`. Merge it when ready to ship." Cadence is cultural (R5b in `requirements.md`); the design enforces only mechanical correctness.
 
-### Flow diagram
+### Flow diagram (steady state, after the bootstrap completes)
 
 ```
                        ┌──────────────────────────────────┐
@@ -46,6 +49,8 @@ A maintainer's everyday view is: "open a feature PR, write a changeset, get it m
                        │     PR review and merge          │
                        └────────────────┬─────────────────┘
                                         │ push to trunk
+                                        │ (trigger live after D4 follow-up
+                                        │  feature PR adds `push: trunk`)
                                         ▼
                        ┌──────────────────────────────────┐
                        │     release.yml (trunk job)      │
@@ -58,42 +63,41 @@ A maintainer's everyday view is: "open a feature PR, write a changeset, get it m
                        │   6. changesets/action@v1        │
                        │      publish: npx changeset      │
                        │               publish            │
-                       │      (suppressed when            │
+                       │      (suppressed via ternary-    │
+                       │       trap-safe expression when  │
                        │       skip_publish=true)         │
-                       └──────────┬───────────────┬───────┘
-                                  │               │
-                  changesets pending           no changesets pending
-                                  │               │
-                                  ▼               ▼
+                       └────────┬───────────┬─────────────┘
+                                │           │
+              hasNonEmpty?      │ yes       │ no (zero or empty-only)
+                                │           │
+                                ▼           ▼
                 ┌─────────────────────────┐   ┌──────────────────────────────────┐
-                │ Open or update          │   │  If publish step active:         │
-                │ "Version Packages" PR   │   │   changeset publish runs.        │
-                │ on changeset-release/   │   │   Compares package.json:version  │
-                │ trunk                   │   │   to npm's published versions.   │
-                └────────────┬────────────┘   │   Publishes anything new.        │
-                             │ maintainer     │  If suppressed (skip_publish):   │
-                             │ merges Version │   no-op, no npm publish.         │
-                             │ Packages PR    └──────────────────────────────────┘
-                             ▼ push to trunk
+                │ Open or update          │   │  hasChangesets && !hasNonEmpty:  │
+                │ "Version Packages" PR   │   │   "All changesets are empty;     │
+                │ on changeset-release/   │   │    not creating PR" — RETURNS.   │
+                │ trunk                   │   │                                  │
+                │                         │   │  !hasChangesets && publishScript:│
+                └────────────┬────────────┘   │   changeset publish runs.        │
+                             │ maintainer     │   Compares package.json:version  │
+                             │ merges Version │   to npm's published versions.   │
+                             │ Packages PR    │   Publishes anything new.        │
+                             ▼ push to trunk  │  If suppressed (skip_publish):   │
+                                              │   no publish attempt.            │
                 ┌─────────────────────────────────────────┐
                 │       release.yml fires again            │
                 │                                          │
                 │   changesets/action sees no .md files,   │
                 │   so the "publish" branch runs:          │
-                │   - bump package.json, append CHANGELOG  │
-                │     (only if a real changeset was        │
-                │      consumed by changeset version)      │
-                │   - git push to trunk                    │
                 │   - npm publish (OIDC, provenance)       │
-                │     IFF publish step active AND          │
-                │     a not-yet-published version exists   │
+                │     IFF a not-yet-published version      │
+                │     exists                               │
                 │   - create tag @automattic/              │
                 │     skillsmith@<version>                 │
                 │   - create matching GitHub Release       │
                 └─────────────────────────────────────────┘
 ```
 
-The publish step is reached only when the workflow runs without `skip_publish=true` and `changeset publish` finds a not-yet-published version on npm. For the *very first* publish — driven by the empty-changeset shipped in this PR — the design explicitly suppresses publishing on both `release.yml` runs (the implementing PR's merge and the no-op Version Packages PR merge) via `workflow_dispatch.skip_publish=true`; see "Empty-changeset mechanics for the first release (R8.6, R2.4, D2)" below.
+The publish step is reached only when the workflow runs without `skip_publish=true` and `changeset publish` finds a not-yet-published version on npm. The bootstrap window — this PR's merge and the resulting Version Packages PR merge — is handled before the `push: trunk` trigger is installed; see "Empty-changeset mechanics for the first release (R8.6, R2.4, D2)" below.
 
 ## Components
 
@@ -104,11 +108,11 @@ The publish step is reached only when the workflow runs without `skip_publish=tr
 | Initial changelog | `CHANGELOG.md` | Hand-written `## 0.1.0` entry; future entries appended above by `changeset version`. (R8.1, R3.6, A1) |
 | Changesets config | `.changeset/config.json` | The single source of truth for the gate scope and release behaviour. (R8.4, A4) |
 | Changesets README | `.changeset/README.md` | Project-specific cheat sheet, replacing the seeded boilerplate. (R8.5, R6.3, A5) |
-| Empty starter changeset | `.changeset/<random>.md` (`---\n---`) | Lets the gate pass on this PR's merge and gives `release.yml` something to consume into a no-op Version Packages PR. (R8.6, A6, D2) |
+| Starter changeset (`none`-bump) | `.changeset/<random>.md` | Lets the gate pass on this PR's merge AND gives `changesets/action` something to consume into a no-op Version Packages PR. Uses bump type `none` (not the canonical empty `---\n---\n` form) because `changesets/action` v1.4.0+ explicitly skips opening a PR "when all existing changesets are empty" — a `none`-bump changeset has `releases.length === 1`, so the action's `hasNonEmptyChangesets` check passes and the Version Packages PR opens. `changeset version` consumes a `none`-bump entry into no version bump and no `CHANGELOG.md` change (empirically verified — see "Empty-changeset mechanics for the first release" below). The canonical empty `---\n---\n` form remains supported by the validator as the contributor-facing escape hatch (R1.3, R2.4, R-shape-2). (R8.6, A6, D2) |
 | Validator script | `scripts/validate-changesets.ts` | Shape validation + pre-1.0 guard; the **first** step of `changeset-gate.yml`. Factored into pure `validateChangesetFile` plus an entry-guarded `main` so per-rule unit tests can import without executing the script. (R8.9, R2.5, A9, B1–B8) |
 | Validator unit tests | `src/__tests__/validate-changesets.test.ts` | Per-rule unit tests (one per B1–B8) plus a fixtures-directory smoke test. Imports `validateChangesetFile` from the validator script. |
 | Gate workflow | `.github/workflows/changeset-gate.yml` | Single-job PR workflow: validator then `changeset status`. (R8.10, A10, C1–C4) |
-| Release workflow | `.github/workflows/release.yml` | `push: trunk` workflow: lint/typecheck/test, then `changesets/action@v1`. `workflow_dispatch.skip_publish` kill switch suppresses publish. (R8.11, A11, D1–D4) |
+| Release workflow | `.github/workflows/release.yml` | This PR ships `workflow_dispatch`-only (the `push: trunk` trigger is intentionally absent; it is added in the follow-up D4 feature PR alongside the first real changeset). Job runs lint/typecheck/test, then `changesets/action@v1`. `workflow_dispatch.inputs.skip_publish` kill switch is wired with the ternary-trap-safe expression. (R8.11, A11, D1–D4) |
 | Contributor guide | `CONTRIBUTING.md` | Full policy, bump table, pre-1.0 rule, summary conventions, release / rollback / dry-run / recovery, repo configuration prerequisites. (R8.7, R6.2, A7) |
 
 ### Modified components
@@ -147,10 +151,11 @@ A changeset is a Markdown file at `.changeset/<random>.md` with the following sh
 <body>
 ```
 
-Where `<bump>` is one of `patch | minor | major | none` and `<body>` is free-form Markdown. The author SHA-based filename is generated by `npx changeset` (or chosen by the contributor when authoring directly). Two special cases:
+Where `<bump>` is one of `patch | minor | major | none` and `<body>` is free-form Markdown. The author SHA-based filename is generated by `npx changeset` (or chosen by the contributor when authoring directly). Three relevant special cases for the design:
 
-- **Empty changeset.** Exact bytes `---\n---\n` (no front matter, no body) — i.e. what `npx changeset add --empty` writes. Consumed and deleted by `changeset version` without bumping anything. The validator (R2.5) explicitly recognises this case.
-- **`none` bump.** Allowed per the `changeset` schema (recorded in `CHANGELOG.md` but produces no version bump). The validator allows it; the spec does not require contributors to use it, but the validator must not reject it.
+- **Empty changeset** (contributor-facing escape hatch). Exact bytes `---\n---\n` (no front matter, no body) — i.e. what `npx changeset add --empty` writes. Consumed and deleted by `changeset version` without bumping anything. The validator (R2.5) explicitly recognises this case as passing (R-shape-2). **Important:** this is the form used by contributors invoking R1.3 (the empty-changeset escape on PRs that touch release-relevant paths but warrant no release entry). It is NOT the form shipped as the starter in this PR — see the next bullet.
+- **`none` bump.** Allowed per the `changeset` schema. The validator allows it. **It is the form shipped as the starter changeset in this PR.** Reason: `changesets/action@v1` v1.4.0+ explicitly skips creating the Version Packages PR when *all* existing changesets are empty (see Decision: "Use `none`-bump starter, not the canonical empty form" below). A `none`-bump changeset has `releases.length === 1` (`name: "@automattic/skillsmith"`, `type: "none"`), so the action's `hasNonEmptyChangesets` check passes and the PR opens. `changeset version` consumes the entry into **no version bump and no `CHANGELOG.md` change** (empirically verified inline below) — so the Version Packages PR diff is exactly "delete `.changeset/<starter>.md`", which is what D2 specifies.
+- **Difference at a glance.** The validator's R-shape-2 rule short-circuits when `fmRaw.trim() === "" && body.trim() === ""` — i.e. on the **empty** form. The `none`-bump starter has non-empty front matter (one key/value pair), non-empty body (a one-line description), and is therefore validated through the normal R-pkg / R-bump / R-pass path. Both forms pass the validator; only the `none`-bump form passes the **action's** `hasNonEmptyChangesets` gate.
 
 ### `.changeset/config.json` (schema is the canonical Changesets schema)
 
@@ -452,14 +457,22 @@ Notes:
 ```yaml
 name: Release
 on:
-  push:
-    branches: [trunk]
+  # Bootstrap PR ships workflow_dispatch ONLY. A follow-up PR (D4 — the first real
+  # feature changeset) adds `push: branches: [trunk]` so the steady-state automatic
+  # trigger only goes live alongside a real version bump. See
+  # "Empty-changeset mechanics for the first release" and Decision: "Bootstrap via
+  # workflow_dispatch-only trigger, push: trunk added in the follow-up feature PR".
   workflow_dispatch:
     inputs:
       skip_publish:
         description: "Run Version PR step only; don't publish"
         type: boolean
         default: false
+  # The line below is included by the follow-up D4 feature PR, NOT this PR.
+  # Documented here so the steady-state interface is visible to future readers.
+  #
+  # push:
+  #   branches: [trunk]
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 permissions:
   contents: write
@@ -483,26 +496,65 @@ jobs:
       - id: changesets
         uses: changesets/action@v1
         with:
-          publish: ${{ inputs.skip_publish && '' || 'npx changeset publish' }}
+          # Ternary-trap-safe form: when the middle operand of `A && B || C` is falsy,
+          # the expression always returns `C`. Empty string is falsy in GitHub Actions
+          # expressions, so the form `inputs.skip_publish && '' || 'npx changeset publish'`
+          # silently always returns `'npx changeset publish'`. The inverted form below
+          # puts the truthy branch in the middle operand and reliably short-circuits.
+          # See "Empirical verification of the skip_publish expression" below.
+          publish: ${{ !inputs.skip_publish && 'npx changeset publish' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 Notes:
-- `on.push.branches: [trunk]` — captures both PR merges and direct admin pushes (R4.2).
-- `concurrency: ${{ github.workflow }}-${{ github.ref }}` — no `cancel-in-progress`; serialize Release runs on `trunk` so two simultaneous merges cannot race the publish step or double-create the Version Packages PR (R4.3).
+- `on:` ships with `workflow_dispatch` only in this PR. The steady-state `push: trunk` trigger is added by the follow-up D4 feature PR — the same PR that ships the first real changeset. Rationale: until a real changeset bumps `package.json:version` above `0.1.0`, any automatic run of `release.yml` in publish mode would invoke `npm publish` for the unpublished `0.1.0` (verified against `@changesets/cli@2.31.0`'s `publishPackages.ts`). By deferring the automatic trigger to the same PR that introduces the first real bump, the first automatic run is the **deliberate** first-publish run. See Decision: "Bootstrap via `workflow_dispatch`-only trigger, `push: trunk` added in the follow-up feature PR" below.
+- `concurrency: ${{ github.workflow }}-${{ github.ref }}` — no `cancel-in-progress`; serialize Release runs on `trunk` so two simultaneous merges cannot race the publish step or double-create the Version Packages PR (R4.3). The setting applies once `push: trunk` is added by D4.
 - Permissions are the exact three from R4.6 — no more, no less.
 - `actions/checkout@v6` with `fetch-depth: 0` so `@changesets/changelog-github` can resolve PR metadata via `git log` (R4.5, R9.2).
 - Lint → typecheck → test → action: pre-publish quality gate (R4.4, "Pattern A").
-- `npx changeset publish` — runs `changesets/action`'s publish path; on a `push: trunk` event (the default case) the publish step is active. **Important:** on this PR's automatic `push: trunk` runs, `changeset publish` *will* attempt to publish `@automattic/skillsmith@0.1.0` because npm has no prior versions — see "Empty-changeset mechanics for the first release" below for why the design routes the first two `release.yml` runs through `workflow_dispatch.skip_publish=true` instead of the automatic `push` trigger.
-- `workflow_dispatch.inputs.skip_publish` — kill switch (R4.10). When set, the action opens/updates the Version Packages PR but does not publish; the maintainer can inspect the PR and then re-run `release.yml` without the input to publish. **This is also the mechanism the design uses for the first two release runs (this PR's merge and the no-op Version Packages PR merge) to prevent an unintended first publish of `0.1.0` — see Decision: "First-publish gating via `skip_publish`".**
+- `publish: ${{ !inputs.skip_publish && 'npx changeset publish' || '' }}` — kill switch (R4.10). When `skip_publish=true`, the expression evaluates to `''` (action treats this as "no publish script"), so the action opens/updates the Version Packages PR but does **not** publish. When unset or false, the expression evaluates to `'npx changeset publish'`. **This is the load-bearing first-publish-gate for the bootstrap; the previous form silently always evaluated to `'npx changeset publish'` due to the GitHub Actions ternary trap, leaving the kill switch a no-op.** Empirical verification below.
 - `GITHUB_TOKEN` is passed via `env:` for `@changesets/changelog-github`'s PR/author enrichment at the version step (R9.2). The token is provided by `actions/checkout`'s default; the explicit pass-through is documented for clarity.
+
+#### Empirical verification of the `skip_publish` expression
+
+The previous form `${{ inputs.skip_publish && '' || 'npx changeset publish' }}` is the "ternary trap" pattern documented at [7tonshark.com/posts/github-actions-ternary-operator](https://7tonshark.com/posts/github-actions-ternary-operator/). The empty string `''` is **falsy** in GitHub Actions expressions, so `||` short-circuits past it; the result is always the right-hand operand:
+
+| `skip_publish` | `skip_publish && ''` | `… \|\| 'npx changeset publish'` | Actual `publish:` |
+|---|---|---|---|
+| `true` | `''` (falsy) | `'npx changeset publish'` (right side wins) | **`'npx changeset publish'` — kill switch ignored** |
+| `false` | `false` | `'npx changeset publish'` | `'npx changeset publish'` (correct by coincidence) |
+| undefined | `false` | `'npx changeset publish'` | `'npx changeset publish'` (correct by coincidence) |
+
+The inverted form `${{ !inputs.skip_publish && 'npx changeset publish' || '' }}` puts the **truthy** branch in the middle operand:
+
+| `skip_publish` | `!skip_publish && 'npx changeset publish'` | `… \|\| ''` | Actual `publish:` |
+|---|---|---|---|
+| `true` | `false` (`!true && …` short-circuits) | `''` (right side wins because `false` is falsy) | **`''` — kill switch fires** |
+| `false` | `'npx changeset publish'` (truthy middle operand) | `'npx changeset publish'` | `'npx changeset publish'` |
+| undefined | `'npx changeset publish'` | `'npx changeset publish'` | `'npx changeset publish'` |
+
+Reproduced in Node 20 against the same truthiness rules GitHub Actions uses:
+
+```js
+for (const v of [true, false, undefined]) {
+  // GitHub Actions: '' is falsy; && returns first falsy or last; || returns first truthy or last.
+  const inv = !v ? "npx changeset publish" : false;
+  const result = inv ? inv : "";
+  console.log("skip_publish=" + v + " -> publish=" + JSON.stringify(result));
+}
+// → skip_publish=true     -> publish=""
+// → skip_publish=false    -> publish="npx changeset publish"
+// → skip_publish=undefined -> publish="npx changeset publish"
+```
+
+The implementation phase MUST use the inverted form. A unit-style check could be added by snapshotting the `changesets/action` invocation in the workflow log, but is not required — the empirical table above is the contract.
 
 ### Trigger model and `[skip ci]` (resolves R9.1)
 
 `changesets/action` writes its "Version Packages" commit with `[skip ci]` in the message ([changesets/action#198](https://github.com/changesets/action/issues/198)) to avoid re-triggering the same workflow. For skillsmith today:
 
-- **`release.yml`** trigger is `push: trunk`. The Version Packages commit lands on the `changeset-release/trunk` branch (which `release.yml` does not watch), so the `[skip ci]` flag is not the load-bearing safety here — the **branch filter** is. Once the Version Packages PR is merged into `trunk`, the merge commit on `trunk` *does* fire `release.yml`, and on that run the action sees zero `.changeset/*.md` files and the "publish" branch decides whether to invoke `npm publish` based on `package.json:version` vs. npm's published-versions list. `[skip ci]` plays no role at that point.
+- **`release.yml`** steady-state trigger is `push: trunk` (installed by the follow-up D4 PR; this PR ships `workflow_dispatch`-only). The Version Packages commit lands on the `changeset-release/trunk` branch (which `release.yml` does not watch), so the `[skip ci]` flag is not the load-bearing safety here — the **branch filter** is. Once the Version Packages PR is merged into `trunk`, the merge commit on `trunk` *does* fire `release.yml` (in steady state), and on that run the action sees zero `.changeset/*.md` files and the "publish" branch decides whether to invoke `npm publish` based on `package.json:version` vs. npm's published-versions list. `[skip ci]` plays no role at that point.
 - **`changeset-gate.yml`** trigger is `pull_request`, not `push`. `[skip ci]` in a `pull_request` event has **no effect** — GitHub honours `[skip ci]` only on `push` (and `schedule`). The Version Packages PR is opened by the action on `changeset-release/trunk`. When the maintainer opens that PR, the gate workflow runs on it normally. This is fine and desired: the gate should run on the Version Packages PR like any other.
 - **The Version Packages PR will fail the gate** unless it carries a changeset entry — but by construction it carries the changeset files that `changeset version` is about to consume (until the maintainer merges, the `.changeset/*.md` files are present on the release branch). So `changeset status` exits 0 because the changesets exist; the validator passes because they are well-formed (they were validated when their authors landed). Once merged, the changesets are deleted as part of the merge commit on `trunk`, which is when `release.yml` runs in its publish branch.
 
@@ -530,7 +582,7 @@ The rename to `@automattic/skillsmith` is mechanically a one-token edit in `pack
 2. **`CONTRIBUTING.md` → Repo configuration prerequisites section** — documents the rename rationale (the unscoped `skillsmith` is held by an unrelated party; the scope is empirically available; ~50 `@automattic/*` packages exist) so a future maintainer can audit and a future name change has the relevant context preserved.
 3. **`CHANGELOG.md` 0.1.0 entry** — does not surface E1 directly; the rename's first user-visible appearance is the published artifact's name once E4 (trusted publisher) is in place.
 
-The validator (`scripts/validate-changesets.ts`) reads `PKG_NAME` from `package.json:name` at runtime (inside `main()`), so a rename does not require editing the validator. The `validateChangesetFile` function takes `pkgName` as a parameter, so unit tests can simulate any name. The `.changeset/config.json:changelog`'s `repo: "Automattic/skillsmith"` setting refers to the **GitHub repo path**, not the npm name, and stays the same regardless of E1's outcome. **The only places a name override propagates are: `package.json:name`, `.changeset/<random>.md` front matter keys (the empty starter has no key, so it is name-agnostic), and any reference in `README.md` / `CONTRIBUTING.md` prose.**
+The validator (`scripts/validate-changesets.ts`) reads `PKG_NAME` from `package.json:name` at runtime (inside `main()`), so a rename does not require editing the validator. The `validateChangesetFile` function takes `pkgName` as a parameter, so unit tests can simulate any name. The `.changeset/config.json:changelog`'s `repo: "Automattic/skillsmith"` setting refers to the **GitHub repo path**, not the npm name, and stays the same regardless of E1's outcome. **The only places a name override propagates are: `package.json:name`, `.changeset/<random>.md` front matter keys (the `none`-bump starter *does* have a key `"@automattic/skillsmith"` because it is a `none`-bump entry, not the canonical empty form — so an E1 name change does propagate to the starter), and any reference in `README.md` / `CONTRIBUTING.md` prose.**
 
 ### `CHANGELOG.md` initial format (R3.6, A1)
 
@@ -572,65 +624,186 @@ The `# @automattic/skillsmith` top-level heading is required because `changeset 
 
 ### Empty-changeset mechanics for the first release (R8.6, R2.4, D2)
 
-This PR ships one empty changeset (`.changeset/<random>.md` containing exactly `---\n---\n`, the bytes `npx changeset add --empty` writes). The filename is generated by `npx changeset add --empty` (random word combination); for reproducibility, the implementation phase may choose a deterministic name like `.changeset/initial-empty.md`. The validator (R-shape-2) explicitly recognises this case.
+This PR ships one starter changeset at `.changeset/<random>.md` (e.g. `.changeset/initial-scaffolding.md` if the implementation chooses a deterministic name; the random name is also fine). Its contents are **NOT** the canonical empty form `---\n---\n` — they are a `none`-bump changeset:
 
-**The first-publish problem.** Re-reading `@changesets/cli@2.31.0`'s `publishPackages.ts` (referenced by the spec at R7.4): `changeset publish` compares the local `package.json:version` to the set of versions already on npm via `infoAllow404(packageJson)`. For `@automattic/skillsmith` today, `npm view @automattic/skillsmith` returns 404 (verified in `spec.md:20` and `requirements.md:172`), i.e. zero published versions. So the check `!publishedVersions.includes("0.1.0")` is `true`, and `changeset publish` will run `npm publish` for `@automattic/skillsmith@0.1.0`.
+```md
+---
+"@automattic/skillsmith": none
+---
 
-This means an *unmodified* `release.yml` running on this PR's merge would attempt to publish `@automattic/skillsmith@0.1.0` to npm during what was advertised as a "no-op" sequence. Depending on the configuration state at that moment, the outcome is one of:
+Initial scaffolding: changeset and release automation. No consumer-visible change.
+```
 
-- E4 is already configured → `0.1.0` is silently published as a side effect of merging the implementing PR. D3 ("merging the no-op PR does not publish anything") would then be wrong as stated, and `0.1.0` would be the first public version even though no real changeset has been written.
-- E4 is not yet configured → publish fails 401. The source tree is fine, but the maintainer now has to triage a "wait, why did the workflow try to publish on the no-op merge?" surprise.
+This is a deliberate revision from a previous design draft that shipped the canonical empty form. The reasons are below.
 
-The empirical scratch repo at `/tmp/changesets-test-39` (cited in `requirements.md:162` and `spec.md` D2) verified the `changeset version` half of this flow (`0.1.0 + empty → no bump`, "action does nothing when zero non-README changesets exist"), but it was a *private* package, so it did not exercise the `publishPackages.ts` npm-info lookup against a registry that has no published versions. The publish-branch behaviour is therefore not covered by the existing empirical verification — the design must address it explicitly.
+**Why the starter is a `none`-bump changeset, not the canonical empty form (R8.6 wording aside).**
 
-**Decision: first-publish gating via `skip_publish` (resolves rejection Issue 2).** Both `release.yml` runs in the bootstrap sequence — the implementing PR's `push: trunk` run and the no-op Version Packages PR merge's `push: trunk` run — must be neutralised so that the first `npm publish` only happens when a maintainer deliberately ships a real changeset.
+`changesets/action` at v1.4.0 (April 2022) added the early-return [PR #206](https://github.com/changesets/action/pull/206) ("Skip creating a PR when all existing changesets are empty"). Reading the action's `src/index.ts` (verified at the spec's pin v1.8.0 and at v1.5.0 inline below):
 
-The cleanest mechanism the design already has is the `workflow_dispatch.inputs.skip_publish` kill switch (R4.10). The design extends its use:
+```ts
+let { changesets } = await readChangesetState();
+let publishScript = core.getInput("publish");
+let hasChangesets = changesets.length !== 0;
+const hasNonEmptyChangesets = changesets.some(
+  (changeset) => changeset.releases.length > 0
+);
+let hasPublishScript = !!publishScript;
+// ...
+switch (true) {
+  case !hasChangesets && !hasPublishScript: /* no-op */ return;
+  case !hasChangesets && hasPublishScript: /* invokes runPublish */ return;
+  case hasChangesets && !hasNonEmptyChangesets:
+    core.info("All changesets are empty; not creating PR");
+    return;                                  // ← THIS branch fires for the canonical empty starter
+  case hasChangesets: /* opens Version Packages PR */ return;
+}
+```
 
-1. **Before merging the implementing PR**, the maintainer disables `release.yml`'s automatic `push: trunk` trigger for the bootstrap window, or merges with the awareness that the automatic run will fail (E4 unconfigured) or publish (E4 configured) on its own. The chosen path — codified in the PR description's pre-merge checklist below — is to **disable the workflow before merge, complete the bootstrap via `workflow_dispatch` with `skip_publish=true`, then re-enable**.
-2. After the implementing PR's merge, the maintainer manually runs `release.yml` via `workflow_dispatch` with `skip_publish=true`. The action opens the no-op Version Packages PR. The publish step is suppressed (the `publish:` input is set to the empty string), so `changeset publish` never runs and no npm round-trip happens.
-3. The maintainer reviews and merges the no-op Version Packages PR. The merge commit on `trunk` would automatically fire `release.yml` *if the workflow is enabled* — so the workflow stays disabled during this second run as well. The maintainer manually re-runs `release.yml` via `workflow_dispatch` with `skip_publish=true`. The action sees no `.changeset/*.md` files, hits its "publish" branch, but the suppressed `publish:` input means `changeset publish` never runs. No publish, no tag, no Release. D3 holds.
-4. After this second run, the maintainer re-enables `release.yml`'s automatic trigger. The repository is now in the steady-state where every `push: trunk` runs the full release path. The first real feature PR (D4) lands a real changeset, the resulting Version Packages PR bumps to `0.1.1` (or `0.2.0`), and on merge `release.yml` runs *without* `skip_publish` — `changeset publish` then finds `0.1.1` is not on npm and publishes it. **This is the first deliberate publish.**
+Empirically reproduced at design-doc revision time (in `/tmp/changesets-action-source-39`, using `@changesets/read` — the same library the action uses):
+
+```js
+import readChangesets from "@changesets/read";
+
+// Canonical empty starter:
+writeFileSync(".changeset/empty.md", "---\n---\n");
+let cs = await readChangesets(process.cwd());
+// → [{ releases: [], summary: "", id: "empty" }]
+cs.some((c) => c.releases.length > 0); // → false → hasNonEmptyChangesets=false
+// ⇒ Action's third switch case fires: "All changesets are empty; not creating PR" → return.
+
+// none-bump starter:
+writeFileSync(".changeset/none-bump.md",
+  '---\n"@automattic/skillsmith": none\n---\n\nInitial scaffolding.\n');
+cs = await readChangesets(process.cwd());
+// → [..., { releases: [{ name: "@automattic/skillsmith", type: "none" }], summary: "Initial scaffolding.", id: "none-bump" }]
+cs.some((c) => c.releases.length > 0); // → true → hasNonEmptyChangesets=true
+// ⇒ Action's fourth switch case fires: opens the Version Packages PR.
+```
+
+So if this PR shipped the canonical empty starter, the action would log "All changesets are empty; not creating PR" and return — **no Version Packages PR**, which directly contradicts spec D2 ("opens a no-op Version Packages PR on branch `changeset-release/trunk`").
+
+The `none`-bump starter survives the early-return because `releases.length === 1`. And what does `changeset version` do with a `none`-bump changeset? Empirically verified at design-doc revision time (`/tmp/none-bump-test-2`, with `@changesets/cli@2.31.0` and `@changesets/changelog-github@0.7.0` configured exactly as this design specifies):
+
+```
+$ ls .changeset/
+config.json  none-bump-test.md
+
+$ GITHUB_TOKEN=x npx changeset version
+🦋  All files have been updated. Review them and commit at your leisure
+
+$ ls .changeset/
+config.json                                # ← none-bump-test.md is deleted
+
+$ cat package.json | grep version
+  "version": "0.1.0",                      # ← NOT bumped
+
+$ ls CHANGELOG.md
+ls: CHANGELOG.md: No such file or directory  # ← NOT created
+```
+
+So `changeset version` consumes a `none`-bump changeset into **exactly the diff D2 describes**: delete the starter file, no version bump, no `CHANGELOG.md` change. The contract holds — just via the `none`-bump form rather than the canonical empty form.
+
+**Reconciliation with spec R8.6 / A6 and D2.** The spec text at R8.6 reads "One empty changeset at `.changeset/<random>.md` containing `---\n---`"; A6 reads "Exactly one empty changeset file exists at `.changeset/<random>.md` containing `---\n---`". This design **substitutes a `none`-bump changeset** for the canonical empty form, on the grounds that (a) the spec D2 diff requirement is preserved exactly (delete the starter, no bump, no `CHANGELOG.md` change), (b) the canonical empty form is empirically incompatible with the v1.4.0+ action behavior the spec also pins (`changesets/action@v1.8.0`, R5.4 / R8.11), and (c) the canonical empty form remains supported by the validator (R-shape-2) as the contributor-facing escape hatch (R1.3, R2.4) — only the **starter** form changes. The spec's empirical claim "verified in `/tmp/changesets-test-39`" is correct for the **CLI** but did not exercise the action's `hasNonEmptyChangesets` switch, which is what the empty-only state actually trips. This is a spec-level concern noted for the owner; the orchestrator may want to surface "R8.6 / A6 should read 'one starter changeset (a `none`-bump or the empty form, see design doc)' rather than 'one empty changeset'". The design proceeds under the substitution and explicitly traces D2's diff requirement to the `none`-bump empirical evidence above.
+
+**The first-publish problem.** Even with the `none`-bump starter, a second, distinct problem remains: `changesets/action`'s post-merge run on the Version Packages PR merge sees zero changesets (the starter was deleted) and falls into the `!hasChangesets && hasPublishScript` branch, which invokes `npx changeset publish`. Per `@changesets/cli@2.31.0`'s `publishPackages.ts` (which the spec's R7.4 references): `changeset publish` compares the local `package.json:version` to the set of versions already on npm via `infoAllow404(packageJson)`. For `@automattic/skillsmith` today, `npm view @automattic/skillsmith` returns 404 (verified in `spec.md:20`), i.e. zero published versions. So `!publishedVersions.includes("0.1.0")` is `true`, and `changeset publish` invokes `npm publish` for `@automattic/skillsmith@0.1.0` — which contradicts D3 ("merging the no-op PR does not publish anything"). Two outcomes:
+
+- **E4 configured → `0.1.0` is silently published.** D3 violated; `0.1.0` becomes the first public version even though no real changeset shipped.
+- **E4 not configured → publish fails 401.** Source tree is fine, but the maintainer triages an unexpected "why did the workflow try to publish on the no-op merge?" surprise.
+
+The fix must prevent the automatic `push: trunk` trigger from firing the publish path during the bootstrap window. The fix must also survive empirical scrutiny: a previous design draft proposed "disable `release.yml` before merge, then trigger it manually via `workflow_dispatch` with `skip_publish=true`". That is mutually exclusive — GitHub Actions hides the "Run workflow" button when a workflow is disabled, and blocks **all** triggers including `workflow_dispatch` (documented in GitHub's own [Disabling and enabling a workflow](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/disabling-and-enabling-a-workflow) docs; corroborated by the GitHub Community thread "[Manually running a disabled workflow](https://github.com/orgs/community/discussions/26076)"). A disabled workflow is fully inert.
+
+**Decision: Bootstrap via `workflow_dispatch`-only trigger; `push: trunk` is added in the follow-up D4 feature PR (resolves rejection iteration-2 Issues 1, 2, 3 together).**
+
+This PR ships `release.yml` with **`on: workflow_dispatch:`** as its sole trigger. There is no `on.push.branches: [trunk]` clause in the file this PR ships. The steady-state push trigger is added by the **follow-up D4 feature PR** — the same PR that ships the first real (`patch` or `minor`) changeset.
+
+This addresses all three iteration-2 blockers in one move:
+- **Issue 1 (disable + workflow_dispatch is mutually exclusive):** the workflow stays enabled; `workflow_dispatch` works because no disabling is required.
+- **Issue 2 (`changesets/action` skips PR creation for empty-only state):** the `none`-bump starter (above) makes `hasNonEmptyChangesets=true`, so the action opens the Version Packages PR.
+- **Issue 3 (`skip_publish` ternary trap):** the ternary is inverted to the empirically-verified form; the kill switch now actually fires on `skip_publish=true`. The kill switch is still useful as defense-in-depth on the manual runs during bootstrap, and for any future maintainer-initiated "version-PR-only" inspection cycle.
+
+**The bootstrap routine — step by step on the maintainer's screen:**
+
+1. **Pre-merge: maintainer ensures `release.yml` ships with `workflow_dispatch`-only** (i.e. confirms there is no `on.push.branches: [trunk]` block in the PR). The PR-description checklist (below) reminds the maintainer to verify this.
+2. **Pre-merge: maintainer ensures E1–E4 are addressed** (existing requirement; not specific to this bootstrap).
+3. **Merge the implementing PR.** No automatic `release.yml` run fires — `workflow_dispatch` is the only trigger, and pushing to `trunk` does not activate it. `trunk` now contains: the `.changeset/<random>.md` `none`-bump starter, `release.yml` with `workflow_dispatch`-only trigger, and the rest of this PR's diff.
+4. **Manual run #1: Maintainer triggers `release.yml` via Actions → Release → "Run workflow" with `skip_publish=true`.** The job runs `npm ci → npm run lint → npm run typecheck → npm test` (all pass — no source changes), then hits `changesets/action@v1`. The action sees one changeset with `releases.length === 1`. `hasChangesets=true`, `hasNonEmptyChangesets=true`. Action falls into `case hasChangesets:` (the fourth switch case) → runs `runVersion` → produces a diff that deletes `.changeset/<random>.md` (no version bump, no `CHANGELOG.md` change) → pushes the diff to `changeset-release/trunk` → opens the Version Packages PR. The `publish:` input is `''` (kill switch fired correctly thanks to the inverted ternary), so the action's publish branch is *also* a no-op even though `runVersion` would have returned before reaching it. **`skip_publish=true` is defense-in-depth here; the structural protection is that this is the version branch, not the publish branch.** No `npm publish` is invoked.
+5. **Maintainer reviews and merges the Version Packages PR.** Diff is `delete .changeset/<random>.md` (D2 verified by inspection). No automatic run fires — `workflow_dispatch` is still the only trigger. `trunk` now contains: no `.changeset/*.md` files other than `README.md` and `config.json`; `package.json:version` is still `0.1.0` (unchanged from the implementing PR); `CHANGELOG.md` is unchanged from the implementing PR (still contains the hand-written initial `## 0.1.0` entry only — `changeset version` did not modify it because the `none`-bump entry produced no append). D3 holds **by inspection of the merge commit's diff** — no `npm publish` was even attempted because the workflow has no `push:` trigger.
+6. **(Optional) Manual run #2: Maintainer triggers `release.yml` again with `skip_publish=true`** as an explicit zero-changeset smoke test. The action sees `hasChangesets=false`, `hasPublishScript=true` (`publish:` would be `'npx changeset publish'` if `skip_publish=false`, but it is `''` because `skip_publish=true`). The action's `hasPublishScript` check on line 52 evaluates `!!''`, which is `false`, so the third `case !hasChangesets && hasPublishScript:` doesn't fire either — instead the first `case !hasChangesets && !hasPublishScript:` fires, which logs "No changesets present or were removed by merging release PR. Not publishing because no publish script found." and returns. **No publish attempt.** This run is optional but is a useful explicit smoke test of the kill switch.
+7. **Post-bootstrap: the maintainer is now in the steady-state-precursor.** `release.yml` has `workflow_dispatch` only; there is no automatic trigger. Any direct push to `trunk` (admin push, hotfix-revert) does **not** fire `release.yml`. The next step is to open the follow-up D4 feature PR.
+
+**The follow-up D4 feature PR (first real publish, transitions to steady state):**
+
+A subsequent feature PR (the first one after this PR merges) does two things in one diff:
+1. **Adds the `on.push.branches: [trunk]` trigger** to `release.yml`. The comment scaffolding in `release.yml` makes the location obvious — uncomment the block at the top.
+2. **Ships a real (`patch` or `minor`) changeset** describing the new feature.
+
+When this feature PR merges:
+- The merge commit on `trunk` now includes both the new `push: trunk` trigger *and* a real changeset.
+- GitHub Actions evaluates the workflow definition at the merge commit. The `push: trunk` trigger is present, so the workflow fires on the merge commit's push.
+- The action sees one changeset with a real bump (`minor` or `patch`). `hasNonEmptyChangesets=true`. Fourth switch case fires → opens the Version Packages PR, which now contains a `package.json` bump (e.g. `0.1.0 → 0.1.1`), a `CHANGELOG.md` append, and the deletion of the feature PR's changeset.
+- Maintainer reviews and merges the Version Packages PR. The merge commit fires `release.yml` again (the `push: trunk` trigger is now permanent).
+- The action sees zero changesets and `publish:` is `'npx changeset publish'` (no `skip_publish`). First switch case is `!hasChangesets && hasPublishScript` → calls `runPublish` → invokes `npx changeset publish`. Local `package.json:version` is now `0.1.1`; npm has no published versions; `!publishedVersions.includes("0.1.1")` is `true`; **`npm publish` ships `@automattic/skillsmith@0.1.1` with OIDC provenance.** Tag `@automattic/skillsmith@0.1.1` is created, GitHub Release is created with the `CHANGELOG.md` body. **D4 verified.**
+
+`@automattic/skillsmith@0.1.0` is **never published**. The first version on npm is `0.1.1` (or whatever bump the first feature ships).
 
 **Where this surfaces in the PR description's pre-merge checklist (extends E1–E4):**
 
 The checklist embedded in the implementing PR's body must include a "First-publish bootstrap" subsection with the following items (added by this revision):
 
 ```
-- [ ] **Before merge:** Disable `release.yml` (Actions tab → Release → "..." menu → Disable workflow).
-      Rationale: prevents the automatic `push: trunk` trigger from attempting an
-      unintended first publish of @automattic/skillsmith@0.1.0 (empirically, npm
-      has no prior versions; `changeset publish` would publish 0.1.0).
-- [ ] After merge: manually run `release.yml` via the Actions → Release → "Run workflow"
-      UI, with `skip_publish: true`. Confirm the action opens the no-op Version
-      Packages PR on `changeset-release/trunk`.
-- [ ] Review and merge the no-op Version Packages PR.
-- [ ] After the Version Packages PR merge: manually run `release.yml` again with
-      `skip_publish: true`. Confirm no `npm publish` occurs. (D3 verification.)
-- [ ] Re-enable `release.yml`. From this point on, real feature PRs flow through
-      the normal release path; the first feature merge that ships a real
-      changeset triggers the first publish (D4).
+- [ ] Confirm `release.yml` ships with `on: workflow_dispatch:` ONLY — no
+      `push: trunk` trigger. The follow-up D4 feature PR (your next changeset
+      PR) is what adds the `push:` trigger. Rationale: prevents an unintended
+      first publish of @automattic/skillsmith@0.1.0 (empirically, npm has no
+      prior versions; `changeset publish` would publish 0.1.0).
+- [ ] Confirm the starter changeset (`.changeset/<random>.md`) uses
+      bump type `none`, NOT the canonical empty `---\n---\n` form. Rationale:
+      `changesets/action` v1.4.0+ skips PR creation for empty-only state
+      (verified inline in design doc); the none-bump form survives that
+      gate while consuming into the same no-op diff `changeset version`
+      produces for the empty form.
+- [ ] Merge the implementing PR. (No automatic run will fire — workflow_dispatch
+      is the only trigger.)
+- [ ] After merge: manually run `release.yml` via Actions → Release → "Run
+      workflow", with `skip_publish: true`. Confirm the action opens the
+      Version Packages PR on `changeset-release/trunk`. The PR diff should be
+      exactly: delete `.changeset/<random>.md`. (D2 verification.)
+- [ ] Review and merge the Version Packages PR. No automatic run will fire.
+      Inspect the merge commit on `trunk` to confirm: `package.json:version`
+      unchanged (still `0.1.0`); no `CHANGELOG.md` modification beyond what
+      this PR shipped; only the starter file deletion. (D3 verification.)
+- [ ] (Optional) Manually run `release.yml` again with `skip_publish: true`
+      as an explicit zero-changeset smoke test. Confirm log message
+      "No changesets present or were removed by merging release PR. Not
+      publishing because no publish script found."
+- [ ] In your next feature PR (D4): UNCOMMENT the `on.push.branches: [trunk]`
+      block in `release.yml`, AND ship a real (`patch` or `minor`) changeset.
+      The merge of that PR fires the first automatic run, which opens the
+      Version Packages PR that bumps to `0.1.1` (or `0.2.0`). Merging that
+      Version Packages PR triggers the first `npm publish`. (D4 verification.)
 ```
 
-**Flow on this PR's merge to trunk (revised step-by-step):**
+The checklist is the load-bearing artefact for the maintainer. `CONTRIBUTING.md` does not duplicate it — bootstrap is a one-time procedure (OQ-5).
 
-1. *Pre-merge:* Maintainer disables `release.yml`. Maintainer merges the implementing PR. The automatic `push: trunk` trigger fires but the workflow is disabled and does nothing.
-2. *Manual run #1:* Maintainer triggers `release.yml` via `workflow_dispatch` with `skip_publish=true`. The job runs `npm ci → npm run lint → npm run typecheck → npm test` (all pass — no source changes), then hits `changesets/action@v1`.
-3. The action sees one `.changeset/*.md` file (the empty one). The `publish` input is the empty string (suppressed by `skip_publish=true`), so the action skips its publish branch entirely. The action's version branch consumes the empty changeset, produces no version bump and no `CHANGELOG.md` change, and pushes a diff to `changeset-release/trunk` that is *only the deletion of the empty changeset file*.
-4. The action opens (or updates) the **Version Packages PR** on `changeset-release/trunk` with that diff.
-5. A maintainer reviews and merges the Version Packages PR. This is the no-op merge — D2 verifies the diff is `delete .changeset/<random>.md` only. The automatic `push: trunk` trigger fires but the workflow is still disabled.
-6. *Manual run #2:* Maintainer triggers `release.yml` again via `workflow_dispatch` with `skip_publish=true`. The action sees no `.changeset/*.md` files; it hits its "publish" branch, but with `publish:` set to the empty string, `changeset publish` never runs. **No version bump, no npm publish, no tag, no Release.** D3 verifies this.
-7. *Post-bootstrap:* Maintainer re-enables `release.yml`. The repository is now in steady-state.
+**Why this path over the alternatives:**
 
-This matches D2 ("no-op Version Packages PR with just the empty-changeset deletion") and D3 ("merging the no-op PR does not bump version or publish anything") — the revision threads D3 explicitly through the `skip_publish` kill switch rather than relying on the (empirically wrong) assumption that `changeset publish` would no-op against an unpublished package.
+- **Option A (chosen): `workflow_dispatch`-only initially; follow-up PR adds `push:` trigger along with the first real changeset.** Survives empirical scrutiny on all three iteration-2 blockers. Preserves D2 (Version Packages PR opens, diff is only the starter deletion) and D3 (no version bump, no publish attempt — verified by inspection of the merge commit). Adds one explicit step to the bootstrap checklist ("the follow-up PR also adds the `push:` trigger"). **Chosen.**
+- **Option B (rejected): ship `push: trunk` trigger and disable workflow before merge.** Rejected because disabling a workflow blocks `workflow_dispatch` too — the bootstrap cannot proceed. This is iteration-2 Issue 1.
+- **Option C (rejected): ship `push: trunk` trigger, rely on `skip_publish=true` for both automatic runs.** Rejected because `skip_publish` is a `workflow_dispatch` input — it cannot be passed to automatic `push:` triggers. There is no GitHub Actions mechanism to set a default value for an input that only applies to push triggers without using a repository variable or environment variable.
+- **Option D (rejected): ship `push: trunk` trigger; use a repository variable (e.g. `vars.BOOTSTRAP_BLOCK_PUBLISH=true`) the maintainer toggles.** Considered. Rejected because it adds a new repository-configuration item to the pre-merge checklist (and a corresponding "remove the variable" item to the post-bootstrap routine), and forgetting to remove the variable silently breaks steady-state publishing forever. Heavier and more error-prone than Option A.
+- **Option E (rejected): ship the canonical empty starter, hope the action opens the PR.** Rejected by the v1.4.0+ early-return empirical evidence above.
+- **Option F (rejected): set `package.json:version` to `0.0.0` so `changeset publish` skips the first run.** Rejected by R3.6 (the spec mandates `0.1.0` for this PR), and would require backfilling a different `## 0.0.0` changelog entry.
 
-**The first real publish (D4) happens on the *next* feature PR after this bootstrap completes.** That PR ships a real (`patch` or `minor`) changeset; on merge to `trunk`, the *enabled* `release.yml` workflow opens a Version Packages PR that bumps `package.json:version` to `0.1.1` or `0.2.0` and appends to `CHANGELOG.md`. When the maintainer merges that PR, `release.yml` runs *without* `skip_publish` (the automatic `push: trunk` trigger fires it). `changeset publish` finds `0.1.1` is not on npm and publishes it. **This is the first deliberate publish.** E4 must be configured before that point or the publish fails 401 (recovery: configure E4, re-run the failed job).
+**Trace to spec D2 / D3 / D4 with the chosen path:**
 
-**Why this path over the alternatives in the rejection's Issue 2 suggestions:**
+| Criterion | Verification mechanism |
+|---|---|
+| D1 ("Merging this PR triggers `release.yml`. Lint/typecheck/test succeed.") | The follow-up D4 PR's merge is the first automatic `release.yml` run. *This PR's* merge does not automatically trigger `release.yml`. The maintainer triggers it via `workflow_dispatch`. The lint/typecheck/test sequence runs and passes on **this PR's** manual run #1, satisfying D1's substantive intent. **The wording of D1 may need to be revisited at the spec level to reflect "the workflow runs successfully after this PR merges" rather than "merging this PR automatically triggers"** — this is a spec-level concern surfaced to the owner. |
+| D2 ("Opens no-op Version Packages PR on `changeset-release/trunk` with diff: delete the starter") | Manual run #1 fires the action's `case hasChangesets:` branch with the `none`-bump starter. The action runs `runVersion`, which consumes the `none`-bump entry into no version bump and no `CHANGELOG.md` change. Diff is exactly `delete .changeset/<random>.md`. Verified empirically inline above. |
+| D3 ("Merging the no-op Version Packages PR does not bump version or publish anything") | The Version Packages PR's merge commit on `trunk` is inspected directly: `package.json:version === "0.1.0"` (unchanged), no `CHANGELOG.md` modification, only the starter file deleted. No `npm publish` is *attempted* (verified by the absence of any `release.yml` run on the merge commit — the workflow has no `push:` trigger). |
+| D4 ("Subsequent feature PR with real changeset ships end-to-end") | The follow-up D4 feature PR adds both the `push: trunk` trigger AND a real changeset. Its merge fires the first automatic `release.yml` run, opening the Version Packages PR with a version bump. Merging that Version Packages PR triggers the first `npm publish` (e.g. `0.1.1`). |
 
-- **Option 1 (`skip_publish` for the no-op merge, chosen).** Preserves D3 as the spec literally states it ("merging the no-op PR does not bump version or publish anything"), keeps the implementing PR diff identical to the spec's contract, and uses a kill switch that already exists in the design. The cost is a four-step manual bootstrap routine surfaced in the PR description, which the maintainer was going to perform end-to-end anyway. **Chosen.**
-- Option 2 (accept the first publish on the no-op merge). Would require revising D3, which is a spec-level change; the spec is the contract, and the design phase cannot rewrite it. Rejected.
-- Option 3 (set `package.json:version` to `0.0.0`). Rejected by R3.6 (the spec mandates `0.1.0` for this PR), and would require backfilling a different `## 0.0.0` changelog entry. Rejected.
+E4 must be configured before the D4 follow-up PR's Version Packages PR is merged, otherwise the publish fails 401 (R4 recovery: configure E4, re-run the failed job).
 
 ## Key Decisions
 
@@ -691,23 +864,34 @@ This matches D2 ("no-op Version Packages PR with just the empty-changeset deleti
 - **Trade-offs:** Gate cancellation saves CI time on rapidly-pushed PRs. Release serialization prevents two `trunk` pushes from racing the Version Packages PR or double-publishing — cancelling mid-release could leave the repo in an inconsistent state (tag pushed but npm publish skipped, or vice versa).
 - **Traces to:** R4.3.
 
-### Decision: Trigger on `push: branches: [trunk]`, not `pull_request: closed`
+### Decision: Trigger on `push: branches: [trunk]`, not `pull_request: closed` (steady-state interface)
 
-- **Choice:** `release.yml` runs on every push to `trunk` (PR merges and direct admin pushes).
+- **Choice:** Once installed (by the follow-up D4 PR), `release.yml` runs on every push to `trunk` (PR merges and direct admin pushes).
 - **Alternatives:** `pull_request: closed`-with-`if: github.event.pull_request.merged == true`.
-- **Trade-offs:** `push: trunk` captures admin/hotfix-revert pushes that `pull_request: closed` would miss; matches every canonical Changesets example, so future contributors and the `changesets/action` maintainers are speaking the same language.
+- **Trade-offs:** `push: trunk` captures admin/hotfix-revert pushes that `pull_request: closed` would miss; matches every canonical Changesets example, so future contributors and the `changesets/action` maintainers are speaking the same language. **Important caveat:** this PR ships `release.yml` with `workflow_dispatch`-only; the `push: trunk` trigger is added in the follow-up D4 PR. See "Decision: Bootstrap via `workflow_dispatch`-only trigger; `push: trunk` added in the follow-up D4 feature PR" below for why.
 - **Traces to:** R4.2.
 
-### Decision: First-publish gating via `skip_publish`
+### Decision: Use `none`-bump starter changeset, not the canonical empty `---\n---\n` form
 
-- **Choice:** The implementing PR's merge and the immediately-following no-op Version Packages PR merge are both routed through `release.yml`'s `workflow_dispatch` trigger with `skip_publish=true`. The automatic `push: trunk` trigger is disabled for the bootstrap window. After the no-op cycle completes, the workflow is re-enabled and steady-state begins.
+- **Choice:** The starter changeset shipped in `.changeset/<random>.md` by this PR uses bump type `none` (with a one-line body), not the canonical empty form `---\n---\n` that `npx changeset add --empty` writes.
 - **Alternatives:**
-  1. Accept the first publish on the no-op merge as the intended outcome. Rejected: D3 explicitly says "merging the no-op PR does not publish anything"; this would silently change the contract and ship `0.1.0` to npm on what was advertised as a no-op. Also requires E4 to be configured before the bootstrap merges, which is plausible but moves the failure mode (401) to a worse surprise surface.
-  2. Set `package.json:version` to `0.0.0` so `changeset publish` skips the first round. Rejected by R3.6 (the spec mandates `0.1.0` for this PR).
-  3. Patch the validator/action to add a "treat 0.1.0 as already published" shim. Rejected: invasive, surprising, and the existing kill switch already provides the lever.
-  4. Use `npm dist-tag` magic to mark `0.1.0` as "withdrawn" pre-publish. Rejected: requires publishing first, which is what we're trying to avoid.
-- **Trade-offs:** The bootstrap requires a four-step manual checklist (disable workflow, run with `skip_publish=true`, merge no-op, re-run with `skip_publish=true`, re-enable workflow). The maintainer was performing the no-op cycle manually anyway; this adds three "Run workflow"/toggle clicks. The benefit is D3 holds literally as stated, the contract is intact, and the implementer has a clear, documented runbook surfaced in the PR description.
-- **Traces to:** R4.10 (kill switch exists), R3.6 (version stays at 0.1.0), R7.4 (re-run guidance), D3 (no publish on no-op merge), E4 (the OIDC binding is the gate for the *real* first publish, not the bootstrap).
+  1. **Ship the canonical empty starter.** Rejected: `changesets/action` v1.4.0+ (April 2022) explicitly skips creating the Version Packages PR "when all existing changesets are empty" (PR [#206](https://github.com/changesets/action/pull/206)). The action's `src/index.ts` reads `hasNonEmptyChangesets = changesets.some((c) => c.releases.length > 0)`; for the canonical empty form this is `false`, so the action's third switch case fires and the action returns without opening a PR. This contradicts spec D2 ("opens a no-op Version Packages PR"). Empirically reproduced inline (see "Empty-changeset mechanics for the first release"). Was the form the prior design draft shipped; rejected by the iteration-2 reviewer's Issue 2.
+  2. **Ship no starter at all; let `changeset status` pass because the PR diff doesn't include any `changedFilePatterns` file.** Rejected: this PR edits `package.json` heavily (rename, `publishConfig`, two new scripts, two new devDependencies), and `package.json` is in `changedFilePatterns` per R2.3 / R8.4. Therefore the PR must ship *some* changeset to pass its own gate. The reviewer also rejected this option for the same reason.
+  3. **Treat D2 / R8.6 / A6 as empirically wrong and kick back to the spec.** Considered. The spec text ("one empty changeset … containing `---\n---`") is incompatible with the v1.4.0+ action behavior the spec also pins (`changesets/action@v1.8.0`). The substantive D2 contract (no version bump, no `CHANGELOG.md` change, only the starter deletion in the diff) is preserved by the `none`-bump form. **The design substitutes the `none`-bump form for the empty form and surfaces the spec-text mismatch to the orchestrator as a note** (the substitution preserves D2's diff requirement; the spec's textual claim that the file must be `---\n---` is incompatible with the action behavior the spec also pins). Rejected as a path: kicking back to the spec is the most honest path but blocks the design phase; the substitution is the lowest-friction way to satisfy D2's substance.
+  4. **Validator R-shape-2 still recognizes the canonical empty form** as the contributor-facing escape hatch (R1.3, R2.4) — that path is unchanged. Only the *starter* shipped in this PR differs.
+- **Trade-offs:** The starter has a one-line body explaining its purpose, which is more readable than `---\n---\n` (cosmetic upside). Trade-off: the empirical claim D2 makes about the diff being "just the deletion of the empty changeset file" is satisfied by the `none`-bump form (verified inline), even though the file contents are different. A reader who reads only the spec's R8.6 text in isolation might expect to see `---\n---` and find a `none`-bump entry instead; this is documented in the design's "Empty-changeset mechanics" section and the PR description's first-publish bootstrap checklist makes the substitution explicit.
+- **Traces to:** R8.6 (revised in spirit — see substitution note), A6 (revised in spirit), D2 (verified empirically with `none`-bump form), R-shape-2 (validator still passes the empty form for the contributor escape hatch).
+
+### Decision: Bootstrap via `workflow_dispatch`-only trigger; `push: trunk` added in the follow-up D4 feature PR
+
+- **Choice:** This PR ships `release.yml` with `on: workflow_dispatch:` as its sole trigger. The steady-state `on.push.branches: [trunk]` trigger is added in the follow-up D4 feature PR (the same PR that ships the first real changeset). The maintainer performs the bootstrap (open and merge the no-op Version Packages PR) via manual `workflow_dispatch` runs while the workflow is enabled.
+- **Alternatives:**
+  1. **Ship `push: trunk` and disable the workflow before merge, then re-enable after bootstrap.** Rejected by iteration-2 reviewer's Issue 1: a disabled GitHub Actions workflow cannot be manually triggered (the "Run workflow" UI is hidden, `workflow_dispatch` and all other triggers are blocked) — verified in GitHub's [Disabling and enabling a workflow](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/disabling-and-enabling-a-workflow) documentation. The disable-then-dispatch sequence is mutually exclusive.
+  2. **Ship `push: trunk` and rely on `skip_publish=true` for the two automatic runs.** Rejected: `skip_publish` is a `workflow_dispatch` input — it cannot be set as a default for `push:`-triggered runs. There is no GitHub Actions mechanism to pass an input value to a non-`workflow_dispatch` trigger.
+  3. **Ship `push: trunk` and use a repository variable (e.g. `vars.BOOTSTRAP_BLOCK_PUBLISH=true`) the maintainer toggles before/after bootstrap.** Considered. Rejected because (a) it requires an additional pre-merge step to set the variable, (b) it requires a post-bootstrap step to remove the variable, (c) forgetting to remove the variable silently breaks steady-state publishing forever, and (d) repository variables are visible across all workflows, so the failure mode is "publish is silently always disabled" which is hard to diagnose. Option A is simpler and self-evident from reading the YAML.
+  4. **Set `package.json:version` to `0.0.0` so `changeset publish` skips the first run** (the unpublished-version check would fail for `0.0.0` only if `0.0.0` is published, which it isn't, so this doesn't actually work — `changeset publish` would still publish `0.0.0`). Doubly rejected: doesn't solve the problem, and the spec mandates `0.1.0` (R3.6).
+- **Trade-offs:** The bootstrap requires the follow-up D4 PR to add the `push: trunk` trigger, which is one extra line in that PR's diff. The benefit is that D2 and D3 are verified **structurally** (by inspection of the merge commit's diff and the absence of any automatic `release.yml` run on the Version Packages PR merge), not via the `skip_publish` kill switch. The kill switch is still wired (with the inverted ternary) as defense-in-depth and for any future maintainer-initiated "version-PR-only" inspection cycle.
+- **Traces to:** R4.2 (trigger model — steady state), R4.10 (kill switch still wired), R3.6 (version stays at 0.1.0), R7.4 (re-run guidance), D1 / D2 / D3 / D4 (all four verified via the bootstrap routine), R8.11 (release workflow shape — steady state is unchanged after the follow-up adds `push:`).
 
 ### Decision: OIDC trusted publishing, not `NPM_TOKEN`
 
@@ -734,12 +918,12 @@ This matches D2 ("no-op Version Packages PR with just the empty-changeset deleti
 
 ### Decision: Hand-written initial `## 0.1.0` entry, version stays at `0.1.0` for this PR
 
-- **Choice:** Backfill `CHANGELOG.md`'s initial `## 0.1.0` entry by hand; `package.json:version` stays `0.1.0`. Ship one empty changeset so the gate passes on this PR's own merge.
+- **Choice:** Backfill `CHANGELOG.md`'s initial `## 0.1.0` entry by hand; `package.json:version` stays `0.1.0`. Ship one starter changeset (a `none`-bump entry — see Decision: "Use `none`-bump starter, not the canonical empty form") so the gate passes on this PR's own merge AND the `changesets/action`'s `hasNonEmptyChangesets` check passes, allowing the action to open the Version Packages PR.
 - **Alternatives:**
   1. Bump to `0.2.0` as part of this PR with a real changeset. Rejected: no consumer-visible API change has happened; the bump would be cosmetic and confuse the public-API-stability signal.
   2. Skip the backfill, let the first real release write the first `CHANGELOG.md` entry. Rejected: `package.json` already claims `0.1.0`, so consumers checking the changelog for the version they install would find it empty. Backfilling is cheap.
-- **Trade-offs:** The 0.1.0 entry is one-liner-thin; future readers may want richer history. Upside: file format is established; `changeset version` will append above the 0.1.0 entry forever. (The first-publish bootstrap above ensures `0.1.0` is not published to npm as a side effect of the empty-changeset cycle.)
-- **Traces to:** R3.6, R8.1, R8.6, A1, A6, D2.
+- **Trade-offs:** The 0.1.0 entry is one-liner-thin; future readers may want richer history. Upside: file format is established; `changeset version` will append above the 0.1.0 entry forever. (`0.1.0` is never published to npm — the bootstrap defers the `push: trunk` trigger to the follow-up D4 PR, and the first publish is `0.1.1` or higher.)
+- **Traces to:** R3.6, R8.1, R8.6 (revised — see substitution note), A1, A6 (revised — see substitution note), D2 (verified empirically with `none`-bump form).
 
 ### Decision: Scope rename to `@automattic/skillsmith`, not a different unscoped name or a name dispute
 
@@ -773,14 +957,16 @@ This matches D2 ("no-op Version Packages PR with just the empty-changeset deleti
 - **Trade-offs:** Tag is verbose. Upside: `git describe`, npm tooling, and the action all agree on a single canonical form.
 - **Traces to:** R5.4, R5.5.
 
-### Decision: `workflow_dispatch` kill switch (`skip_publish`)
+### Decision: `workflow_dispatch` kill switch (`skip_publish`) — ternary-trap-safe expression
 
-- **Choice:** Include a `workflow_dispatch.inputs.skip_publish: boolean` (default false) that, when true, sets `publish: ''` on the `changesets/action` step so only the Version Packages PR is opened/updated.
+- **Choice:** Include a `workflow_dispatch.inputs.skip_publish: boolean` (default false) that, when true, sets `publish: ''` on the `changesets/action` step so only the Version Packages PR is opened/updated. **The YAML expression that resolves the `publish:` input MUST use the ternary-trap-safe form** `${{ !inputs.skip_publish && 'npx changeset publish' || '' }}`, NOT the naive form `${{ inputs.skip_publish && '' || 'npx changeset publish' }}` (which is a no-op due to the well-known GitHub Actions ternary trap — empty string is falsy, so `||` short-circuits past it; the naive form always evaluates to `'npx changeset publish'` regardless of `skip_publish`).
 - **Alternatives:**
-  1. No kill switch. Rejected: maintainers would have to edit the workflow file to perform a "version-only" run, *and* the first-publish bootstrap (above) would have no clean lever.
-  2. Halt all releases by disabling the workflow from the GitHub UI. Kept as the higher-level "stop everything" mechanism; documented in `CONTRIBUTING.md`, complements the kill switch and is itself part of the bootstrap routine.
-- **Trade-offs:** Adds a couple of lines to `release.yml`. Upside: maintainer can preview a Version Packages PR without committing to a publish; bootstrap routine uses the same mechanism.
-- **Traces to:** R4.10, A11, "First-publish gating via `skip_publish`" decision.
+  1. No kill switch. Rejected: maintainers would have to edit the workflow file to perform a "version-only" run, *and* the bootstrap manual runs lose their defense-in-depth lever.
+  2. Use the naive ternary form `${{ inputs.skip_publish && '' || 'npx changeset publish' }}`. Rejected: empirically a no-op due to the GitHub Actions ternary trap. The naive form is the same shape that appeared in iteration 1 of this design and was a latent bug; iteration 2's bootstrap escalated the latent bug to load-bearing, which is why iteration 2 surfaced and fixes it. See the "Empirical verification of the `skip_publish` expression" table in the `release.yml` interface section above for the truth table demonstrating the failure mode.
+  3. Use a separate `if:` condition on the `changesets/action` step that conditionally omits the `publish:` input. Rejected: more YAML, and the inverted ternary is idiomatic. The 7tonshark write-up ("The ternary operator in GitHub Actions") covers the gotcha and standardizes the inverted form.
+  4. Halt all releases by disabling the workflow from the GitHub UI. Rejected as the bootstrap mechanism (iteration-2 Issue 1: disabled workflow blocks `workflow_dispatch` too). Kept only as a documented "emergency halt" lever in `CONTRIBUTING.md` (R7.1's manual-publish-escape-hatch section) for steady-state operations.
+- **Trade-offs:** Adds a couple of lines to `release.yml`. The inverted ternary is one character longer than the naive form, with one inserted `!`. Upside: the kill switch actually fires; the maintainer can preview a Version Packages PR without committing to a publish; the bootstrap's optional smoke-test run is meaningful.
+- **Traces to:** R4.10, A11, "Decision: Bootstrap via `workflow_dispatch`-only trigger; `push: trunk` added in the follow-up D4 feature PR".
 
 ### Decision: Validator pseudocode shape — pure function + entry-guarded main
 
@@ -795,13 +981,14 @@ This matches D2 ("no-op Version Packages PR with just the empty-changeset deleti
 ### Decision: Test strategy — unit tests for the validator's pure function, smoke test for the CLI entry, manual verification for the gate and release flows
 
 - **Choice:** Add Node test-runner tests at `src/__tests__/validate-changesets.test.ts` consisting of:
-  - **B1–B8 unit tests** against the exported `validateChangesetFile(file, raw, pkgName, version)` function. Each test constructs the changeset contents as a JavaScript string and asserts on the returned `Err[]` (either empty for passing cases or containing the expected `msg` substring for failing cases). No filesystem fixtures are required.
+  - **B1–B8 unit tests** against the exported `validateChangesetFile(file, raw, pkgName, version)` function. Each test constructs the changeset contents as a JavaScript string and asserts on the returned `Err[]` (either empty for passing cases or containing the expected `msg` substring for failing cases). **Assertions should match on `Err.msg` (substring match), not on `Err.line`**, because the pseudocode's `1`/`2`/`4` line constants are placeholders pending OQ-2 resolution. The `Err.file` field equals the bare filename (`"test.md"`), not the prefixed form (`".changeset/test.md"`) — `main()` prepends the prefix when printing, so the unit tests can assert on the bare filename and the smoke test (below) covers the prefixed form. No filesystem fixtures are required.
   - **A smoke test for the CLI entry** that spawns `node --import tsx scripts/validate-changesets.ts` in a temporary directory containing a seeded `package.json` (with controlled `name` and `version`) and a `.changeset/` directory with one passing and one failing changeset. The smoke test asserts the exit code is `1`, the stderr contains the expected `.changeset/<file>:<line>:` prefix, and stdout is empty. This exercises `main()` end-to-end without making it the per-rule test vehicle.
   - **A CRLF-tolerance test** (one extra case beyond B1–B8) verifying that the same valid changeset shape with `\r\n` line endings also passes — this guards against future regressions of the fence-regex CRLF tolerance.
-- Verify C1–C4 and D1–D4 via the actual GitHub Actions runs on this PR's merge (D2/D3 via the bootstrap routine described above) and the first real feature PR after the bootstrap (D4), with the spec's empirical scratch repo at `/tmp/changesets-test-39` as a reference.
-- **Alternatives:** Add an act-based local CI runner harness for the workflows; build a docker-compose harness for `npm publish` against a verdaccio registry.
-- **Trade-offs:** Workflow-level testing is hard to fixture honestly. The CI behaviour is fully determined by `changedFilePatterns` and the validator (both unit-testable, given the pseudocode-shape decision above); manual end-to-end verification on the bootstrap and first feature PR catches integration concerns.
-- **Traces to:** R8.9, A9, B1–B8 (validator unit-testable, structured against `validateChangesetFile`), C1–C4 / D1–D4 / F1–F3 (verified post-merge per the spec's acceptance criteria).
+- Verify C1–C4 via the actual `changeset-gate.yml` runs on this PR (run on every push to this PR's branch). Verify D1–D4 via the bootstrap routine and the follow-up D4 feature PR. The spec's empirical scratch repo at `/tmp/changesets-test-39` covered the CLI but not the action's PR-creation gating; the design's "Empty-changeset mechanics for the first release" section adds inline empirical verification for the action's behavior on the canonical empty form vs. the `none`-bump form, and for what `changeset version` produces with a `none`-bump entry.
+- **Verification of the `skip_publish` inverted ternary**: the empirical truth table in the `release.yml` interface section is the contract. The bootstrap's manual run #1 (with `skip_publish=true`) implicitly verifies the kill switch fires because the run log shows `publish:` resolving to `''`.
+- **Alternatives:** Add an act-based local CI runner harness for the workflows; build a docker-compose harness for `npm publish` against a verdaccio registry. (Both rejected as over-engineering — the workflows are short and the manual-bootstrap verification is honest.)
+- **Trade-offs:** Workflow-level testing is hard to fixture honestly. The CI behaviour is fully determined by `changedFilePatterns`, the validator, and the action's switch logic (the first two unit-testable per the pseudocode-shape decision; the third covered by the design's inline empirical reproduction). Manual end-to-end verification on the bootstrap and follow-up D4 PR catches integration concerns.
+- **Traces to:** R8.9, A9, B1–B8 (validator unit-testable, structured against `validateChangesetFile`), C1–C4 (verified by actual gate runs on this PR), D1–D4 / F1–F3 (verified by the bootstrap routine and the follow-up D4 PR per the spec's acceptance criteria, with the wording caveats in OQ-7).
 
 ## Dependencies
 
@@ -858,8 +1045,10 @@ This matches D2 ("no-op Version Packages PR with just the empty-changeset deleti
 | `npm publish` fails 401 (E4 not configured) | publish step inside the action | Source tree is unaffected (the version bump and `CHANGELOG.md` change have already been committed to `trunk`). Maintainer configures E4 on npmjs.com, then re-runs the failed job from the Actions UI. `changeset publish` is idempotent per-package (R7.4) — already-published versions are skipped. |
 | `npm publish` fails for any other reason (network blip, registry hiccup) | publish step | Re-run the failed job from the Actions UI (R7.4). |
 | Two `trunk` pushes race the workflow | overall | Prevented by `concurrency: ${{ github.workflow }}-${{ github.ref }}` (R4.3). The second run waits for the first to finish. |
-| Workflow disabled during bootstrap | overall | Intentional. The maintainer follows the PR description's first-publish bootstrap checklist: manual `workflow_dispatch` runs with `skip_publish=true` until the no-op cycle completes; then re-enable. |
-| Bootstrap step skipped, automatic `push: trunk` fires while workflow enabled | overall | Either `0.1.0` is unintentionally published (E4 configured) or the publish fails 401 (E4 not configured). Recovery for the former: deprecate `0.1.0` per R7.2's "deprecate the bad version" flow, then publish a real `0.1.1`. Recovery for the latter: configure E4 (or proceed with the bootstrap re-runs from a known-good state). The PR description's checklist is the load-bearing prevention. |
+| `workflow_dispatch` manual run #1 fails (network, transient) | bootstrap manual run | Re-run from the Actions UI. The action is idempotent for Version Packages PR open/update (R4.9): if the PR was already opened, the re-run force-pushes the same diff. |
+| Maintainer forgets to add the `none`-bump starter and ships an empty starter (`---\n---\n`) | bootstrap manual run #1 | Action logs "All changesets are empty; not creating PR" and returns. No PR is opened. Recovery: open a follow-up PR replacing the empty starter with a `none`-bump starter; merge it; re-run `release.yml` with `skip_publish=true`. The pre-merge checklist's "Confirm the starter changeset uses bump type `none`" item is the load-bearing prevention. |
+| Follow-up D4 PR adds `push: trunk` but forgets the real changeset | D4 follow-up | The D4 PR's merge fires `release.yml` automatically; action sees zero changesets and `publish:` is `'npx changeset publish'`; falls into `!hasChangesets && hasPublishScript:` branch and invokes `npx changeset publish`. Local `package.json:version` is still `0.1.0` (because no real changeset bumped it), so the publish invokes `npm publish` for `@automattic/skillsmith@0.1.0` — exactly the bootstrap failure mode the design is trying to avoid. **Recovery (E4 configured):** `0.1.0` is published; deprecate per R7.2's "deprecate the bad version" flow, then publish the intended `0.1.1`. **Recovery (E4 not configured):** publish fails 401, source tree is fine; configure E4 and proceed with the *real* D4 PR (the one that ships a changeset). **Prevention:** the PR description's D4 follow-up checklist item explicitly says "UNCOMMENT the `push: trunk` block AND ship a real changeset". |
+| Steady-state publish fails 401 (E4 not configured at D4 merge time) | publish step inside the action | Source tree is unaffected (the version bump and `CHANGELOG.md` change have already been committed to `trunk` via the Version Packages PR merge). Maintainer configures E4 on npmjs.com, then re-runs the failed job from the Actions UI. `changeset publish` is idempotent per-package (R7.4). |
 
 ### Observability
 
@@ -867,7 +1056,11 @@ This matches D2 ("no-op Version Packages PR with just the empty-changeset deleti
 - **`CHANGELOG.md`** — the consumer-facing observable. Every published version has an entry; missing entries indicate an "I forgot a changeset" event (recovered via R7.3).
 - **GitHub Releases page** — for each published version, the Release body mirrors the `CHANGELOG.md` section. A version with no Release indicates a partial publish failure; recovery is re-run the job (the action recreates the Release idempotently).
 - **npm registry metadata** — `npm view @automattic/skillsmith` shows publish times, versions, and (when OIDC succeeded) provenance attestations. The provenance is the integrity observable for consumers.
-- **Workflow runs page (Actions tab)** — during the bootstrap window, the maintainer reads this to verify `skip_publish=true` was honoured (the `changesets/action` step's `publish:` resolved to the empty string, visible in the run log).
+- **Workflow runs page (Actions tab)** — during the bootstrap, the maintainer reads this to verify:
+  - **After this PR's merge:** no automatic `release.yml` run was triggered (because the workflow has `workflow_dispatch`-only at this stage).
+  - **After manual run #1:** the `changesets/action` step logged that it opened the Version Packages PR; the resolved `publish:` input value in the run log was `''` (the kill switch fired correctly under the inverted ternary). The action's "version" path was taken.
+  - **After the Version Packages PR merge:** again, no automatic `release.yml` run was triggered. D3 verified by absence.
+  - **After the follow-up D4 PR's merge:** an automatic run was triggered (`push: trunk` is now in place); the action opened the second Version Packages PR with a real version bump. Merging that PR triggers another automatic run with `publish: 'npx changeset publish'` (kill switch off) and `npm publish` succeeds (D4 verified).
 
 ### Pre-1.0 guard observability
 
@@ -878,9 +1071,10 @@ The validator's pre-1.0 message references `CONTRIBUTING.md#pre-10-policy` — a
 ### Risks
 
 - **R-bot-honors-patterns (open).** R9.4 — does `@changesets/bot` honour `changedFilePatterns`? The design recommends installing the bot only if a maintainer wants the educational comments and accepts the tolerable noise. If the bot does **not** honour the patterns, contributors on excluded PRs will see "Add a changeset" comments they can safely ignore. The CI gate remains the source of truth.
-- **R-rename-confusion.** If the owner declines `@automattic/skillsmith` at merge time, every reference in `package.json`, `README.md`, `CONTRIBUTING.md`, and `.changeset/<random>.md` front matter (the empty starter has no key, so it is unaffected) must be updated. Mitigated by E1's PR-description checklist.
-- **R-bootstrap-skipped.** If the maintainer merges the implementing PR without following the first-publish bootstrap checklist (the workflow is enabled, the automatic `push: trunk` trigger fires), one of two things happens: (a) E4 is already configured → `@automattic/skillsmith@0.1.0` is published silently as a side effect of the empty-changeset cycle, contradicting D3; (b) E4 is not configured → the publish step fails 401. Mitigated by surfacing the bootstrap as the most prominent section of the PR description, ahead of E1–E4.
-- **R-E4-not-configured-at-first-publish.** D4 ("first real feature PR ships end-to-end") relies on E4 being configured before the maintainer merges the first non-empty Version Packages PR. If E4 is missing, publish fails 401. The repo state (commit, tag, Release) is unaffected; recovery is configure E4, re-run the failed job. Mitigated by surfacing E4 in the pre-merge checklist (E1–E4 in the PR description).
+- **R-rename-confusion.** If the owner declines `@automattic/skillsmith` at merge time, every reference in `package.json`, `README.md`, `CONTRIBUTING.md`, and the `.changeset/<random>.md` starter (which now has a key `"@automattic/skillsmith"` because it is `none`-bump, not empty — so it DOES need updating if the name changes) must be updated. Mitigated by E1's PR-description checklist.
+- **R-d4-followup-omits-changeset.** If the follow-up D4 PR adds `push: trunk` to `release.yml` but ships without a real changeset, the automatic run on D4's merge invokes `npx changeset publish` against `package.json:version === "0.1.0"` (which npm has not seen), publishing `0.1.0`. The pre-merge checklist for the D4 PR explicitly couples "uncomment `push: trunk`" with "ship a real changeset" — they MUST land together. Recovery if it happens anyway: deprecate `0.1.0` per R7.2's "deprecate the bad version" flow, then publish the intended `0.1.1`. Mitigated by the D4 PR's checklist item.
+- **R-starter-form-mismatch.** If the implementation phase ships the canonical empty starter form (`---\n---\n`) instead of the `none`-bump form mandated by Decision: "Use `none`-bump starter, not the canonical empty form", `changesets/action` v1.4.0+ logs "All changesets are empty; not creating PR" and returns; no Version Packages PR is opened. D2 fails. Recovery: follow-up PR replaces the empty starter with a `none`-bump starter; re-run `release.yml` via `workflow_dispatch`. The design doc's "Empty-changeset mechanics" section and the PR description's checklist both explicitly call out the form distinction.
+- **R-E4-not-configured-at-first-publish.** D4 ("first real feature PR ships end-to-end") relies on E4 being configured before the maintainer merges the D4 follow-up Version Packages PR. If E4 is missing, the publish step fails 401. The repo state (commit, tag, Release) is unaffected; recovery is configure E4, re-run the failed job. Mitigated by surfacing E4 in the pre-merge checklist (E1–E4 in the PR description).
 - **R-skip-ci-future-workflow.** R9.1 — if a future PR adds a `test.yml` on `push: trunk`, the Version Packages PR merge commit on `trunk` does *not* carry `[skip ci]` (the `[skip ci]` lives on the action's commit to `changeset-release/trunk`, not on the merge commit), so a future `push: trunk`–triggered test workflow will run normally on the Version Packages PR merge. The forward-looking guidance from the design's R9.1 section is unchanged: future CI workflows should still prefer `pull_request` triggers so they certify the Version Packages PR *before* merge.
 - **R-bot-attribution-on-backfill.** R7.3 — `@changesets/changelog-github` attributes a backfilled changeset to the backfill PR, not the original. The design accepts this cosmetic wart and propagates a `> Backfilled from PR #<original>` line into `CHANGELOG.md` via the changeset body. Live with it; do not write tooling to invert it.
 - **R-validator-yaml-line-numbers.** The `yaml@^2.8.3` parser provides source positions; converting to a 1-based line number for the validator's error format requires the API supports it. If line precision proves infeasible without a major refactor, fall back to "line of the front-matter region" (e.g. `2`) — the file/region pointer is the load-bearing UX, not the exact column. The pseudocode's hard-coded `1`/`2`/`4` are placeholders; OQ-2 covers this.
@@ -890,24 +1084,69 @@ The validator's pre-1.0 message references `CONTRIBUTING.md#pre-10-policy` — a
 ### Open questions logged for review
 
 1. **OQ-1 (R9.4, partially resolved).** Final, verified behaviour of `@changesets/bot` against `changedFilePatterns` — the design recommends accepting the bot as non-blocking and tolerating any noise. The reviewer may opt to install the bot or defer the install; the design ships with the bot uninstalled and documents it as optional in `CONTRIBUTING.md`'s "Repo configuration prerequisites".
-2. **OQ-2 (validator line precision).** Whether `yaml@^2.8.3` gives the validator enough source-position information for per-error 1-based line numbers in front matter, or whether the design's fall-back to "line of front-matter region" (`:2:`) is acceptable. Will be settled in implementation; the spec's "line-numbered" requirement is met under either reading. The pseudocode's `1`/`2`/`4` constants are placeholders, not contract.
-3. **OQ-3 (`.changeset/<random>.md` filename for the empty starter).** Spec says `<random>`. The implementation may pin a deterministic name (e.g. `initial-empty.md`) for reproducibility, or use `npx changeset add --empty`'s random name. Either satisfies R8.6 / A6 ("exactly one empty changeset file at `.changeset/<random>.md`"); the design's recommendation is to use the randomly-generated name to match the rest of the changesets-on-disk style, but it does not block.
-4. **OQ-4 (kill-switch test).** Whether the `skip_publish` input should be exercised once before merge as a smoke test, or left for the maintainer to drive on first emergency. The first-publish bootstrap routine effectively *requires* `skip_publish=true` to be exercised twice in production, so it is implicitly tested by the bootstrap itself. No additional pre-merge test wiring needed.
-5. **OQ-5 (where to document the bootstrap routine for posterity).** The first-publish bootstrap is a one-time procedure; the design records it only in the implementing PR's description. If a future maintainer needs to re-bootstrap (e.g. unpublishing `0.1.0` and starting over), the routine can be reconstructed from the design doc (this document) or from the PR description's history. The design does **not** add it to `CONTRIBUTING.md` because the persistent doc should describe steady-state mechanics, not bootstrap. Implementation phase may revisit.
+2. **OQ-2 (validator line precision).** Whether `yaml@^2.8.3` gives the validator enough source-position information for per-error 1-based line numbers in front matter, or whether the design's fall-back to "line of front-matter region" (`:2:`) is acceptable. Will be settled in implementation; the spec's "line-numbered" requirement is met under either reading. The pseudocode's `1`/`2`/`4` constants are placeholders, not contract. **Test plan implication:** B1–B8 unit tests should match on the `Err.msg` field, not on `Err.line`, until line-precision is settled (otherwise the tests are coupled to placeholder constants).
+3. **OQ-3 (`.changeset/<random>.md` filename for the starter).** Spec says `<random>`. The implementation may pin a deterministic name (e.g. `initial-scaffolding.md`) for reproducibility, or use `npx changeset add`'s random name. Either satisfies the substantive R8.6 / A6 ("exactly one starter changeset file at `.changeset/<random>.md`"); the design's recommendation is to use the randomly-generated name to match the rest of the changesets-on-disk style, but it does not block.
+4. **OQ-4 (kill-switch test).** Whether the `skip_publish` input should be exercised once before merge as a smoke test, or left for the maintainer to drive on first emergency. The bootstrap routine effectively *requires* `skip_publish=true` to be exercised at least once in production (manual run #1 for opening the Version Packages PR; the optional smoke-test run #2 exercises the kill switch's zero-changesets path). So the kill switch is implicitly verified by the bootstrap. No additional pre-merge test wiring needed. Note: the **inverted ternary expression** has its own empirical-table verification inline in the `release.yml` interface section; that table is the contract for the expression's truth values.
+5. **OQ-5 (where to document the bootstrap routine for posterity).** The first-publish bootstrap is a one-time procedure; the design records it in the implementing PR's description AND in this design doc's "Empty-changeset mechanics for the first release" section. If a future maintainer needs to re-bootstrap (e.g. unpublishing `0.1.0` and starting over — unlikely given the design now avoids publishing `0.1.0` at all), the routine can be reconstructed from this design doc. The design does **not** add the routine to `CONTRIBUTING.md` because the persistent doc should describe steady-state mechanics, not one-time bootstrap. Implementation phase may revisit.
+6. **OQ-6 (spec-level mismatch on R8.6 / A6 wording vs. action behavior — new in iteration 2).** Spec R8.6 says "One empty changeset … containing `---\n---`"; A6 says "Exactly one empty changeset file exists at `.changeset/<random>.md` containing `---\n---`". The design substitutes a `none`-bump starter for the empty form (see Decision: "Use `none`-bump starter, not the canonical empty form") because the action's v1.4.0+ behavior makes the empty form incompatible with the spec's D2 ("opens a no-op Version Packages PR"). **This is a spec-level concern the orchestrator should surface to the owner: the spec's empirical claim "verified in `/tmp/changesets-test-39`" was a CLI test, not an action test, and the action's PR-creation gating is what trips the empty-only state.** The substantive D2 contract (no version bump, no `CHANGELOG.md` change, only the starter deletion in the diff) is preserved by the substitution. The orchestrator may want to revise R8.6 / A6 wording to "one starter changeset (a `none`-bump or the empty form, see design doc)" and rebrand D2 to point to the design's verified mechanism. The design does not block on this; it proceeds under the substitution.
+7. **OQ-7 (D1 wording vs. workflow_dispatch-only trigger — new in iteration 2).** Spec D1 says "Merging this PR to `trunk` triggers `release.yml`." Under the design's chosen path, the merge does NOT automatically trigger `release.yml` (the workflow ships with `workflow_dispatch`-only; the `push: trunk` trigger is added by the follow-up D4 PR). The substantive D1 intent — that the pre-publish lint/typecheck/test sequence runs after this PR merges — is satisfied by the manual `workflow_dispatch` run #1 of the bootstrap. **The orchestrator may want to refine D1 wording to "After this PR merges, the maintainer can run `release.yml` via `workflow_dispatch` and lint/typecheck/test succeed" rather than "Merging this PR triggers `release.yml`."** The design records this as a spec-level note. F1 ("first `release.yml` run on this PR's merge commit succeeds") similarly needs the wording "first manual `release.yml` run after this PR's merge succeeds" — the same substantive intent, different mechanism.
 
-## Revision notes (this iteration)
+## Revision notes
 
-This revision addresses the three blocking issues raised in `2-design-doc/design-doc-review-1-rejected.md`:
+### Iteration 2 (this revision)
 
-- **Issue 1 (regex bug).** The fence-splitting regex is replaced with `/^---\r?\n([\s\S]*?)(?:\r?\n)?---\r?\n?([\s\S]*)$/`, which matches the canonical empty-changeset bytes (`---\n---\n`, produced by `npx changeset add --empty`) and the no-trailing-newline variant (`---\n---`). Verification is reproduced inline ("Empirical verification of the regex fix") and the choice is justified in "Decision: Front-matter parser regex". R-shape-2 in the validation table now references the empirical verification. CRLF tolerance is added as a free side effect.
-- **Issue 2 (`changeset publish` on first no-op merge).** The design picks the reviewer's suggested Option 1: the implementing PR's merge and the no-op Version Packages PR merge are both routed through `workflow_dispatch` with `skip_publish=true`, with `release.yml`'s automatic `push: trunk` trigger disabled during the bootstrap window. The new "Decision: First-publish gating via `skip_publish`" formalises the choice; the "Empty-changeset mechanics for the first release" section is fully rewritten to use the bootstrap routine; the PR description's pre-merge checklist gains a "First-publish bootstrap" subsection; the `R-bootstrap-skipped` risk is added.
-- **Issue 3 (validator pseudocode not testable).** The pseudocode is restructured into an exported pure function `validateChangesetFile(file, raw, pkgName, version)`, an exported orchestrator `main()`, and an ESM entry guard (`import.meta.url === pathToFileURL(process.argv[1]).href`). The test strategy section is rewritten to specify per-rule B1–B8 unit tests against `validateChangesetFile` (no filesystem fixtures) plus a child-process smoke test for the CLI entry. The new "Decision: Validator pseudocode shape — pure function + entry-guarded main" formalises the choice.
+This revision addresses the three blocking issues raised in `2-design-doc/design-doc-review-2-rejected.md`. All three are introduced or escalated by iteration 1's bootstrap routine. The reviewer accepted that iteration 1's three issues (regex, validator pseudocode shape, first-publish problem framing) are resolved; the new blockers are mechanical failures in the bootstrap routine iteration 1 added.
 
-Non-blocking nits addressed:
+- **Iteration-2 Issue 1 (disable workflow + workflow_dispatch is mutually exclusive).** A disabled GitHub Actions workflow blocks ALL triggers including `workflow_dispatch` — the "Run workflow" button is hidden. The previous bootstrap (disable workflow → manually trigger → re-enable) was structurally infeasible. **Fix:** changed the bootstrap mechanism entirely. This PR now ships `release.yml` with `on: workflow_dispatch:` as its sole trigger; the steady-state `push: trunk` trigger is added in the follow-up D4 feature PR (the same PR that ships the first real changeset). The workflow stays enabled throughout the bootstrap; `workflow_dispatch` works because the workflow is enabled. See Decision: "Bootstrap via `workflow_dispatch`-only trigger; `push: trunk` added in the follow-up D4 feature PR" and the rewritten "Empty-changeset mechanics for the first release" section. The empirical evidence (GitHub Actions docs and community discussion) is cited inline.
+- **Iteration-2 Issue 2 (`changesets/action` v1.4.0+ skips PR creation for empty-only state).** Reviewer empirically verified against the action's `src/index.ts` switch (line 114) and CHANGELOG (v1.4.0, PR #206 by @glasser): when `hasChangesets && !hasNonEmptyChangesets`, the action logs "All changesets are empty; not creating PR" and returns. The canonical empty starter (`---\n---\n`) has `releases.length === 0`, so `hasNonEmptyChangesets=false`, so the action returns without opening a PR. Iteration 1's bootstrap step 4 ("the action opens the Version Packages PR") cannot occur with the empty starter. **Fix:** the starter is now a `none`-bump changeset (`---\n"@automattic/skillsmith": none\n---\n\nInitial scaffolding…\n`), which has `releases.length === 1` so `hasNonEmptyChangesets=true`. Empirically verified at design-doc revision time: (a) `@changesets/read` correctly distinguishes empty from `none`-bump (in `/tmp/changesets-action-source-39`); (b) `changeset version` consumes the `none`-bump entry into no version bump, no `CHANGELOG.md` change, only the file deletion (in `/tmp/none-bump-test-2`, with the project's exact config). The substantive D2 diff requirement ("just the deletion of the empty changeset; no version bump and no `CHANGELOG.md` change") is preserved. The validator's R-shape-2 rule still recognizes the canonical empty form for the contributor-facing escape hatch (R1.3, R2.4). **The spec's R8.6 / A6 wording ("empty changeset containing `---\n---`") needs revisiting at the spec level — see OQ-6.**
+- **Iteration-2 Issue 3 (`skip_publish` ternary trap).** The YAML expression `${{ inputs.skip_publish && '' || 'npx changeset publish' }}` is a no-op for all values of `skip_publish` — empty string is falsy in GitHub Actions expressions, so `||` short-circuits past it. The kill switch never fires. Iteration 1 had this latent bug; iteration 2's bootstrap escalated it from convenience lever to load-bearing first-publish gate. **Fix:** inverted the ternary to `${{ !inputs.skip_publish && 'npx changeset publish' || '' }}`. Empirical truth-table reproduction is included inline in the `release.yml` interface section ("Empirical verification of the `skip_publish` expression"). The new bootstrap routine is structurally safe even without the kill switch (no `push: trunk` trigger means no automatic publish runs during bootstrap), but the kill switch is still wired correctly as defense-in-depth for the manual runs and for future maintainer-initiated version-PR-only runs.
 
-- The off-by-one line citation for `yaml` is corrected from `package.json:46` to `package.json:45`.
-- The `[skip ci]` framing is rewritten to make the branch-filter (not `[skip ci]`) the load-bearing safety, both in the "Trigger model and `[skip ci]`" section and in `R-skip-ci-future-workflow`.
-- The `tsconfig.json:include` omission for `scripts/**` is acknowledged in the "Untouched but contract-relevant components" section and as `R-tsconfig-include-omits-scripts`.
-- The hard-coded line numbers in the validator pseudocode are explicitly called out as placeholders ("the *exact line number* is implementation detail"), and OQ-2 already covers the precision question.
+Sections updated to reflect the fixes:
 
-Open questions remaining: OQ-1, OQ-2, OQ-3, OQ-4 (existing); OQ-5 (new — where to persist the bootstrap runbook). None block design approval; all are implementation-phase or future-revisit concerns.
+- The Overview's second paragraph rewrites the bootstrap narrative to introduce the `none`-bump starter and the `workflow_dispatch`-only trigger.
+- The Approach's flow split adds a "bootstrap window" subsection alongside the steady-state branches.
+- The Flow diagram's caption is clarified ("steady state, after the bootstrap completes") and the trigger-arrow gets a "trigger live after D4 follow-up feature PR adds `push: trunk`" annotation.
+- The Components table's starter entry describes the `none`-bump form and references the v1.4.0+ action behavior.
+- The Components table's `release.yml` entry notes the `workflow_dispatch`-only initial trigger.
+- The Changeset file format section distinguishes three relevant forms (empty for the escape hatch, `none`-bump for the starter, normal for contributors).
+- The `release.yml` interface section now ships `workflow_dispatch`-only, with the steady-state `push:` trigger shown commented-out, and uses the inverted ternary expression. A new subsection "Empirical verification of the `skip_publish` expression" reproduces the truth table.
+- The "Empty-changeset mechanics for the first release" section is fully rewritten end-to-end:
+  - The choice of `none`-bump starter is justified with inline empirical reproduction of the action's switch logic.
+  - The bootstrap routine reads "merge → manual run #1 → review and merge Version Packages PR → (optional) smoke-test run #2 → follow-up D4 PR adds `push:` and ships a real changeset" instead of "disable workflow → ...".
+  - The PR-description checklist is rewritten to remove the disable-workflow step and add the `none`-bump form check, the follow-up D4 PR step, and the D2 / D3 verification instructions.
+  - A new "Trace to spec D2 / D3 / D4" table documents which mechanism each criterion verifies through.
+  - The "Why this path over the alternatives" subsection now enumerates options A–F (six considered alternatives, only one chosen).
+- A new "Decision: Use `none`-bump starter, not the canonical empty form" replaces the iteration-1 reliance on the empty form.
+- A new "Decision: Bootstrap via `workflow_dispatch`-only trigger; `push: trunk` added in the follow-up D4 feature PR" replaces the iteration-1 "Decision: First-publish gating via `skip_publish`".
+- The existing "Decision: `workflow_dispatch` kill switch (`skip_publish`)" decision is rewritten to mandate the inverted ternary and link to the empirical-verification table.
+- The existing "Decision: Trigger on `push: branches: [trunk]`" decision is annotated with a caveat noting the workflow ships `workflow_dispatch`-only and `push:` is added by the D4 follow-up.
+- The "Hand-written initial 0.1.0 entry" decision is updated to reference the `none`-bump starter instead of the empty starter.
+- Failure modes table: rows about disabling/re-enabling the workflow are replaced with rows about (a) missing `none`-bump starter form, (b) D4 follow-up PR omitting the real changeset, (c) E4 not configured at D4 merge time.
+- Risks: `R-bootstrap-skipped` retired (the new bootstrap is structurally safe — no `push:` trigger means no automatic publish during bootstrap, so the "skipped bootstrap" failure mode no longer applies). New risks `R-d4-followup-omits-changeset` and `R-starter-form-mismatch` cover the residual concerns. The starter-related text of `R-rename-confusion` is updated.
+- OQ-4 is updated to reference the empirical-verification table.
+- OQ-5 is reframed to acknowledge the bootstrap routine is now structural (no `push:` trigger).
+- New OQ-6 surfaces the spec-level wording mismatch on R8.6 / A6 ("empty changeset" vs. `none`-bump substitution).
+- New OQ-7 surfaces the spec-level wording on D1 / F1 (the merge does not automatically trigger `release.yml` because there's no `push:` trigger yet).
+
+Non-blocking nits from iteration 2's review:
+
+- **OQ-2 test-plan note** (B1–B8 should match on `msg` not `line` until line-precision is settled) — added as a parenthetical in OQ-2.
+- **R-rename-confusion update** (the `none`-bump starter DOES carry a `"@automattic/skillsmith"` key, so a name override DOES need to propagate to the starter) — updated.
+- **"Skip the backfill" rejection cosmetic staleness** — text already worked under the substitution; no change needed.
+
+### Iteration 1
+
+The first revision addressed the three blocking issues raised in `2-design-doc/design-doc-review-1-rejected.md`:
+
+- **Issue 1 (regex bug).** The fence-splitting regex was replaced with `/^---\r?\n([\s\S]*?)(?:\r?\n)?---\r?\n?([\s\S]*)$/`, which matches the canonical empty-changeset bytes (`---\n---\n`, produced by `npx changeset add --empty`) and the no-trailing-newline variant (`---\n---`). Verification is reproduced inline ("Empirical verification of the regex fix") and the choice is justified in "Decision: Front-matter parser regex". CRLF tolerance was added as a free side effect.
+- **Issue 2 (`changeset publish` on first no-op merge).** Iteration 1 chose the iteration-1 reviewer's Option 1 (route the first runs through `skip_publish=true`); iteration 2 found that the chosen mechanism (disable workflow + manual dispatch) was structurally infeasible. The iteration-2 fix replaces the disable-workflow mechanism with the `workflow_dispatch`-only initial trigger plus the `none`-bump starter (see Iteration 2 above).
+- **Issue 3 (validator pseudocode not testable).** The pseudocode was restructured into an exported pure function `validateChangesetFile(file, raw, pkgName, version)`, an exported orchestrator `main()`, and an ESM entry guard (`import.meta.url === pathToFileURL(process.argv[1]).href`). The test strategy section specifies per-rule B1–B8 unit tests against `validateChangesetFile` (no filesystem fixtures) plus a child-process smoke test for the CLI entry. **Status: resolved.**
+
+Non-blocking nits addressed in iteration 1:
+
+- The off-by-one line citation for `yaml` was corrected from `package.json:46` to `package.json:45`.
+- The `[skip ci]` framing was rewritten to make the branch-filter (not `[skip ci]`) the load-bearing safety, both in the "Trigger model and `[skip ci]`" section and in `R-skip-ci-future-workflow`.
+- The `tsconfig.json:include` omission for `scripts/**` was acknowledged in the "Untouched but contract-relevant components" section and as `R-tsconfig-include-omits-scripts`.
+- The hard-coded line numbers in the validator pseudocode were called out as placeholders ("the *exact line number* is implementation detail"), and OQ-2 already covers the precision question.
+
+Open questions remaining: OQ-1, OQ-2, OQ-3, OQ-4 (existing); OQ-5 (iteration 1); OQ-6, OQ-7 (iteration 2, both spec-level). None block design approval; all are implementation-phase or future-revisit concerns. OQ-6 and OQ-7 should be surfaced to the orchestrator and owner because they touch spec wording.
