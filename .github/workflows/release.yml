@@ -1,0 +1,50 @@
+name: Release
+on:
+  # Bootstrap PR ships workflow_dispatch ONLY. A follow-up PR (D4 — the first real
+  # feature changeset) adds `push: branches: [trunk]` so the steady-state automatic
+  # trigger only goes live alongside a real version bump. See the design doc's
+  # "Empty-changeset mechanics for the first release" section and the decision
+  # "Bootstrap via workflow_dispatch-only trigger, push: trunk added in the follow-up
+  # feature PR".
+  workflow_dispatch:
+    inputs:
+      skip_publish:
+        description: "Run Version PR step only; don't publish"
+        type: boolean
+        default: false
+  # The line below is included by the follow-up D4 feature PR, NOT this PR.
+  # Documented here so the steady-state interface is visible to future readers.
+  #
+  # push:
+  #   branches: [trunk]
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - id: changesets
+        uses: changesets/action@v1
+        with:
+          # Ternary-trap-safe form: when the middle operand of `A && B || C` is falsy,
+          # the expression always returns `C`. Empty string is falsy in GitHub Actions
+          # expressions, so the form `inputs.skip_publish && '' || 'npx changeset publish'`
+          # silently always returns `'npx changeset publish'`. The inverted form below
+          # puts the truthy branch in the middle operand and reliably short-circuits.
+          publish: ${{ !inputs.skip_publish && 'npx changeset publish' || '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
