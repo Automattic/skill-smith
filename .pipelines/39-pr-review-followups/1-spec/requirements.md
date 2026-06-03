@@ -28,25 +28,65 @@ Captured by reading the repo at
 
 ## Change 1 — Standing agent-facing instruction to record a changeset
 
-### Grounding: the radical-pipelines precedent (pending researcher confirmation)
+### Q1 — Where should the agent-facing changeset rule live? (answered by researcher)
 
-Read from the local radical-pipelines clone (`/Users/santosguillamot/Desktop/Code/radical-pipelines`):
+**Decision: create a project-root `AGENTS.md` (holds the rule) AND a thin project-root
+`CLAUDE.md` whose entire contents are `@AGENTS.md` (imports it).** Both at repo root, alongside
+`.rp.md`:
+- `…/AGENTS.md` — holds the changeset rule.
+- `…/CLAUDE.md` — contents exactly `@AGENTS.md`.
 
-- `AGENTS.md` (NOT synced from anywhere — repo-specific) holds the rule as a bullet:
-  > Whenever a change is made to this repository, a changeset must be recorded: a committed
-  > `.changeset/*.md` that declares the change and its bump type, travelling with the pull
-  > request. Choose the bump type by semver — behavior-preserving fix → patch;
-  > backward-compatible feature → minor; breaking change → major. See the README's changelog
-  > and versioning section for how to author one.
-- `CLAUDE.md` contains only `@AGENTS.md` (an import directive so Claude Code reads `AGENTS.md`).
-- `.rp.md` is the synced "project conventions for every agentic coding tool" file and points
-  agents to tool-specific `.rp.md` files; it does NOT hold the changeset rule.
+Why both files (not just one):
+- **Claude Code does NOT auto-load `AGENTS.md`.** Per the Claude Code memory docs, Claude Code
+  auto-loads `./CLAUDE.md` (or `./.claude/CLAUDE.md`), not `AGENTS.md`; the documented bridge is
+  a `CLAUDE.md` that imports `AGENTS.md` via `@AGENTS.md`. A bare `AGENTS.md` alone would be
+  invisible to Claude Code agents — so the thin `CLAUDE.md` is **not optional**.
+- **Pi reads `AGENTS.md` directly** as the tool-agnostic cross-agent standard.
+- skillsmith's coding agents are radical-pipelines agents (Claude Code and/or Pi), so only the
+  `AGENTS.md` + thin `CLAUDE.md` pair covers both runtimes.
 
-Implication for skillsmith: the precedent home is a root `AGENTS.md` (with `CLAUDE.md`
-→ `@AGENTS.md`), which an upstream `.rp.md` re-sync will not touch. Researcher to confirm
-that skillsmith's agents actually read `AGENTS.md` / `CLAUDE.md`.
+Why this is re-sync-safe: the `.rp.md` sync copies **only** `.rp.md` (commits `fce8c4e`,
+`d1d019f` "Copy `.rp.md` from Radical Pipelines …"). `AGENTS.md` and `CLAUDE.md` are independent,
+repo-owned files the sync does not touch, so an upstream `.rp.md` re-sync cannot clobber them.
 
-_Open questions and answers recorded here (researcher Q&A)._
+radical-pipelines precedent (verbatim, from live `trunk`): the rule is the last bullet of an
+8-line root `AGENTS.md`, sitting right after a "keep README current" bullet:
+> Whenever a change is made to this repository, a changeset must be recorded: a committed
+> `.changeset/*.md` that declares the change and its bump type, travelling with the pull request.
+> Choose the bump type by semver — behavior-preserving fix → patch; backward-compatible feature →
+> minor; breaking change → major. See the README's changelog and versioning section for how to
+> author one.
+
+radical-pipelines `CLAUDE.md` is literally one line: `@AGENTS.md`. Its `README.md:163` codifies
+the pattern: "Shared cross-agent project instructions should live in `AGENTS.md`. `CLAUDE.md` may
+be a thin pointer to `AGENTS.md` … and should not duplicate shared `AGENTS.md` content into
+`CLAUDE.md`."
+
+Caveat from researcher: the pinned plugin-cache copy of radical-pipelines `AGENTS.md`
+(`~/.claude/plugins/cache/.../0.1.0/AGENTS.md`) is OLDER and lacks the changeset bullet; live
+GitHub `trunk` and the local checkout at `/Users/santosguillamot/Desktop/Code/radical-pipelines`
+both have it. Live repo is authoritative.
+
+Rejected alternatives: rule only in `CLAUDE.md` (Pi wouldn't read it); rule only in `AGENTS.md`
+(Claude Code wouldn't read it); a `CLAUDE.md → AGENTS.md` symlink instead of the `@AGENTS.md`
+import (works, but the import is the more portable/Windows-safe form radical-pipelines uses).
+
+### Q2 — Exact wording of skillsmith's rule (in progress; two facts pre-confirmed)
+
+Independently confirmed by the spec-analyst while the wording question is outstanding:
+- **Cross-reference target is `CONTRIBUTING.md`, not the README.** The README's only
+  changelog/version content is a 2-line `## Releases` section pointing to `CHANGELOG.md` and the
+  GitHub releases page, plus a `## Contributing` section that defers to
+  `CONTRIBUTING.md#adding-a-changeset` (`README.md:232-239`). There is no parallel policy in the
+  README. `CONTRIBUTING.md` is the single canonical home for the changeset/versioning policy.
+- **`major` is rejected pre-1.0 by the validator.** `scripts/validate-changesets.ts:145-151`:
+  when `package.json:version` starts with `"0."`, a `major` bump errors with
+  `'major' is forbidden while pre-1.0 (version=…). Use 'minor' with a 'BREAKING:' prefix; see
+  CONTRIBUTING.md#pre-10-policy.` So radical-pipelines' verbatim "breaking change → major"
+  mapping would tell an agent to do something this repo's own validator rejects. The wording must
+  not reproduce that mapping unqualified.
+
+_Researcher's wording recommendation pending; recorded when it arrives._
 
 ## Change 2 — Make `npm run lint` pass on the branch
 
