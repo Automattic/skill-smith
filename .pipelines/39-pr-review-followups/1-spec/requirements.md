@@ -71,22 +71,62 @@ Rejected alternatives: rule only in `CLAUDE.md` (Pi wouldn't read it); rule only
 (Claude Code wouldn't read it); a `CLAUDE.md → AGENTS.md` symlink instead of the `@AGENTS.md`
 import (works, but the import is the more portable/Windows-safe form radical-pipelines uses).
 
-### Q2 — Exact wording of skillsmith's rule (in progress; two facts pre-confirmed)
+### Q2 — Exact wording / shape of skillsmith's rule (answered by researcher)
 
-Independently confirmed by the spec-analyst while the wording question is outstanding:
-- **Cross-reference target is `CONTRIBUTING.md`, not the README.** The README's only
-  changelog/version content is a 2-line `## Releases` section pointing to `CHANGELOG.md` and the
-  GitHub releases page, plus a `## Contributing` section that defers to
-  `CONTRIBUTING.md#adding-a-changeset` (`README.md:232-239`). There is no parallel policy in the
-  README. `CONTRIBUTING.md` is the single canonical home for the changeset/versioning policy.
-- **`major` is rejected pre-1.0 by the validator.** `scripts/validate-changesets.ts:145-151`:
-  when `package.json:version` starts with `"0."`, a `major` bump errors with
-  `'major' is forbidden while pre-1.0 (version=…). Use 'minor' with a 'BREAKING:' prefix; see
-  CONTRIBUTING.md#pre-10-policy.` So radical-pipelines' verbatim "breaking change → major"
-  mapping would tell an agent to do something this repo's own validator rejects. The wording must
-  not reproduce that mapping unqualified.
+**Decision: shape (i) — a minimal, obligation-only bullet in `AGENTS.md` that DEFERS all
+bump-type/semver detail to `CONTRIBUTING.md#adding-a-changeset`. Do NOT inline a semver
+bump-type mapping.**
 
-_Researcher's wording recommendation pending; recorded when it arrives._
+Both facts pre-confirmed by the spec-analyst were independently re-confirmed by the researcher:
+- **`CONTRIBUTING.md` is the sole canonical policy home; there is NO README policy section.**
+  README's only relevant content is `## Releases` (line 232, links to `CHANGELOG.md` + GitHub
+  releases) and `## Contributing` (line 237, a one-liner deferring to
+  `CONTRIBUTING.md#adding-a-changeset` at line 239). So radical-pipelines' "the README's
+  changelog and versioning section" target does not exist here — the cross-reference must be
+  `CONTRIBUTING.md` (anchor `#adding-a-changeset`).
+- **`major` is hard-rejected pre-1.0.** `scripts/validate-changesets.ts:80,145-151` —
+  `preRelease = version.startsWith("0.")`; a `major` bump then errors `'major' is forbidden
+  while pre-1.0 (version=…). Use 'minor' with a 'BREAKING:' prefix; see
+  CONTRIBUTING.md#pre-10-policy.` `package.json` is at `0.1.0`, so the guard is live. A verbatim
+  "breaking change → major" clause would contradict `CONTRIBUTING.md` and instruct an agent to
+  author a changeset the validator rejects.
+
+Why shape (i), not an inlined mapping (shape ii):
+1. **Drift/contradiction is real, not hypothetical.** skillsmith's bump rules are not the simple
+   semver triad — the `### Bump types` table (CONTRIBUTING.md:42-46) has repo-specific triggers,
+   and the pre-1.0 policy then overrides the whole "major" column to "minor + `BREAKING:`" while
+   `0.x`. Any one-line mapping would be a lossy restatement already contradicted by the validator
+   for the breaking case, and would need to change again at the 1.0 cutover. An obligation-only
+   bullet has nothing to drift.
+2. **"When a changeset is required" is path-scoped and nuanced** (CONTRIBUTING.md:20-39): carve-outs
+   for docs/tests/refactors/`.pipelines/**`/`testing-project/`; partial-contract files
+   (`examples/skillsmith.config.ts`, `README.md`); "new provider = minor." Can't be compressed
+   without loss; pointing to the canonical list is the only non-lossy option.
+3. **In-repo precedent already chose defer-don't-restate.** `.changeset/README.md` is the existing
+   short pointer to the policy; it deliberately does NOT restate a bump mapping and says verbatim
+   (line 5): "The full policy … lives in `../CONTRIBUTING.md#adding-a-changeset`. This README is a
+   cheat sheet, not the source of truth." The new `AGENTS.md` bullet is the same kind of artifact
+   and should follow the same pattern. (radical-pipelines could inline a mapping because it has no
+   pre-1.0 carve-out and no local validator; skillsmith has both, so that precedent doesn't
+   transfer.)
+
+Wording constraints for the `AGENTS.md` bullet:
+- **MUST** state the obligation imperatively: every release-relevant change records a committed
+  `.changeset/*.md` that travels with the PR (consistent with CONTRIBUTING.md:16 framing).
+- **MUST** cross-reference `CONTRIBUTING.md#adding-a-changeset` for the detail (same anchor used by
+  README:239 and `.changeset/README.md`), which covers when required, the bump-type table, and the
+  pre-1.0 rule.
+- **MUST** be a single bullet in the same imperative list style as radical-pipelines' `AGENTS.md`
+  (sibling to a "keep docs current" line if one is included), since `AGENTS.md` is small and
+  always-loaded.
+- **MUST NOT** inline any semver bump mapping (no "fix→patch / feature→minor / breaking→major").
+- **MUST NOT** state or imply "breaking change → major" (contradicts pre-1.0 policy + validator).
+- **MUST NOT** restate the "when required" path list or duplicate the bump-type table (drift risk).
+- **MUST NOT** point to "the README" for the policy how-to (no such section exists).
+- **OPTIONAL (researcher leans include):** a single low-drift pointer clause steering agents away
+  from the one rule the validator hard-rejects — e.g. "while pre-1.0, never use `major` — see
+  CONTRIBUTING.md." Highest-value, lowest-drift exception; pure obligation-only is also fully
+  defensible. **→ Decision for this clause deferred to Q3 below.**
 
 ## Change 2 — Make `npm run lint` pass on the branch
 
