@@ -329,10 +329,22 @@ Two points still to confirm (Q5 to researcher):
 
 The change has two distinct sub-problems (from the prompt) plus one empirical unknown:
 
-1. **`prettier` defaults to `true`.** `.changeset/config.json` does not set the `prettier`
-   option, so Changesets defaults it to `true` and will attempt to run Prettier on files it
-   writes/edits during `changeset version`. This repo has **no Prettier installed** and formats
-   with Biome (tabs). So the coupling is to a formatter the repo doesn't use.
+1. **`prettier` defaults to `true` — and Prettier IS resolvable (transitively), so the default
+   actively reformats.** `.changeset/config.json` does not set the `prettier` option, so
+   Changesets defaults it to `true`. **Premise correction (researcher, verified):** the prompt
+   says the repo "has no Prettier installed," but `npm ls prettier` shows **`prettier@2.8.8`
+   present transitively**, pulled in by `@changesets/cli@2.31.0` →
+   `@changesets/apply-release-plan@7.1.1` / `@changesets/write@0.4.0` (at `node_modules/prettier`
+   and `node_modules/.bin/prettier`). It is NOT a direct dependency (`package.json` has no
+   `prettier`) and there is no Prettier config file. Consequence: because a real Prettier resolves,
+   the release flow's `apply-release-plan` step **can and will actually run Prettier** over the
+   files it rewrites (`package.json`, `CHANGELOG.md`) — it does NOT silently no-op for lack of
+   Prettier. So the accurate framing is not "the default is harmless because Prettier is absent,"
+   but "the `true` default actively reformats version-bearing files with Prettier (2-space, prose
+   rewrap) and fights Biome's tabs afterwards." This strengthens the case for `prettier: false`;
+   the actual consequence of leaving it `true` is the empirical target below. The repo formats
+   with **Biome (tabs)**, the formatter it actually uses. Installed versions for the record:
+   `@changesets/cli@2.31.0`, `@changesets/changelog-github@0.7.0`, `prettier@2.8.8` (transitive).
 
 2. **The committed `config.json` is not Biome-formatted.** Verified empirically:
    `npx biome format .` reports **`.changeset/config.json` as the ONLY file in the repo failing
@@ -344,9 +356,13 @@ The change has two distinct sub-problems (from the prompt) plus one empirical un
    Biome's purview and currently fights `npm run format`.
 
 3. **Empirical unknown (researcher prepping):** does `changeset version` preserve the repo's
-   established formatting when it rewrites `package.json` and creates/appends `CHANGELOG.md`? i.e.
-   after a release does `package.json` keep tabs, or does Changesets write 2-space / Prettier-style
-   output that then fights `biome`? The prompt requires verifying this empirically, not assuming.
+   established formatting when it rewrites `package.json` and creates/appends `CHANGELOG.md`?
+   `package.json` is currently **tab-indented** (Biome style) and `CHANGELOG.md` is plain markdown
+   (no meaningful indent) — these are the files `changeset version` rewrites, so they are the
+   empirical targets. Because Prettier resolves (item 1), the test must measure BOTH cases: with
+   the current default (`prettier: true`) AND with `prettier: false`, to confirm (a) that `true`
+   reformats `package.json` away from tabs and (b) that `false` (or `false` + a `biome format`
+   post-step) keeps the repo style. The prompt requires verifying this empirically, not assuming.
 
 Other `.changeset/` contents: `README.md` (the changesets-init cheat sheet) and
 `initial-scaffolding.md` (a `none`-bump starter changeset — consistent with the bootstrap PR).
