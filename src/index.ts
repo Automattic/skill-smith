@@ -32,3 +32,4 @@ export type {
 export type { Provider, ProviderId } from "./providers/types";
 export type { RunOptions } from "./runner";
 export { run } from "./runner";
+export { agentRunnable, runnableTestAgentIds } from "./policy/runnability";
