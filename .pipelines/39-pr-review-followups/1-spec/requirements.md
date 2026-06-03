@@ -485,6 +485,28 @@ hand-maintained and never rewritten by `changeset version`.
   flow is needed or able to help** (package.json already Biome-clean; CHANGELOG.md is outside
   Biome's formatter entirely).
 
+**Q7 final framing (researcher-recommended wording for the spec/AC):**
+- Recommendation: **`prettier: false` is the default**, because the prompt's stated desired outcome
+  ("no coupling to a formatter the repo does not use") is the governing intent, and the empirical
+  findings make `false` *safe* to adopt rather than arguing against it (the one thing `true` buys —
+  tidier changelog spacing — is cosmetic on a file Biome can't format anyway; the cost it carries
+  is exactly the undeclared-transitive-Prettier coupling the prompt says to remove).
+- Two reasoning lines the spec should carry: (1) "Set `prettier: false` so the release flow does
+  not depend on Prettier — a formatter this repo neither declares nor uses (it formats with Biome).
+  Empirically safe: `changeset version` preserves `package.json`'s tab indentation regardless, and
+  the only Prettier-formatted file is `CHANGELOG.md`, which Biome does not format anyway." (2) "This
+  is a deliberate decoupling tradeoff, not a bug fix: with Prettier off the generated `CHANGELOG.md`
+  has slightly tighter, non-normalized spacing — still valid Markdown that renders correctly."
+- Alternative for the owner (state explicitly): "If the owner prefers normalized changelog spacing,
+  keep `prettier: true` — but the repo then tacitly depends on the transitively-installed
+  `prettier@2.8.8`; making that honest means declaring Prettier as a devDependency, reintroducing
+  the dual-formatter coupling this change set out to remove. Recommendation is therefore
+  `prettier: false`."
+- **No `biome format` post-step** in the release flow (dead weight: package.json already
+  Biome-clean; CHANGELOG.md is Markdown Biome can't format). `release.yml` needs no formatting step.
+- Gate note: editing `.changeset/config.json` (both `prettier:false` and the reformat) is
+  **gate-exempt** (`.changeset/**` is not in `changedFilePatterns`) → no changeset for Change #3.
+
 **Out-of-scope finding to note (not part of these 3 changes):** `@changesets/changelog-github` (the
 repo's configured generator) requires a `GITHUB_TOKEN` during `changeset version` — it errors
 offline ("Please create a GitHub personal access token…"). CI is fine (`release.yml` passes
