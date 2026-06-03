@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "@playwright/test";
+import { runnableTestAgentIds } from "skillsmith";
 import config from "./skillsmith.config";
 
 const STORAGE_STATE_PATH = path.join(
@@ -20,7 +21,7 @@ export default defineConfig({
 	testMatch: "**/e2e.spec.mjs",
 	globalSetup: "./global-setup.mjs",
 	reporter: [["list"], ["json"]],
-	projects: config.roles.test.agents.map((agentId) => ({
+	projects: runnableTestAgentIds(config, process.env).map((agentId) => ({
 		name: agentId,
 		metadata: { agentId },
 	})),
