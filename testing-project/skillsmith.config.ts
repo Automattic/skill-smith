@@ -27,10 +27,14 @@ export default defineConfig({
 			model: "claude-opus-4-7",
 			effort: "xhigh",
 		},
+		"openai-api-nano": {
+			provider: "openai-api",
+			model: "gpt-4.1-nano",
+		},
 	},
 	roles: {
 		test: {
-			agents: ["haiku"],
+			agents: ["haiku", "openai-api-nano"],
 			prompt: testingAgentPrompt,
 		},
 		judge: "opus",
