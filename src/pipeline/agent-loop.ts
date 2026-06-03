@@ -8,6 +8,7 @@ import type {
 	Scenario,
 	SkillsmithConfig,
 } from "../config/types";
+import { decideRunnability } from "../policy/runnability";
 import type { ProgressTracker } from "../progress";
 import type { TokenUsage } from "../providers/types";
 import {
@@ -91,8 +92,32 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 		);
 	}
 
+	// Split the active selection into agents that can run and agents whose
+	// provider is misconfigured (a required credential is absent). The plan
+	// partitions the full declared test set, so intersect it with `agents`
+	// to keep any active `agentIdFilter` honored.
+	const plan = decideRunnability(config, process.env);
+	const activeIds = new Set(agents.map((a) => a.id));
+	const runnable = plan.testAgents.run.filter((a) => activeIds.has(a.id));
+	const excluded = plan.testAgents.excluded.filter((e) =>
+		activeIds.has(e.agent.id),
+	);
+
+	// Persist a non-PASS marker for each excluded agent without invoking it
+	// or firing its hooks. The marker flows through the normal scoring chain
+	// and forces a non-zero exit, surfacing the misconfiguration.
+	for (const { agent, reason } of excluded) {
+		const agentDirectory = join(scenarioDirectory, agent.id);
+		mkdirSync(agentDirectory, { recursive: true });
+		writeAgentReport(agentDirectory, { duration: 0 }, { skipped: reason });
+		tracker.phaseFinished(scenario.name, agent.id, "testing", {
+			status: "skipped",
+			detail: "misconfigured",
+		});
+	}
+
 	await Promise.all(
-		agents.map((agent) =>
+		runnable.map((agent) =>
 			runAgentPair({
 				agent,
 				scenario,
