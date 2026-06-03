@@ -531,5 +531,3 @@ Run from the worktree root. All checks must pass before the work is considered d
 - Removing the pre-1.0 clause from `AGENTS.md` at the 1.0 cutover (tracked future cleanup).
 - Adding any new changeset, or editing `.changeset/initial-scaffolding.md`.
 - A new branch or PR — all work lands on `worktree-39-changelog-and-versioning` (PR #41).
-</content>
-</invoke>
