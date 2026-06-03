@@ -60,7 +60,13 @@ import type {
 - `agentRunnable(config: SkillsmithConfigInput, agentId: string, env:
   NodeJS.ProcessEnv = process.env): boolean` — looks up
   `config.agents[agentId].provider` and returns `providerRunnable(provider,
-  env)`. (Public.)
+  env)`. (Public.) Its contract is that `agentId` must name a declared agent: an
+  id absent from `config.agents` makes the `.provider` access throw. Internal
+  callers only ever pass ids drawn from `config.roles.test.agents`, which config
+  validation (`src/config/validate.ts:130-132`) guarantees reference real agents,
+  so they are safe; the throw-on-unknown-id behavior is the documented contract for
+  third-party callers. A one-line comment may state this; do not silently coerce an
+  unknown id to `false` (that would mask a config error).
 - `runnableTestAgentIds(config: SkillsmithConfigInput, env: NodeJS.ProcessEnv =
   process.env): string[]` — `config.roles.test.agents.filter((id) =>
   agentRunnable(config, id, env))`. (Public.) Note `roles.test.agents` is a list
@@ -115,6 +121,9 @@ implement "fail" or "skip". Do NOT introduce a `"warn"` string literal anywhere.
   the only `../providers` import line is `import type`).
 - `decideRunnability` contains no policy-name string and no `if (policy === …)`
   branching; the single behavior is implemented directly.
+- `agentRunnable` throws (does not return a value) when given an `agentId` that is
+  not present in `config.agents` — the public contract is that the id must name a
+  declared agent.
 
 ---
 
@@ -228,10 +237,15 @@ In `runAgents` (`src/pipeline/agent-loop.ts:66`), after the existing
    join(scenarioDirectory, agent.id)`, `mkdirSync(agentDirectory, { recursive:
    true })`, and call the existing `writeAgentReport(agentDirectory, { duration:
    0 }, { skipped: reason })` where `reason` is the excluded entry's reason string
-   (already prefixed `"misconfigured: "`). Do NOT create the `workspace`
-   subdirectory, do NOT call `runTestingAgent`/`runJudgeAgent`, and do NOT fire
-   `beforeTestAgent`/`afterTestAgent`/judge hooks for it. `writeAgentReport` is
-   already defined in this file (line ~298) — reuse it as-is; do not change its
+   (already prefixed `"misconfigured: "`). Preserve the existing argument order:
+   the signature is `writeAgentReport(agentDirectory, testing, review)` and it
+   persists `{ testing, review }` (`src/pipeline/agent-loop.ts:298-308`), so the
+   second arg is the `testing` block `{ duration: 0 }` and the third is the
+   `review` block `{ skipped: reason }` — do NOT swap them (swapping would produce
+   the wrong marker shape and break Task 9's assertion). Do NOT create the
+   `workspace` subdirectory, do NOT call `runTestingAgent`/`runJudgeAgent`, and do
+   NOT fire `beforeTestAgent`/`afterTestAgent`/judge hooks for it. `writeAgentReport`
+   is already defined in this file (line ~298) — reuse it as-is; do not change its
    signature.
 4. Exclusion and marker-write happen TOGETHER inside this per-scenario call, so a
    re-selected misconfigured agent (in `failed-pairs`/`failed-scenarios`/`all`
@@ -300,9 +314,20 @@ const plan = decideRunnability(config, process.env);
   `resolveSelfImprovement`, or mutate the field if the binding allows). This one
   change propagates to `maxIterations` (line 118-119 collapses to 1), the
   per-iteration improvement guard (line 188-192), and the final-sweep guard (line
-  215-220). Surface it with a `log`/console line noting the improver was degraded
-  for the missing credential. It MUST NOT force a non-zero exit — the exit still
-  derives from the test/judge matrix via `prepareSummary`.
+  215-220). It MUST NOT force a non-zero exit — the exit still derives from the
+  test/judge matrix via `prepareSummary`.
+  - **Surface the degrade observably (required).** When `plan.improver.degrade`,
+    emit a single `console.log` line that announces the improver was degraded and
+    names the missing credential — write `plan.improver.reason` verbatim into the
+    line (it already carries `MISCONFIGURED_REASON_PREFIX` + the variable name,
+    e.g. `"misconfigured: OPENAI_API_KEY is not set"`). Example:
+    `` console.log(`improver degraded to test-only — ${plan.improver.reason}`); ``.
+    This line is the only signal that distinguishes a degraded all-pass run from a
+    non-degraded all-pass run (both stop at one iteration via the `mergedPass`
+    break), so it MUST be present and MUST contain the missing-variable text.
+    Task 7's improver-degrade case asserts on exactly this line; without it AC3.2
+    is untestable. Use the existing logging idiom in this file (plain `console.log`
+    as elsewhere in the pipeline); do not add a new logger or dependency.
 
 Both branches only READ fields the seam computed; no policy branching appears at
 the call site. Do not move or restructure the iteration loop, the outer `try`, or
@@ -324,6 +349,11 @@ before that line. Place the pre-flight right after `resolveSelfImprovement` (lin
   written and the process returns non-zero (verified by Task 7's judge-stop test).
 - A misconfigured improver leaves the exit code to the matrix and runs no
   improvement step (verified by Task 7's improver-degrade test).
+- A misconfigured improver emits exactly one `console.log` degrade line on stdout
+  that contains the missing-credential text from `plan.improver.reason` (the
+  `"misconfigured: <VAR> is not set"` string). This line is the observable signal
+  Task 7 asserts on; if the degrade path is removed, the line disappears and that
+  assertion fails.
 
 ---
 
@@ -382,10 +412,15 @@ pairing a credential-scrubbed `openai-api` agent with runnable `mock` agents.
 **Changes**
 
 Follow the deterministic pattern of `src/__tests__/agent-loop.test.ts`: each test
-`rmSync`es the fixture `.skillsmith` base dir, silences `console.log`, calls
-`exitCode = await run({ cwd: fixtureRoot })`, then asserts on the exit code and the
-persisted reports. Reuse the existing minimal fixture skill/scenario/rubric layout
-(copy from `judge-skip-project` or `smoke-project`). In every test, save → `delete
+`rmSync`es the fixture `.skillsmith` base dir, replaces `console.log` with a
+capture (push each call's joined arguments into a local `string[]`, restore the
+original in `finally` — see `src/__tests__/self-improvement-loop.test.ts:40-47` for
+the save/restore idiom), calls `exitCode = await run({ cwd: fixtureRoot })`, then
+asserts on the exit code, the captured stdout lines, and the persisted reports.
+Capturing (not merely silencing) stdout is required for the improver-degrade case,
+which asserts on the degrade line; the other cases may capture or silence as
+convenient. Reuse the existing minimal fixture skill/scenario/rubric layout (copy
+from `judge-skip-project` or `smoke-project`). In every test, save → `delete
 process.env.OPENAI_API_KEY` → restore in `finally` so the `openai-api` agent is
 genuinely misconfigured regardless of CI env (pattern at
 `providers.test.ts:286-288`). Import `MISCONFIGURED_REASON_PREFIX` from
@@ -408,11 +443,35 @@ Fixtures and assertions:
   produced — assert the run `report.json` was not written
   (`existsSync(join(base, runId, "report.json")) === false`), distinguishing the
   judge stop from a matrix of FAILs.
-- **Misconfigured improver** (`misconfigured-improver`): set fixture `mode:
-  "self-improvement"` with the improver `openai-api` (scrubbed); test + judge
-  `mock` and PASS. Assert `exitCode === 0` (clean test/judge matrix), that the run
-  completed test-only (only one iteration ran — assert a single `iteration-1` dir
-  and no `iteration-2`), and that no improvement step ran.
+- **Misconfigured improver** (`misconfigured-improver`): set the fixture
+  `selfImprovement` to `{ mode: "self-improvement", maxIterations: 3 }` (any value
+  `> 1`) with the improver `openai-api` (scrubbed); test + judge `mock` and PASS.
+  Assert, in this order:
+  1. **The degrade is surfaced (the discriminating assertion).** The captured
+     stdout contains a line that starts with `MISCONFIGURED_REASON_PREFIX` /
+     names `OPENAI_API_KEY` — i.e. assert at least one captured line matches
+     `/misconfigured: OPENAI_API_KEY is not set/` (build the needle from the
+     imported `MISCONFIGURED_REASON_PREFIX` plus `OPENAI_API_KEY`). This is the
+     only signal that differs between the degraded and non-degraded worlds for an
+     all-pass matrix; if Task 5's degrade path were removed this assertion fails.
+  2. **No improvement step ran (the improver-ran signal is absent).** Assert
+     `existsSync(join(iter1, "improvement.md")) === false`, where `iter1` is the
+     `iteration-1` dir — `improvement.md` is the on-disk artifact the improver
+     writes when it runs (see `src/__tests__/self-improvement-loop.test.ts:81-84`).
+  3. **`maxIterations` collapsed to one as a consequence of the degrade.** Assert
+     the run completed in a single iteration *despite* the fixture's
+     `maxIterations: 3`: a single `iteration-1` dir and no `iteration-2`, and
+     `run.json`'s `iterations` array has length 1 (read `run.json` as in
+     `self-improvement-loop.test.ts:59-66`). Because the fixture set
+     `maxIterations > 1`, "one iteration" is a real consequence of the test-only
+     collapse at `pipeline.ts:118-119`, not the default.
+  4. `exitCode === 0` — the clean test/judge matrix governs the exit; the degrade
+     does not force non-zero.
+  Note on discrimination: with an all-pass matrix the iteration loop also stops at
+  one iteration via the `mergedPass` break (`pipeline.ts:212`), so the
+  single-iteration count alone is not sufficient proof of degrade — assertion (1)
+  (the surfaced degrade line) and assertion (2) (no `improvement.md`) are what make
+  this case fail if Task 5's degrade logic is removed. Keep all three.
 
 Keep fixture configs and test strings free of process/phase vocabulary; name
 fixtures by behavior (e.g. `misconfigured-test-agent`).
@@ -427,8 +486,13 @@ AC3.3.
 
 - `npm test` runs all four cases and they pass deterministically with no network
   and with `OPENAI_API_KEY` scrubbed inside each test.
-- The judge-stop case proves no run `report.json` exists; the improver-degrade
-  case proves a single iteration and exit 0.
+- The judge-stop case proves no run `report.json` exists.
+- The improver-degrade case is discriminating: it asserts (a) a captured stdout
+  line matching `misconfigured: OPENAI_API_KEY is not set`, (b) no
+  `iteration-1/improvement.md`, and (c) a single iteration despite a fixture
+  `maxIterations > 1`, with `exitCode === 0`. Removing Task 5's improver-degrade
+  branch makes assertion (a) (and (c)) fail — confirm by reasoning that without the
+  degrade the run would honor `mode: "self-improvement"` and `maxIterations > 1`.
 
 ---
 
