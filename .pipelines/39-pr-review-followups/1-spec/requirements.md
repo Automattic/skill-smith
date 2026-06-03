@@ -150,7 +150,46 @@ failure exists: `src/progress/tracker.ts:358` — `const ANSI_SGR = /\x1b\[[0-9;
 This is the only failing file that falls under the changeset gate's `changedFilePatterns`
 (`src/**` minus `src/__tests__/**`), so a source edit there likely needs its own changeset.
 
-_Open questions and answers recorded here._
+### Per-failure detail (captured by reading the offending code)
+
+There are three distinct failure classes, each needing a different fix posture:
+
+1. **`noAdjacentSpacesInRegex` — 4 warnings, all in `src/__tests__/progress-render.test.ts`.**
+   Multiple `assert.match(..., /…  /)` patterns with literal consecutive spaces (e.g.
+   `/^scenarios  /`, `/^phases     /`, `/elapsed 16:48   done/`). Biome marks these **FIXABLE
+   with a safe fix** — it rewrites e.g. `/^scenarios  /` → `/^scenarios {2}/` (quantifier).
+   Purely mechanical; `biome lint --write` (`npm run lint:fix`) resolves them with no semantic
+   change. Tests-only path → excluded from the changeset gate.
+
+2. **`noControlCharactersInRegex` — 1 error in `src/progress/tracker.ts`, 2 warnings in
+   `src/__tests__/progress-tracker.test.ts`.** These regexes match **real ANSI escape
+   sequences** and the flagged control char is the ESC byte `\x1b` (0x1B), which is the
+   legitimate, necessary content:
+   - `src/progress/tracker.ts:358` — `const ANSI_SGR = /\x1b\[[0-9;]*m/g;` used by
+     `visibleWidth()` (line 360-362) to strip SGR color codes when measuring printed width.
+   - `src/__tests__/progress-tracker.test.ts:141` — `second.match(/^\x1b\[(\d+)A\x1b\[0J/)`
+     asserting a repaint starts with cursor-up + erase-display escapes.
+   The ESC byte is intrinsic to what these regexes do — you cannot match ANSI sequences without
+   it. This is the prompt's explicit "a specific rule is genuinely inappropriate for a specific
+   location" case. NOT auto-fixable (no safe fix offered). The fix posture is a judgment call
+   (narrowly-scoped Biome suppression vs. a code rewrite that satisfies the rule) → researcher Q.
+
+3. **`noDescendingSpecificity` — 2 errors in `docs/styles.css`.** Bare element selectors
+   (`pre` at line 596, `code` at line 605) appear *after* higher-specificity selectors for the
+   same elements (`.terminal pre` at 300, `.note-card code` at 429). Biome flags the descending
+   specificity ordering. `docs/**` is excluded from the changeset gate (no changeset needed). Fix
+   is a CSS edit; must preserve rendered styling (cascade correctness) → researcher Q on approach.
+
+### Open requirements questions for Change #2 (to be answered via researcher)
+
+- Fix approach for the `noControlCharactersInRegex` ANSI regexes (source + test): narrowly-scoped
+  `biome-ignore` suppression with justification, vs. a rule-satisfying code rewrite. Whichever is
+  chosen must apply equally to the legitimate uses and must not be a blanket/file-level disable.
+- Whether editing `src/progress/tracker.ts` (under the changeset gate) requires a changeset, and
+  if so whether it is an **empty** changeset (lint-only, zero consumer-visible behavior change —
+  CONTRIBUTING.md says zero-effect changes use `--empty`) or a versioned `patch`.
+- Fix approach for `docs/styles.css` descending specificity (reorder vs. other) while preserving
+  the rendered cascade.
 
 ## Change 3 — Align Changesets' formatting with the Biome toolchain
 
