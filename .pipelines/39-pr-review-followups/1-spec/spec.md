@@ -39,8 +39,8 @@ scoped strictly to these three items.
 - **Canonical policy home:** `CONTRIBUTING.md` is the sole canonical versioning/changeset policy.
   There is **no policy section in `README.md`** — its only relevant content is `## Releases` (links
   to `CHANGELOG.md` + GitHub releases) and a `## Contributing` one-liner that defers to
-  `CONTRIBUTING.md#adding-a-changeset`. Confirmed `CONTRIBUTING.md` anchors: `#adding-a-changeset`,
-  `#bump-types`, `#pre-1.0-policy`.
+  `CONTRIBUTING.md#adding-a-changeset`. Confirmed `CONTRIBUTING.md` anchors (GitHub auto-slug, dot
+  stripped): `#adding-a-changeset`, `#bump-types`, `#pre-10-policy`.
 
 ### Cross-cutting constraint — ZERO new changesets (read before implementing)
 
@@ -101,7 +101,8 @@ not a second top-level bullet), **action-framed (not a bare prohibition)**, carr
   - (a) the condition — while pre-1.0 / version `0.x`;
   - (b) the action — use `minor` with a `BREAKING:` summary prefix;
   - (c) the fact that `major` is disallowed pre-1.0;
-  - (d) a pointer to `CONTRIBUTING.md` (`#pre-1.0-policy` or `#adding-a-changeset`).
+  - (d) a pointer to `CONTRIBUTING.md` (`#pre-10-policy` — GitHub's auto-slug for the `### Pre-1.0
+    policy` heading, dot stripped; matches the validator message verbatim — or `#adding-a-changeset`).
 
   This mirrors the canonical wording at both enforcement points so it cannot drift in spirit:
   `CONTRIBUTING.md` ("write `minor` (never `major`) … prepend `BREAKING:` to the summary") and the
@@ -174,11 +175,13 @@ merely exit 0. (See AC8 for the rationale and the literal-CI caveat.)
 whole-file ignores. Three distinct fix postures, one per failure class:
 
 - **R2.2a — `noControlCharactersInRegex` (3 errors): narrowly-scoped per-line `biome-ignore`.**
-  Add a per-line `// biome-ignore lint/suspicious/noControlCharactersInRegex: <reason>` directly
-  above each of the 3 occurrences (the `tracker.ts:358` source regex and both ESC escapes on
-  `progress-tracker.test.ts:141`). The justification states that the regexes match real ANSI escape
-  sequences and the flagged ESC byte (`0x1b`) is the intended, necessary content (e.g. SGR colour
-  codes / cursor-control escapes). Apply the **same** technique to all 3 occurrences.
+  Add a `// biome-ignore lint/suspicious/noControlCharactersInRegex: <reason>` directly above each
+  offending line — **one per line, 2 comments total covering all 3 diagnostics**: one above the
+  `tracker.ts:358` source regex, and one above `progress-tracker.test.ts:141` (whose single line
+  carries both flagged ESC escapes, cols 31 & 43; a per-line ignore suppresses both, and a line
+  cannot carry two separate ignores). The justification states that the regexes match real ANSI
+  escape sequences and the flagged ESC byte (`0x1b`) is the intended, necessary content (e.g. SGR
+  colour codes / cursor-control escapes). Apply the **same** technique to both lines.
 
   This is the prompt's explicitly permitted "a specific rule is genuinely inappropriate for a
   specific location — narrowly justify and scope" carve-out: a line-scoped ignore with a reason,
@@ -371,11 +374,14 @@ AC17-19 are cross-cutting.
    default exit is driven by errors only — so the 6 warnings alone would not fail CI and fixing just
    the 3 errors would green CI. The spec target is nonetheless zero diagnostics; if the owner prefers
    the minimal exit-0 bar, that is their call.
-9. The 3 `noControlCharactersInRegex` errors are fixed with a narrowly-scoped per-line
-   `// biome-ignore lint/suspicious/noControlCharactersInRegex: <reason>` on each of the 3
-   occurrences (`src/progress/tracker.ts:358`, and `src/__tests__/progress-tracker.test.ts:141` cols
-   31 & 43), each with a justification referencing the ANSI ESC `0x1b` byte as the intended content.
-   The same technique is applied to all 3. No whole-file ignore and no rule-level disable is used.
+9. The 3 `noControlCharactersInRegex` errors are fixed with a narrowly-scoped
+   `// biome-ignore lint/suspicious/noControlCharactersInRegex: <reason>` — **one `biome-ignore` per
+   offending line (2 comments total, covering all 3 diagnostics)**: one above `src/progress/tracker.ts:358`
+   and one above `src/__tests__/progress-tracker.test.ts:141`. (The two test diagnostics — cols 31 & 43
+   — sit on that single line 141, and a per-line ignore on the line above suppresses both; a line cannot
+   carry two separate ignores.) Each comment carries a justification referencing the ANSI ESC `0x1b`
+   byte as the intended content. The same technique is applied to both lines. No whole-file ignore and
+   no rule-level disable is used.
    *(If the owner instead elects the runtime-`RegExp` rewrite, that satisfies "fix at source" too —
    but the default and recommendation is the per-line ignore.)*
 10. The 2 `noDescendingSpecificity` warnings in `docs/styles.css` are fixed by reordering selectors
@@ -399,10 +405,11 @@ AC17-19 are cross-cutting.
 15. `release.yml` has **no** added `biome format` (or other formatting) step relative to its current
     state — the only release-flow-relevant change for Change 3 is the `prettier: false` flag in
     `.changeset/config.json`.
-16. The Change 3 tradeoff is documented (in the implementation's PR description and/or the change
-    itself as appropriate): `prettier: false` is the recommended default and a deliberate decoupling
-    tradeoff, the exact `CHANGELOG.md` before/after spacing is recorded, and the `prettier: true` +
-    explicit-devDependency alternative is stated as owner-selectable.
+16. The Change 3 tradeoff is documented in the PR description: `prettier: false` is the recommended
+    default and a deliberate decoupling tradeoff, the exact `CHANGELOG.md` before/after spacing is
+    recorded, and the `prettier: true` + explicit-devDependency alternative is stated as
+    owner-selectable. (The PR description is the natural home — `.changeset/config.json` is JSON with
+    no prose slot, and `CONTRIBUTING.md`/`README.md` are excluded by AC19.)
 
 ### Cross-cutting
 
