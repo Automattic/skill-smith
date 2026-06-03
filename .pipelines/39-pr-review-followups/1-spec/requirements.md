@@ -331,11 +331,16 @@ leaves version `0.1.0` (no bump), deletes the consumed file, and writes no CHANG
   (`:102-108`, line-4 "empty body"). So it is the empty file, not "no changeset" — it still lives
   at `.changeset/<name>.md` and travels with the PR.
 
-**Corrected Change #2 changeset footprint — exactly one `--empty` changeset:**
-- `src/progress/tracker.ts` (the control-char `biome-ignore` edit) → **one `--empty` changeset**.
-- `src/__tests__/progress-tracker.test.ts`, `src/__tests__/progress-render.test.ts`,
-  `docs/styles.css` → **no changeset** (tests excluded by `!src/__tests__/**`; docs not in
-  `changedFilePatterns`).
+**Change #2 changeset footprint — SEE Q8 below; likely NO new changeset needed.** The Q5
+"one `--empty` changeset" conclusion (for the `tracker.ts` edit, considered in isolation) is
+**superseded by the cross-change finding in Q8**: the PR #41 branch already carries
+`.changeset/initial-scaffolding.md` (a `none` changeset), and empirically
+`changeset status --since=origin/trunk` already **passes** on the branch despite PR #41 having
+already changed release-relevant paths (`package.json`, `examples/**`, `README.md`). The gate is
+satisfied by the *presence* of any changeset for the package, so adding the `tracker.ts` edit does
+NOT require a new changeset. (The `--empty` mechanics above remain accurate IF a fresh branch with
+no changeset ever needed one.) Test-file and `docs/styles.css` edits need nothing regardless
+(excluded paths). Final footprint confirmed in Q8.
 
 **5b — "Passes cleanly" = ZERO diagnostics from `biome lint .`** (all 3 errors AND all 6 warnings
 cleared), not merely exit 0.
