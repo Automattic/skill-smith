@@ -123,10 +123,51 @@ Wording constraints for the `AGENTS.md` bullet:
 - **MUST NOT** state or imply "breaking change → major" (contradicts pre-1.0 policy + validator).
 - **MUST NOT** restate the "when required" path list or duplicate the bump-type table (drift risk).
 - **MUST NOT** point to "the README" for the policy how-to (no such section exists).
-- **OPTIONAL (researcher leans include):** a single low-drift pointer clause steering agents away
-  from the one rule the validator hard-rejects — e.g. "while pre-1.0, never use `major` — see
-  CONTRIBUTING.md." Highest-value, lowest-drift exception; pure obligation-only is also fully
-  defensible. **→ Decision for this clause deferred to Q3 below.**
+
+### Q3 — Final scope of `AGENTS.md`: docs-bullet + pre-1.0 clause (answered by researcher)
+
+**3a — Keep `AGENTS.md` changeset-only; do NOT add a docs-currency rule.** The researcher
+checked all three candidate homes plus the README: skillsmith has **no** documented
+"keep README/docs current" expectation anywhere in live policy. README has no such section;
+`CONTRIBUTING.md` has none and in fact treats docs *more loosely* (line 31: documentation
+prose-only edits need no changeset and "CI does not nag"); `.rp.md` is pipeline conventions only
+(its lone "in sync" line is orchestrator↔Linear, unrelated) and is off-limits anyway. So
+radical-pipelines' "keep README current" bullet (`AGENTS.md:7`) is a convention skillsmith has
+**not** adopted. Decision:
+- `AGENTS.md` contains **only** the changeset bullet, plus a minimal identity header (e.g. a
+  `# Skillsmith` heading + one-sentence identity, mirroring radical-pipelines' 3-line header
+  shape) so the file reads as coherent rather than an orphaned one-liner.
+- Do **not** invent a docs-currency rule (out of scope per the prompt's "minimal and scoped to
+  these three items"; would be an unreviewed new obligation that partially contradicts
+  CONTRIBUTING.md:31). If the owner later wants one, that is a separate PR — listed as a **non-goal**
+  here.
+
+**3b — Include the pre-1.0 clause, action-framed, as a sub-clause of the changeset bullet (not a
+second bullet).** Staleness at 1.0 is acceptable and the better trade.
+- **Framing: action-first, not bare prohibition.** Semantic content the clause MUST carry:
+  (a) condition = while pre-1.0 / version `0.x`; (b) action = use `minor` with a `BREAKING:`
+  summary prefix; (c) the fact that `major` is disallowed; (d) pointer to `CONTRIBUTING.md`
+  (`#pre-1.0-policy` or `#adding-a-changeset`). This mirrors the canonical wording in BOTH
+  enforcement points (CONTRIBUTING.md:50 "write `minor` (never `major`) … prepend `BREAKING:`";
+  validator message `validate-changesets.ts:149` "Use 'minor' with a 'BREAKING:' prefix"), so it
+  won't drift in spirit. The `BREAKING:` prefix is load-bearing (it carries the break into
+  `CHANGELOG.md`) and MUST be included — a bare "never use `major`" would leave an agent liable to
+  under-bump without the marker. The clause MUST NOT restate the full bump table or the semver-§4
+  rationale (that stays in CONTRIBUTING.md).
+- **Why include it despite 1.0 staleness:** it degrades *gracefully* — it is self-dating ("while
+  pre-1.0"), so post-1.0 it reads as a no-longer-applicable precondition, not wrong advice (unlike
+  a Q2-style inlined mapping, which would read as actively wrong). The pre-1.0 rule is already a
+  tracked multi-file 1.0-cutover chore (validator guard `:80`, CONTRIBUTING.md:48-50,
+  `.changeset/README.md`); this clause is a co-located fourth ~one-line edit. Its only failure mode
+  is becoming a no-op at a deliberate cutover ("staleness"), never a silent contradiction
+  ("drift"). Cost of omitting it: the pre-1.0 "no `major`" rule is the single most likely place an
+  agent — primed by general semver and by radical-pipelines' own "breaking → major" precedent —
+  errs, and erring produces a hard `changeset-gate` rejection (the reactive round-trip this whole
+  change exists to prevent).
+- **Follow-up:** the spec should list "remove the pre-1.0 clause from `AGENTS.md`" alongside the
+  existing pre-1.0 cleanup items so it isn't orphaned at the 1.0 cutover.
+
+**Change #1 is now fully specified.**
 
 ## Change 2 — Make `npm run lint` pass on the branch
 
