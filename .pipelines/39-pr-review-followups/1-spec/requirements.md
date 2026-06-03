@@ -236,7 +236,8 @@ There are three distinct failure classes, each needing a different fix posture:
    The ESC byte is intrinsic to what these regexes do — you cannot match ANSI sequences without
    it. This is the prompt's explicit "a specific rule is genuinely inappropriate for a specific
    location" case. NOT auto-fixable (no safe fix offered). The fix posture is a judgment call
-   (narrowly-scoped Biome suppression vs. a code rewrite that satisfies the rule) → researcher Q.
+   (narrowly-scoped Biome suppression vs. a code rewrite that satisfies the rule) — RESOLVED in Q4a:
+   use a narrowly-scoped per-line `biome-ignore`.
 
    **Empirical finding (spec-analyst, verified with the repo's Biome 2.4.12 on a scratch file):**
    `noControlCharactersInRegex` detects the control **codepoint**, not the escape notation. Inside
@@ -331,21 +332,24 @@ leaves version `0.1.0` (no bump), deletes the consumed file, and writes no CHANG
   (`:102-108`, line-4 "empty body"). So it is the empty file, not "no changeset" — it still lives
   at `.changeset/<name>.md` and travels with the PR.
 
-**Change #2 changeset footprint — SEE Q8 below; NO new changeset needed (real-branch evidence).**
-The Q5 "one `--empty` changeset" conclusion (for the `tracker.ts` edit, considered in isolation) is
-**superseded by the cross-change finding in Q8**: the PR #41 branch already carries
-`.changeset/initial-scaffolding.md` (a `none` changeset), and empirically
-`changeset status --since=origin/trunk` **passes** (exit 0, "NO packages to be bumped") on the
-branch despite PR #41 having already changed release-relevant paths (`package.json`, `examples/**`,
-`README.md`). Stronger still: the `tracker.ts` `biome-ignore` edit is ALREADY present on the branch
-(researcher applied it as TEMP commit `36899ae` for the Q8 gate test), and the gate is still green
-with it. So `changeset status` is satisfied by the *presence* of any changeset for the package (a
-`none` counts) — it does NOT require a non-`none` or per-file entry — and the follow-up work needs
-**no new changeset**. (The `--empty` mechanics in 5a remain accurate only for a hypothetical fresh
-branch with no changeset at all.) Test-file and `docs/styles.css` edits need nothing regardless
-(excluded paths). **Cleanup note:** the researcher's TEMP commit `36899ae` must be reverted before
-the PR is finalized (it is a throwaway gate-test artifact, not the real change). Final footprint
-confirmed in Q8.
+**Change #2 changeset footprint — NO new changeset needed (DEFINITIVELY CONFIRMED on the real
+branch in Q8).** The Q5 "one `--empty` changeset" conclusion (for the `tracker.ts` edit in
+isolation) is **superseded**: the PR #41 branch already carries `.changeset/initial-scaffolding.md`
+(a `none` changeset), which satisfies the gate for the whole `@automattic/skillsmith` package.
+Proven by a controlled three-way test on the actual branch (`--since=origin/trunk`, with the
+`tracker.ts` biome-ignore edit COMMITTED so `changeset status` sees it via the diff):
+- baseline (no edit, `none` present) → exit 0;
+- `tracker.ts` edit + `none` present → **exit 0 (PASSES)**;
+- `tracker.ts` edit, `none` REMOVED (control) → **exit 1 (FAILS)**: "Some packages have been
+  changed but no changesets were found… run `changeset add --empty`."
+The control row is the proof: removing the `none` changeset is the ONLY thing that reds the gate.
+So `changeset status` evaluates **per-package presence** (a `none` counts as an existing
+changeset), NOT per-file — the existing `initial-scaffolding.md` blankets every release-relevant
+change on this PR, including `tracker.ts`. (The `--empty` mechanics in 5a apply only to a
+hypothetical fresh branch with no changeset at all.) Test-file and `docs/styles.css` edits are
+gate-exempt regardless. **The spec must NOT instruct the implementer to add any changeset** (it
+would be redundant noise), and must NOT edit `initial-scaffolding.md` (correct as-is). (Researcher's
+TEMP gate-test commits were cleaned up via rebase; branch is clean, `tracker.ts:358` pristine.)
 
 **5b — "Passes cleanly" = ZERO diagnostics from `biome lint .`** (all 3 errors AND all 6 warnings
 cleared), not merely exit 0.
@@ -517,3 +521,138 @@ repo's configured generator) requires a `GITHUB_TOKEN` during `changeset version
 offline ("Please create a GitHub personal access token…"). CI is fine (`release.yml` passes
 `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`); only **local** `changeset version` dry-runs need a
 token. Worth a future CONTRIBUTING note; explicitly out of scope here.
+
+---
+
+## Consolidated Requirements
+
+Authoritative numbered list for the design/plan/code phases. All work lands on the existing
+`worktree-39-changelog-and-versioning` branch (PR #41) — no new branch or PR. Each requirement is
+backed by the Q&A above.
+
+### Change 1 — Standing agent-facing instruction to record a changeset
+
+1. **Create a project-root `AGENTS.md`** (at the repo root, alongside `.rp.md`) containing the
+   standing instruction. The file MUST be a coherent standalone file: a minimal identity header
+   (e.g. a `# Skillsmith` heading + a one-sentence project identity, mirroring radical-pipelines'
+   short `AGENTS.md` header shape) followed by the changeset instruction.
+2. **Create a project-root `CLAUDE.md`** whose entire contents are exactly `@AGENTS.md` (the
+   import directive). This is REQUIRED, not optional: Claude Code auto-loads `CLAUDE.md`, not
+   `AGENTS.md`; the import is what makes the rule reach Claude Code agents. Pi reads `AGENTS.md`
+   directly. The pair covers both radical-pipelines agent runtimes.
+3. **The changeset instruction in `AGENTS.md` MUST:** state, imperatively, that every
+   release-relevant change records a committed `.changeset/*.md` that travels with the PR
+   (consistent with `CONTRIBUTING.md:16`); and cross-reference **`CONTRIBUTING.md#adding-a-changeset`**
+   for the detail (when required, bump-type table, pre-1.0 policy). Shape it as a single bullet in
+   the same imperative list style as radical-pipelines' `AGENTS.md`.
+4. **The instruction MUST include a pre-1.0 sub-clause**, action-framed (not a bare prohibition),
+   carrying: (a) condition = while pre-1.0 / version `0.x`; (b) action = use `minor` with a
+   `BREAKING:` summary prefix; (c) that `major` is disallowed pre-1.0; (d) a pointer to
+   `CONTRIBUTING.md`. (Mirrors the canonical wording at `CONTRIBUTING.md:50` and the validator
+   message at `validate-changesets.ts:149`. The `BREAKING:` prefix is load-bearing and must be
+   named.)
+5. **The instruction MUST NOT:** inline any semver bump-type mapping (no "fix→patch / feature→minor
+   / breaking→major"); state or imply "breaking change → major"; restate the "when required" path
+   list or duplicate the bump-type table; or point to "the README" for the policy how-to (no such
+   README section exists). Rationale: avoid drift from `CONTRIBUTING.md` / the validator; follow the
+   in-repo defer-don't-restate precedent set by `.changeset/README.md`.
+6. **`AGENTS.md` is changeset-rule-only.** Do NOT add a "keep README/docs current" rule or any other
+   behavioral rule — skillsmith has no such existing policy and the prompt scopes this to the
+   changeset instruction. (Non-goal: docs-currency rule — see Non-goals.)
+7. **Re-sync safety (constraint, already satisfied by the design):** the rule must NOT be placed in
+   `.rp.md` (synced from upstream; a re-sync would clobber it). `AGENTS.md` and `CLAUDE.md` are
+   repo-owned and outside the `.rp.md` sync, so they are safe.
+
+### Change 2 — Make `npm run lint` pass cleanly on the branch
+
+8. **Acceptance bar: `npm run lint` (= `biome lint .`) reports ZERO diagnostics** — 0 errors AND
+   0 warnings (not merely exit 0). (The literal CI bar today is exit 0 / errors-only, so the 6
+   warnings alone don't fail CI; "passes cleanly" is nonetheless interpreted as zero diagnostics.
+   If the owner prefers the minimal exit-0 bar, that is their call — default is zero-diagnostics.)
+9. **Fix all 9 current diagnostics at the source** (the prompt forbids blanket-disabling or
+   whole-file ignores):
+   - **9a. `noControlCharactersInRegex` (3 errors): `src/progress/tracker.ts:358` (1) and
+     `src/__tests__/progress-tracker.test.ts:141` (2, cols 31 & 43).** Fix with a **narrowly-scoped
+     per-line `// biome-ignore lint/suspicious/noControlCharactersInRegex: <reason>`** on each of
+     the 3 occurrences, with a justification (the ESC `0x1b` byte is the intended content of regexes
+     that match real ANSI SGR / cursor escape sequences). Apply the SAME technique to all 3. This is
+     the prompt's permitted "rule genuinely inappropriate for a specific location, narrowly justify
+     and scope" carve-out — a line-scoped ignore with a reason, NOT a file/rule disable.
+     (Empirically, no regex-*literal* respelling of ESC satisfies the rule — `\x1b`, ``,
+     `\u{1b}` all trip it; the only rule-passing rewrite is an awkward `new RegExp(String.from
+     CharCode(0x1b) + …)`, a readability regression. The ignore is the recommended posture; this
+     `(A)`-vs-`(B)` is the one genuine judgment call in Change #2 and may be confirmed with the owner.)
+   - **9b. `noDescendingSpecificity` (2 warnings, `docs/styles.css:596,605`):** fix by **reordering
+     the selectors** — move bare `pre {}` (596) to just before `.terminal pre {}` (300) and bare
+     `code {}` (605) to just before `.note-card code {}` (429). Verified rendering-neutral (the
+     pairs have unequal specificity, so the cascade is order-independent). Not auto-fixable — manual
+     edit.
+   - **9c. `noAdjacentSpacesInRegex` (4 warnings, `src/__tests__/progress-render.test.ts:64,67,150,
+     295`):** fix with the **safe auto-fix** (`biome lint --write`, e.g. scoped to that file), which
+     rewrites `/  /` → `/ {2}/` etc. — semantically identical, zero behavior change.
+10. **Scope guard: use `biome lint`, NOT `biome check`.** Do not run `biome check --write` to "fix
+    lint" — `check` additionally runs `organizeImports` and would reorder imports across ~6
+    unrelated files (`src/index.ts`, `src/runner.ts`, `src/pipeline/pipeline.ts`,
+    `src/progress/index.ts`, + tests), ballooning the diff and needlessly pulling files under the
+    changeset gate. Those import-sort findings are OUT OF SCOPE.
+11. **No changeset is required for Change #2's edits.** (See cross-cutting requirement 16.) The
+    `src/progress/tracker.ts` edit is a `changedFilePatterns` match, but the branch's existing
+    `.changeset/initial-scaffolding.md` (`none`) already satisfies the gate for the package; test
+    edits (`!src/__tests__/**`) and `docs/styles.css` are gate-exempt. Do NOT author a new
+    changeset for this work.
+
+### Change 3 — Align Changesets' formatting with the Biome toolchain
+
+12. **Set `"prettier": false`** as a top-level key in `.changeset/config.json`. This is the correct
+    schema key and the single switch that disables Prettier across both the `changeset version`
+    (`apply-release-plan`) and `changeset add` (`@changesets/write`) paths. This is the
+    **recommended default**, faithful to the prompt's desired outcome ("no coupling to a formatter
+    the repo does not use") and removing the tacit dependence on the undeclared transitive
+    `prettier@2.8.8`.
+    - **This is a deliberate decoupling tradeoff, not a bug fix** (record it as such): with Prettier
+      off, the generated `CHANGELOG.md` entry has slightly tighter, non-normalized spacing
+      (`## X`⏎`### …` with no blank line, vs `## X`⏎⏎`### …`) — still valid Markdown that renders
+      correctly. Biome cannot format Markdown, so nothing else governs it.
+    - **The `prettier` value is owner-selectable.** Alternatives to state for the owner: keep
+      `prettier: true` for the normalized changelog, but then the repo should declare Prettier as an
+      explicit `devDependency` to be honest about the dependency (which reintroduces a second
+      formatter alongside Biome). Recommendation remains `prettier: false`.
+13. **Re-format the committed `.changeset/config.json` to Biome style** by running
+    `biome format --write .changeset/config.json` and committing the result (tabs + whatever
+    `changelog`-array shape Biome emits). Do NOT hand-preserve the inline array. Verified valid JSON,
+    changesets-readable, and idempotent. This fix is independent of requirement 12.
+14. **No `biome format` post-step** is to be added to the release flow (`release.yml`): empirically
+    `changeset version` already leaves `package.json` tab-indented and Biome-clean (it preserves the
+    file's indent via `detect-indent`, never routing it through Prettier), and `CHANGELOG.md` is
+    Markdown that Biome cannot format. A post-step would be a no-op.
+15. **No changeset is required for Change #3's edits** — `.changeset/config.json` is a gate-exempt
+    path (`.changeset/**` is not in `changedFilePatterns`). (See cross-cutting requirement 16.)
+
+### Cross-cutting requirements
+
+16. **The follow-up PR's total new-changeset footprint is ZERO.** Confirmed on the real branch
+    (controlled test): the existing `.changeset/initial-scaffolding.md` (`none` bump) already
+    satisfies the changeset gate for the `@automattic/skillsmith` package and covers every
+    release-relevant edit in this work (including `src/progress/tracker.ts`). The implementer MUST
+    NOT add any new changeset, and MUST NOT edit `initial-scaffolding.md` (correct as-is).
+17. **Acceptance — the existing CI gates must remain green on the branch:** `changeset-gate.yml`
+    (both `validate-changesets.ts` and `changeset status --since=origin/trunk`) and `npm run lint`
+    (per requirement 8). The lint gate is the one currently red; this work turns it green.
+18. **Keep changes minimal and scoped to these three items** (per the prompt) — this is a follow-up
+    to an already-open PR, not a rework. New/edited files across the whole effort: `AGENTS.md`
+    (new), `CLAUDE.md` (new), `src/progress/tracker.ts`, `src/__tests__/progress-tracker.test.ts`,
+    `src/__tests__/progress-render.test.ts`, `docs/styles.css`, `.changeset/config.json`.
+
+### Non-goals (explicitly out of scope)
+
+- A "keep README/docs current" rule in `AGENTS.md` (skillsmith has no such existing policy; would
+  be an unreviewed new obligation). If wanted later, it is a separate PR.
+- Reordering imports / running `biome check --write` (requirement 10).
+- Adding a `biome format` step to the release flow (requirement 14).
+- Making "lint clean" enforceable via warnings-as-errors in CI (a scope expansion beyond these
+  three changes).
+- A CONTRIBUTING note about `changeset version` needing a local `GITHUB_TOKEN` (real finding, but
+  out of scope for these three changes).
+- Removing the pre-1.0 clause from `AGENTS.md` at the eventual 1.0 cutover — noted as a future
+  cleanup item to track alongside the other pre-1.0 cleanup points (`validate-changesets.ts:80`,
+  `CONTRIBUTING.md:48-50`), but not part of this work.
