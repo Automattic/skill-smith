@@ -444,22 +444,44 @@ The change has two distinct sub-problems (from the prompt) plus one empirical un
 Other `.changeset/` contents: `README.md` (the changesets-init cheat sheet) and
 `initial-scaffolding.md` (a `none`-bump starter changeset — consistent with the bootstrap PR).
 
-### Open requirements questions for Change #3 (to be answered via researcher)
+### Q6/Q7 — Change #3 resolutions (answered by researcher, empirically)
 
-- **3-i (prettier option):** Set `prettier: false` in `.changeset/config.json`. **Pre-confirmed
-  by spec-analyst (read-only):** the `@changesets/config` schema the file references defines
-  `prettier` as a top-level boolean, `default: true`, described "When false, Changesets won't
-  format with Prettier" (`node_modules/@changesets/config/schema.json`). `@changesets/write` and
-  `@changesets/apply-release-plan` both consult `config.prettier`; `@changesets/changelog-github`
-  has **no** Prettier reference — so `config.prettier` is the single switch (no separate coupling
-  to sever). Researcher to confirm `@changesets/cli@2.31.0` honours it at runtime.
-- **3-ii (config.json formatting):** Reformat the committed `config.json` to Biome style (tabs).
-  Open sub-question: should the spec require **full** `biome format` output (which also expands the
-  `changelog` array across lines), or only the indentation change (tabs) while keeping the current
-  line structure? Whichever, the file must stop failing `biome format` so it doesn't fight the
-  toolchain.
-- **3-iii (changeset version behaviour — empirical):** What does `changeset version` actually do to
-  the formatting of `package.json` and `CHANGELOG.md`? Does setting `prettier: false` change that?
-  If `changeset version` writes non-Biome formatting, what's the minimal way to keep the generated
-  files in the repo's style (e.g., running `biome format --write` as a post-step, or accepting the
-  one-time reformat)? Verify empirically.
+**3-i (prettier option) — set `"prettier": false` (top-level) in `.changeset/config.json`.**
+Confirmed it is the correct key/location (the `@changesets/config@3.1.4` schema the file
+`$schema`-references types `prettier` as a top-level boolean, `default: true`, "When false,
+Changesets won't format with Prettier") and the **single** switch: Prettier is invoked in exactly
+two Changesets packages, both gated by `config.prettier` — `@changesets/apply-release-plan` (the
+`changeset version` path, formats `package.json` + `CHANGELOG.md`) and `@changesets/write` (the
+`changeset add` path, formats new `.changeset/*.md`). `@changesets/changelog-github@0.7.0` has no
+Prettier reference/dependency. So one `prettier: false` disables Prettier across BOTH the
+version-apply and changeset-authoring paths completely. Consistency note for the spec:
+`prettier: false` also means interactively-created changeset `.md` files won't be Prettier-formatted
+— fine, since Biome doesn't format `.md` either, so they were never Biome-managed.
+
+**3-ii (config.json formatting) — require FULL `biome format` output (tabs + the `changelog`-array
+expansion); do NOT hand-preserve the inline array.** Verified: `biome format --write
+.changeset/config.json` produces valid JSON (`JSON.parse` ✓), changesets still reads it correctly
+(`changeset status --since=origin/trunk` honors `changedFilePatterns`), and it is **idempotent**
+(re-running Biome → "No fixes applied"). Simplest robust AC: **"`biome format .changeset/config.json`
+reports no changes."** This fix is **independent of the prettier question** — config.json is
+hand-maintained and never rewritten by `changeset version`.
+
+**3-iii (changeset version behaviour) — VERIFIED, byte-level, both settings:**
+- `package.json` **stays tab-indented in BOTH `prettier:true` and `prettier:false`** — the only
+  diff from `changeset version` is the single `"version"` line (no key reorder, no reindent;
+  uses `detect-indent` to preserve existing tabs). Biome reports **"No fixes applied"** on the
+  result in both cases — no fight, either setting.
+- `CHANGELOG.md`: the ONLY thing `prettier:false` changes vs default is internal whitespace —
+  `prettier:true` → `## 0.2.0`⏎⏎`### Minor Changes`⏎⏎`- entry` (normalized); `prettier:false` →
+  `## 0.2.0`⏎`### Minor Changes` (no blank line) + tighter spacing (still valid Markdown).
+- **Biome cannot format `.md`** (`biome format CHANGELOG.md` → "Checked 0 files… ignored"), so it
+  never touches the changelog regardless.
+- **Therefore: `prettier:false` alone is sufficient; NO `biome format` post-step in the release
+  flow is needed or able to help** (package.json already Biome-clean; CHANGELOG.md is outside
+  Biome's formatter entirely).
+
+**Out-of-scope finding to note (not part of these 3 changes):** `@changesets/changelog-github` (the
+repo's configured generator) requires a `GITHUB_TOKEN` during `changeset version` — it errors
+offline ("Please create a GitHub personal access token…"). CI is fine (`release.yml` passes
+`GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`); only **local** `changeset version` dry-runs need a
+token. Worth a future CONTRIBUTING note; explicitly out of scope here.
