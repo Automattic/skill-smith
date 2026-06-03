@@ -331,16 +331,21 @@ leaves version `0.1.0` (no bump), deletes the consumed file, and writes no CHANG
   (`:102-108`, line-4 "empty body"). So it is the empty file, not "no changeset" — it still lives
   at `.changeset/<name>.md` and travels with the PR.
 
-**Change #2 changeset footprint — SEE Q8 below; likely NO new changeset needed.** The Q5
-"one `--empty` changeset" conclusion (for the `tracker.ts` edit, considered in isolation) is
+**Change #2 changeset footprint — SEE Q8 below; NO new changeset needed (real-branch evidence).**
+The Q5 "one `--empty` changeset" conclusion (for the `tracker.ts` edit, considered in isolation) is
 **superseded by the cross-change finding in Q8**: the PR #41 branch already carries
 `.changeset/initial-scaffolding.md` (a `none` changeset), and empirically
-`changeset status --since=origin/trunk` already **passes** on the branch despite PR #41 having
-already changed release-relevant paths (`package.json`, `examples/**`, `README.md`). The gate is
-satisfied by the *presence* of any changeset for the package, so adding the `tracker.ts` edit does
-NOT require a new changeset. (The `--empty` mechanics above remain accurate IF a fresh branch with
-no changeset ever needed one.) Test-file and `docs/styles.css` edits need nothing regardless
-(excluded paths). Final footprint confirmed in Q8.
+`changeset status --since=origin/trunk` **passes** (exit 0, "NO packages to be bumped") on the
+branch despite PR #41 having already changed release-relevant paths (`package.json`, `examples/**`,
+`README.md`). Stronger still: the `tracker.ts` `biome-ignore` edit is ALREADY present on the branch
+(researcher applied it as TEMP commit `36899ae` for the Q8 gate test), and the gate is still green
+with it. So `changeset status` is satisfied by the *presence* of any changeset for the package (a
+`none` counts) — it does NOT require a non-`none` or per-file entry — and the follow-up work needs
+**no new changeset**. (The `--empty` mechanics in 5a remain accurate only for a hypothetical fresh
+branch with no changeset at all.) Test-file and `docs/styles.css` edits need nothing regardless
+(excluded paths). **Cleanup note:** the researcher's TEMP commit `36899ae` must be reverted before
+the PR is finalized (it is a throwaway gate-test artifact, not the real change). Final footprint
+confirmed in Q8.
 
 **5b — "Passes cleanly" = ZERO diagnostics from `biome lint .`** (all 3 errors AND all 6 warnings
 cleared), not merely exit 0.
