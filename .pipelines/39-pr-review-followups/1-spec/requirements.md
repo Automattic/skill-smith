@@ -17,7 +17,8 @@ Captured by reading the repo at
   is synced from the radical-pipelines upstream (recent commits "Copy `.rp.md` from Radical
   Pipelines …"), so the changeset rule must not live there.
 - `biome.json`: `formatter.indentStyle = "tab"`, `javascript.formatter.quoteStyle = "double"`,
-  linter `recommended: true`. No Prettier is installed.
+  linter `recommended: true`. No DIRECT Prettier dependency and no Prettier config — but Prettier
+  IS present **transitively** (`prettier@2.8.8` via `@changesets/cli`); see Change #3 grounding.
 - `package.json` scripts: `lint` = `biome lint .`, `lint:fix` = `biome lint --write .`,
   `format` = `biome format --write .`, `changeset` = `changeset`, `release` = `changeset publish`.
 - `.changeset/config.json` is committed with 2-space indentation and has no `prettier` key
