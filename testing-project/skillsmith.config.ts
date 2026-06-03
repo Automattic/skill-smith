@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "skillsmith";
+import { defineConfig } from "@automattic/skillsmith";
 import { scaffoldPlugin } from "./eval/utils/scaffold-plugin";
 import { runE2eVerification } from "./eval/utils/verify-e2e";
 

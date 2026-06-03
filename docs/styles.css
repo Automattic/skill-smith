@@ -297,6 +297,15 @@ h1 span {
 	flex: 0 0 auto;
 }
 
+pre {
+	margin: 0;
+	padding: 20px;
+	overflow-x: auto;
+	color: #d1fae5;
+	font-size: 0.92rem;
+	line-height: 1.65;
+}
+
 .terminal pre {
 	margin: 0;
 	padding: 0;
@@ -424,6 +433,10 @@ h2 {
 .note-card {
 	margin-top: 18px;
 	background: var(--bg-card-strong);
+}
+
+code {
+	font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
 .note-card code {
@@ -591,19 +604,6 @@ h2 {
 	border-bottom: 1px solid rgba(255, 255, 255, 0.09);
 	color: var(--muted);
 	font-size: 0.9rem;
-}
-
-pre {
-	margin: 0;
-	padding: 20px;
-	overflow-x: auto;
-	color: #d1fae5;
-	font-size: 0.92rem;
-	line-height: 1.65;
-}
-
-code {
-	font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
 .cta {

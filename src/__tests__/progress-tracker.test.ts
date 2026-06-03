@@ -138,6 +138,7 @@ test("erase prefix counts wrapped terminal rows, not logical lines", () => {
 	tracker.phaseStarted("s1", "sonnet", "judge");
 	const second = chunks.at(-1) ?? "";
 
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: asserts a repaint starts with real ANSI cursor-up + erase-display escapes; the ESC byte (0x1b) is the intended content.
 	const match = second.match(/^\x1b\[(\d+)A\x1b\[0J/);
 	assert.ok(match, "second paint must start with cursor-up + erase");
 	const eraseRows = Number(match[1]);

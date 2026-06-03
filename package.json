@@ -1,5 +1,5 @@
 {
-	"name": "skillsmith",
+	"name": "@automattic/skillsmith",
 	"version": "0.1.0",
 	"description": "A harness that tests skills end-to-end in a real runtime across models, with a self-improvement loop that edits a failing skill and opens a PR once tests pass.",
 	"license": "GPL-3.0",
@@ -12,6 +12,9 @@
 		"url": "https://github.com/Automattic/skillsmith/issues"
 	},
 	"homepage": "https://github.com/Automattic/skillsmith#readme",
+	"publishConfig": {
+		"access": "public"
+	},
 	"engines": {
 		"node": ">=20.17"
 	},
@@ -27,10 +30,14 @@
 		"format": "biome format --write .",
 		"typecheck": "tsc --noEmit",
 		"test": "node --import tsx --test src/__tests__/*.test.ts",
-		"smoke": "node bin/skillsmith.mjs"
+		"smoke": "node bin/skillsmith.mjs",
+		"changeset": "changeset",
+		"release": "changeset publish"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.12",
+		"@changesets/changelog-github": "^0.7.0",
+		"@changesets/cli": "^2.31.0",
 		"@types/node": "^25.6.0",
 		"typescript": "6.0.3"
 	},

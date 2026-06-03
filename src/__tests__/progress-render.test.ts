@@ -61,10 +61,10 @@ test("renders header, two bars, and elapsed when running (no ETA)", () => {
 
 	const lines = out.split("\n");
 	assert.equal(lines[0], "skillsmith run 20260506-170805");
-	assert.match(lines[1] ?? "", /^scenarios  /);
+	assert.match(lines[1] ?? "", /^scenarios {2}/);
 	assert.match(lines[1] ?? "", /12\/45/);
 	assert.match(lines[1] ?? "", /pass 10 · fail 2 · run 1/);
-	assert.match(lines[2] ?? "", /^phases     /);
+	assert.match(lines[2] ?? "", /^phases {5}/);
 	assert.match(lines[2] ?? "", /31\/135/);
 	assert.equal(lines[3], "elapsed 04:12");
 	assert.doesNotMatch(out, /ETA/);
@@ -147,7 +147,7 @@ test("finished snapshot says 'done' and omits ETA", () => {
 			},
 		}),
 	);
-	assert.match(out, /elapsed 16:48   done/);
+	assert.match(out, /elapsed 16:48 {3}done/);
 	assert.doesNotMatch(out, /ETA/);
 });
 
@@ -292,5 +292,5 @@ test("formats hh:mm:ss when run exceeds an hour", () => {
 			},
 		}),
 	);
-	assert.match(out, /elapsed 1:23:07   done/);
+	assert.match(out, /elapsed 1:23:07 {3}done/);
 });
