@@ -386,22 +386,46 @@ The change has two distinct sub-problems (from the prompt) plus one empirical un
    (`.gitignore` excludes only `node_modules/`, `dist/`, `.claude/`, etc.), so it is squarely in
    Biome's purview and currently fights `npm run format`.
 
-3. **Empirical unknown (researcher prepping):** does `changeset version` preserve the repo's
-   established formatting when it rewrites `package.json` and creates/appends `CHANGELOG.md`?
-   `package.json` is currently **tab-indented** (Biome style) and `CHANGELOG.md` is plain markdown
-   (no meaningful indent) — these are the files `changeset version` rewrites, so they are the
-   empirical targets. Because Prettier resolves (item 1), the test must measure BOTH cases: with
-   the current default (`prettier: true`) AND with `prettier: false`, to confirm (a) that `true`
-   reformats `package.json` away from tabs and (b) that `false` (or `false` + a `biome format`
-   post-step) keeps the repo style. The prompt requires verifying this empirically, not assuming.
+3. **Empirical question (researcher running the runtime test):** does `changeset version`
+   preserve the repo's established formatting when it rewrites `package.json` and creates/appends
+   `CHANGELOG.md`? `package.json` is currently **tab-indented** (Biome style) and `CHANGELOG.md`
+   is plain markdown — these are the files `changeset version` rewrites. Test must measure both
+   `prettier: true` (default) and `prettier: false`, and whether `biome format` then wants to
+   re-touch the output.
+
+   **Code-level finding (spec-analyst, read from `node_modules/@changesets/apply-release-plan`;
+   to be CONFIRMED by the researcher's runtime test):** the two files are handled by DIFFERENT
+   writers, which refines the prompt's framing:
+   - **`package.json` does NOT go through Prettier at all.** The package writer is a plain
+     `JSON.stringify(pkgJson, null, indent)` where `indent = detectIndent(existing).indent || "  "`
+     (`changesets-apply-release-plan.cjs.js:482-484`). It uses **`detect-indent`** on the existing
+     file, so it **preserves the file's current tabs** regardless of the `prettier` setting
+     (falling back to 2-space only if no indent is detected). So Prettier's `true` default likely
+     does NOT reformat `package.json` away from tabs — contrary to the prompt's worry.
+   - **`CHANGELOG.md` IS the file Prettier touches.** It is written via
+     `writeFormattedMarkdownFile`, which uses a `prettierInstance` only when `config.prettier !==
+     false` (`:372,510-513`); with `prettier: false` the instance is `undefined` and the markdown
+     is written **raw**. So the real Prettier coupling is on the changelog markdown, not the
+     package manifest.
+   If the runtime test confirms this, the accurate problem statement is: leaving `prettier: true`
+   couples **`CHANGELOG.md`** formatting to a transitive Prettier the repo doesn't manage; setting
+   `prettier: false` removes that coupling and writes raw markdown (which Biome's formatter then
+   governs like any other repo file). `package.json` keeps tabs either way. The researcher's test
+   should verify this observed behavior and check whether `biome format` wants to re-touch the
+   resulting `CHANGELOG.md` / `package.json`.
 
 Other `.changeset/` contents: `README.md` (the changesets-init cheat sheet) and
 `initial-scaffolding.md` (a `none`-bump starter changeset — consistent with the bootstrap PR).
 
 ### Open requirements questions for Change #3 (to be answered via researcher)
 
-- **3-i (prettier option):** Set `prettier: false` in `.changeset/config.json`? (Strongly implied
-  by the prompt; confirm it's the right key/value and that Changesets honours it to skip Prettier.)
+- **3-i (prettier option):** Set `prettier: false` in `.changeset/config.json`. **Pre-confirmed
+  by spec-analyst (read-only):** the `@changesets/config` schema the file references defines
+  `prettier` as a top-level boolean, `default: true`, described "When false, Changesets won't
+  format with Prettier" (`node_modules/@changesets/config/schema.json`). `@changesets/write` and
+  `@changesets/apply-release-plan` both consult `config.prettier`; `@changesets/changelog-github`
+  has **no** Prettier reference — so `config.prettier` is the single switch (no separate coupling
+  to sever). Researcher to confirm `@changesets/cli@2.31.0` honours it at runtime.
 - **3-ii (config.json formatting):** Reformat the committed `config.json` to Biome style (tabs).
   Open sub-question: should the spec require **full** `biome format` output (which also expands the
   `changelog` array across lines), or only the indentation change (tabs) while keeping the current
