@@ -355,6 +355,7 @@ function defaultColor(stream: NodeJS.WritableStream): boolean {
 	return isTty(stream) && !noColor;
 }
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matches real ANSI SGR escape sequences; the ESC byte (0x1b) is the intended content used to strip colour codes when measuring printed width.
 const ANSI_SGR = /\x1b\[[0-9;]*m/g;
 
 function visibleWidth(line: string): number {
