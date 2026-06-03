@@ -325,4 +325,43 @@ Two points still to confirm (Q5 to researcher):
 
 ## Change 3 — Align Changesets' formatting with the Biome toolchain
 
-_Open questions and answers recorded here._
+### Grounding (captured by running `biome format` + reading `.changeset/`)
+
+The change has two distinct sub-problems (from the prompt) plus one empirical unknown:
+
+1. **`prettier` defaults to `true`.** `.changeset/config.json` does not set the `prettier`
+   option, so Changesets defaults it to `true` and will attempt to run Prettier on files it
+   writes/edits during `changeset version`. This repo has **no Prettier installed** and formats
+   with Biome (tabs). So the coupling is to a formatter the repo doesn't use.
+
+2. **The committed `config.json` is not Biome-formatted.** Verified empirically:
+   `npx biome format .` reports **`.changeset/config.json` as the ONLY file in the repo failing
+   format** ("Checked 95 files … Found 1 error"). It uses **2-space** indentation; Biome
+   (`indentStyle: "tab"`) would rewrite it to **tabs**. (Biome would ALSO structurally expand the
+   `changelog` array onto multiple lines — see the open question on whether the spec requires full
+   Biome formatting or just the tab/indent fix.) `.changeset/` is NOT gitignored
+   (`.gitignore` excludes only `node_modules/`, `dist/`, `.claude/`, etc.), so it is squarely in
+   Biome's purview and currently fights `npm run format`.
+
+3. **Empirical unknown (researcher prepping):** does `changeset version` preserve the repo's
+   established formatting when it rewrites `package.json` and creates/appends `CHANGELOG.md`? i.e.
+   after a release does `package.json` keep tabs, or does Changesets write 2-space / Prettier-style
+   output that then fights `biome`? The prompt requires verifying this empirically, not assuming.
+
+Other `.changeset/` contents: `README.md` (the changesets-init cheat sheet) and
+`initial-scaffolding.md` (a `none`-bump starter changeset — consistent with the bootstrap PR).
+
+### Open requirements questions for Change #3 (to be answered via researcher)
+
+- **3-i (prettier option):** Set `prettier: false` in `.changeset/config.json`? (Strongly implied
+  by the prompt; confirm it's the right key/value and that Changesets honours it to skip Prettier.)
+- **3-ii (config.json formatting):** Reformat the committed `config.json` to Biome style (tabs).
+  Open sub-question: should the spec require **full** `biome format` output (which also expands the
+  `changelog` array across lines), or only the indentation change (tabs) while keeping the current
+  line structure? Whichever, the file must stop failing `biome format` so it doesn't fight the
+  toolchain.
+- **3-iii (changeset version behaviour — empirical):** What does `changeset version` actually do to
+  the formatting of `package.json` and `CHANGELOG.md`? Does setting `prettier: false` change that?
+  If `changeset version` writes non-Biome formatting, what's the minimal way to keep the generated
+  files in the repo's style (e.g., running `biome format --write` as a post-step, or accepting the
+  one-time reformat)? Verify empirically.
