@@ -16,6 +16,7 @@ import type {
 } from "../config/types";
 import { runImprovement } from "../improvement/improver";
 import { applyVerification, runAfterAllScenarios } from "../improvement/verify";
+import { decideRunnability } from "../policy/runnability";
 import { ProgressTracker } from "../progress";
 import {
 	aggregateIterationReport,
@@ -81,7 +82,22 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 	const config = await loadConfig(projectRoot);
 	checkPaths(config, projectRoot);
-	const selfImprovement = resolveSelfImprovement(config, params.overrides);
+	let selfImprovement = resolveSelfImprovement(config, params.overrides);
+
+	// A misconfigured judge can never grade, so the run aborts before any
+	// scenario starts; a misconfigured improver cannot edit skills, so the
+	// run continues as a one-pass test-only grading.
+	const plan = decideRunnability(config, process.env);
+	if (plan.judge.stop) {
+		throw new UserFacingError(
+			`judge cannot grade — ${plan.judge.reason ?? "provider credential is not set"}`,
+		);
+	}
+	if (plan.improver.degrade) {
+		selfImprovement = { ...selfImprovement, mode: "test-only" };
+		console.log(`improver degraded to test-only — ${plan.improver.reason}`);
+	}
+
 	const allScenarios = filterScenarios(
 		enumerateScenarios(config.paths, projectRoot),
 		params.scenarios,
