@@ -11,7 +11,7 @@ environment.
 Today, when an agent is misconfigured, the runtime invokes it anyway, that
 invocation returns an error, and the error is conflated with a graded failure.
 This burns compute, spins up workspace artifacts for an agent that can never
-produce output, and (in the end-to-end harness) runs browser tests against a
+produce output, and (in the end-to-end harness) runs Playwright tests against a
 plugin that was never built — producing spurious failures. There is also no
 role-aware handling: a misconfigured judge or improver is treated the same as a
 misconfigured test agent.
@@ -33,10 +33,10 @@ policies — "fail" (stop the whole run up front when any agent is misconfigured
 and "skip" (proceed and exit zero) — are out of scope to implement but must be
 addable later by a localized change at the seam, not a rewrite.
 
-The end-to-end (e2e) harness — which today creates one browser-test project per
+The end-to-end (e2e) harness — which today creates one Playwright project per
 declared test agent regardless of misconfiguration — must consume a new public
-API so that misconfigured agents are excluded from the browser-test set and do
-not fail spuriously.
+API so that misconfigured agents are excluded from the Playwright project set and
+do not fail spuriously.
 
 ### Definitions
 
@@ -51,7 +51,9 @@ not fail spuriously.
   single environment variable that can be checked before invocation
   (`openai-api` → `OPENAI_API_KEY`, `anthropic-api` → `ANTHROPIC_API_KEY`,
   `gemini-api` → `GOOGLE_GENERATIVE_AI_API_KEY`). Others (`claude-code`, `mock`)
-  have no environment-readable credential gate.
+  have no environment-readable credential gate. `codex` reads the same
+  `OPENAI_API_KEY` but does NOT pre-check it today, so its static-misconfiguration
+  status is an explicit decision (see R1.3 and Open items).
 - **"Warn" policy** — the default handling for a misconfigured test agent:
   exclude it from execution, surface it clearly, and force a non-zero exit.
 
@@ -75,10 +77,13 @@ Each requirement states the required behavior, not how to achieve it.
   determinable *before* the agent is invoked — purely from the agent's declared
   provider plus the environment, with no model call.
 - **R1.3** Providers with no environment-readable credential gate
-  (`claude-code`, `mock`) are treated as "not statically misconfigurable": they
-  are considered runnable from the static view, and any real misconfiguration
+  (`claude-code`, `mock`, and `codex` unless the design opts it into the
+  `OPENAI_API_KEY` check — `codex` reads that same variable today but does not
+  pre-check it) are treated as "not statically misconfigurable": they are
+  considered runnable from the static view, and any real misconfiguration
   continues to surface through the existing invoke-time error path. The solution
-  MUST NOT assume every provider can be checked upfront.
+  MUST NOT assume every provider can be checked upfront. Whether `codex` opts in
+  is an Open item.
 
 ### R2 — Single policy seam (extensibility)
 
@@ -146,9 +151,10 @@ Each requirement states the required behavior, not how to achieve it.
 
 ### R6 — e2e harness excludes misconfigured agents
 
-- **R6.1** The e2e harness MUST NOT create a browser-test project for a
+- **R6.1** The e2e harness MUST NOT create a Playwright project for a
   misconfigured agent (and therefore MUST NOT run any e2e spec for it). The
-  project list is derived from the runnable agents via the R5 API.
+  `projects` array in `testing-project/playwright.config.ts` is derived from the
+  runnable agents via the R5 API.
 - **R6.2** `testing-project/skillsmith.config.ts` gains an `openai-api-nano`
   test agent (`provider: openai-api`) alongside the existing configured agent, so
   that absent `OPENAI_API_KEY` makes exactly that agent misconfigured.
@@ -219,16 +225,19 @@ Each criterion is observable and testable.
 - **AC5.1** Running `npx skillsmith counter` in `testing-project` with NO OpenAI
   credentials (so `openai-api-nano` is misconfigured):
   - runs the counter e2e for the configured (`claude-code`) agent only; the
-    browser-test report contains results for the configured agent and NONE for
+    Playwright report (`${iterationDir}/tests-report.json`) contains results keyed
+    by `projectName` for the configured (`haiku`) agent and NONE for
     `openai-api-nano`;
-  - builds no plugin for `openai-api-nano` and creates no browser-test project
-    for it;
-  - does NOT fail spuriously on `openai-api-nano` (no "e2e failed" attributed to
-    it);
-  - the overall run exits NON-ZERO, with `openai-api-nano` surfaced as
-    misconfigured/excluded — NOT as an e2e failure.
+  - builds no plugin for `openai-api-nano` and creates no Playwright project for
+    it;
+  - does NOT fail spuriously on `openai-api-nano` (the merged
+    `${runDirectory}/report.json` carries no "e2e failed" failure attributed to
+    `openai-api-nano`);
+  - the overall run exits NON-ZERO, with `openai-api-nano` surfaced in the merged
+    `${runDirectory}/report.json` as misconfigured/excluded — machine-distinguishable
+    from an e2e failure (mirroring AC2.4).
 - **AC5.2** The same run WITH OpenAI credentials present creates the
-  `openai-api-nano` browser-test project and includes it in the e2e set. The
+  `openai-api-nano` Playwright project and includes it in the e2e set. The
   exclusion is conditioned on actual misconfiguration, not hard-coded.
 
 ### AC6 — Constraints (reviewable)
@@ -243,21 +252,46 @@ Each criterion is observable and testable.
 
 ## Open items (to settle during design)
 
-These are deliberately unresolved here — they concern HOW, and must be settled
-consistently with the requirements above.
+These are deliberately unresolved here — they concern HOW, not WHAT, and must be
+settled by the design phase consistently with the requirements above. Each is a
+genuinely open choice grounded in the current code; none is settled here.
 
-1. **Driving the role-aware behaviors deterministically.** In
-   `testing-project`, both the judge and the improver use the `claude-code`
-   provider, which has no upfront credential gate. Therefore the judge-stop
-   (R4.1) and improver-degrade (R4.2) behaviors can only be *exercised* with a
-   provider that reports misconfiguration on demand. The design must supply such
-   a provider (mirroring the existing deterministic test-failure provider used
-   today) so all three role behaviors are testable without real credentials.
-2. **Statically un-checkable providers.** `claude-code` and `mock` are not
-   statically misconfigurable and MUST stay runnable from the static view (R1.3).
-   The design must not assume a universal upfront gate; any real misconfiguration
-   for these providers continues to surface only through the existing invoke-time
-   error path.
+1. **How "an agent was excluded" reaches the single exit-code chokepoint
+   (behind R3.3/R3.4).** The exit code is decided only in `prepareSummary` from
+   the merged `report.json`, and today no signal that an agent was *excluded*
+   ever reaches it (only the rows that actually appear are scored). Forcing a
+   partial run non-zero therefore requires new state threaded to that chokepoint.
+   The design must choose the mechanism — e.g. exclude from execution but still
+   emit a non-PASS marker/row for the agent so the existing "non-pass ⇒ exit 1"
+   machinery fires (which also auto-preserves R3.4), vs. a new top-level
+   "excluded agents" field that forces a non-zero exit and handles the
+   all-excluded case explicitly. Either is acceptable if it satisfies R3.3/R3.4.
+2. **How the misconfiguration/exclusion outcome is surfaced (behind R3.2).**
+   The status vocabulary is a fixed enum (`PASS`/`FAIL`/`SKIPPED`). The design
+   must choose whether to add a new status/verdict kind (e.g. `excluded` /
+   `misconfigured`) or reuse the existing `SKIPPED` kind — provided the outcome
+   stays distinguishable from a normal grading failure and from an unrelated
+   skip.
+3. **How the provider→credential requirement is expressed, and whether `codex`
+   opts in (behind R1.2/R1.3/R5).** Today the provider contract is only
+   `{ id, invoke }` with the provider→env mapping hardcoded as string literals
+   inside each `invoke`. The design must choose how to make that mapping
+   statically inspectable — extend the `Provider` contract with a capability vs.
+   a separate provider→env mapping — and must decide whether `codex` (which reads
+   the same `OPENAI_API_KEY` but does not pre-check it) opts into the
+   `OPENAI_API_KEY` check or stays "not statically misconfigurable".
+4. **How the judge stop aborts the run (behind R4.1).** The idiomatic up-front
+   hard stop throws an abort that `run()` catches to print a message and return
+   non-zero, but the existing `UserFacingError` type is internal-only (not a
+   public export). The design must choose whether to export `UserFacingError` or
+   reuse an existing precondition/abort path for the judge stop.
+5. **The precise public-API surface/signature of the R5 runnability export.**
+   Constrained only by "named export from the public entry point, pure and
+   synchronous over config input plus environment"; what it takes and returns is
+   the design's choice.
+6. **The exact nano model id string for the `openai-api-nano` agent.** Free-form
+   and never reached when `OPENAI_API_KEY` is unset (the credential gate
+   short-circuits first); the design picks a plausible id.
 
 ## Out of Scope
 
@@ -270,5 +304,6 @@ consistently with the requirements above.
 - Changing exit-code semantics for the improver-degrade or judge cases beyond
   what R4 states.
 - Adding misconfiguration detection for providers that have no
-  environment-readable credential gate (`claude-code`, `mock`); they remain
-  runnable from the static view.
+  environment-readable credential gate (`claude-code`, `mock`, and `codex` unless
+  the design opts `codex` into the `OPENAI_API_KEY` check per Open item 3); they
+  remain runnable from the static view.
