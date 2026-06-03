@@ -420,11 +420,26 @@ The change has two distinct sub-problems (from the prompt) plus one empirical un
    **Consequence — Change #3 becomes a genuine TRADEOFF to spec, not a clear "set `prettier:false`":**
    leaving `prettier:true` is empirically harmless-to-helpful (package.json keeps tabs; changelog
    is cleaner; Biome ignores `.md`), but means the release flow tacitly depends on an **undeclared
-   transitive `prettier@2.8.8`** to format an artifact. Setting `prettier:false` gives a clean
-   "no coupling to a formatter the repo doesn't use" story (the prompt's stated desired outcome) at
-   the cost of an uglier-but-valid changelog. This decision is escalated as Q7 (and flagged to
-   team-lead, since it softens the prompt's framing of sub-problem #1). Note: this is independent of
-   sub-problem #2 (config.json tabs), which remains a clean no-downside fix.
+   transitive `prettier@2.8.8`** to format an artifact. The options (the prettier-flag value is the
+   **owner's call**; `prettier:false` is the documented default):
+   - **(Default) `prettier:false`** — clean "no coupling to a formatter the repo doesn't use" story
+     (the prompt's stated desired outcome); removes the tacit transitive-prettier dependence; cost
+     is the uglier-but-valid changelog spacing.
+   - **`prettier:true` + declare `prettier` as an explicit `devDependency`** — keeps the cleaner
+     changelog AND resolves the "undeclared dependency" concern by making it explicit (team-lead
+     surfaced this option). Cost: the repo then formally carries Prettier alongside Biome (two
+     formatters), which muddies the "Biome-only toolchain" story.
+   - **`prettier:true`, do nothing** — status quo; cleaner changelog but tacit reliance on an
+     undeclared transitive Prettier (the thing the prompt wants to avoid).
+
+   **Team-lead guidance (endorsed):** spec `prettier:false` as the default/recommended outcome,
+   record both alternatives, quote the exact CHANGELOG.md before/after, and make the AC **testable
+   without forcing the owner's hand** on the tradeoff — i.e. the config.json tab-format AC is hard,
+   while the prettier-flag value is owner-selectable with `prettier:false` documented as default.
+   Do not overstate the harm: no Prettier-vs-Biome fight exists over package.json (tabs preserved
+   via `detect-indent`) or the Markdown changelog (Biome can't format `.md`).
+
+   This is independent of sub-problem #2 (config.json tabs), which remains a clean no-downside fix.
 
 Other `.changeset/` contents: `README.md` (the changesets-init cheat sheet) and
 `initial-scaffolding.md` (a `none`-bump starter changeset — consistent with the bootstrap PR).
