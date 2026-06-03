@@ -176,20 +176,42 @@ second bullet).** Staleness at 1.0 is acceptable and the better trade.
 `npm run lint` (= `biome lint .`) currently reports **3 errors + 6 warnings**, failing the
 gate. Exact breakdown by file and rule:
 
-| File | Rule | Count | Severity | Under changeset gate? |
+**Severity (corrected & confirmed by researcher via the `×` error vs `!` warning glyphs):**
+
+| File:line(s) | Rule | Count | Severity | Under changeset gate? |
 |---|---|---|---|---|
-| `docs/styles.css` | `lint/style/noDescendingSpecificity` | 2 | error | No — `docs/**` excluded |
-| `src/__tests__/progress-render.test.ts` | `lint/complexity/noAdjacentSpacesInRegex` | 4 | warning (FIXABLE, safe fix) | No — `!src/__tests__/**` excluded |
-| `src/__tests__/progress-tracker.test.ts` | `lint/suspicious/noControlCharactersInRegex` | 2 | warning | No — `!src/__tests__/**` excluded |
-| `src/progress/tracker.ts` | `lint/suspicious/noControlCharactersInRegex` | 1 | error | **Yes** — `src/**` (non-test) |
+| `src/progress/tracker.ts:358` | `lint/suspicious/noControlCharactersInRegex` | 1 | **error** | **Yes** — `src/**` (non-test) |
+| `src/__tests__/progress-tracker.test.ts:141` (cols 31 & 43) | `lint/suspicious/noControlCharactersInRegex` | 2 | **error** | No — `!src/__tests__/**` excluded |
+| `docs/styles.css:596, :605` | `lint/style/noDescendingSpecificity` | 2 | **warning** | No — `docs/**` excluded |
+| `src/__tests__/progress-render.test.ts:64,67,150,295` | `lint/complexity/noAdjacentSpacesInRegex` | 4 | **warning** (FIXABLE, safe fix) | No — `!src/__tests__/**` excluded |
+
+**Important corrections to my earlier draft:** (i) the CSS `noDescendingSpecificity` items are
+**warnings**, not errors; (ii) the `progress-tracker.test.ts` control-char items are **errors**,
+not warnings, and there are **2 on the single line 141** (cols 31 & 43 — two ESC escapes in
+`/^\x1b\[(\d+)A\x1b\[0J/`). So the headline "3 errors + 6 warnings" = **3 errors, all
+`noControlCharactersInRegex`** (1 in `tracker.ts` + 2 in `progress-tracker.test.ts`), and
+**6 warnings** (4 adjacent-spaces + 2 descending-specificity).
+
+**Only the 3 control-char ERRORS actually fail `biome lint` today** (exit 1). By default Biome's
+exit code is driven by errors; the 6 warnings alone would not fail the run. See the "passes
+cleanly" interpretation question below — the spec defaults to clearing **all 9** diagnostics.
 
 Notable: the prompt framed the failures as in "`src/progress/*` and `docs/styles.css`", but in
-reality most of the `src` failures are under `src/__tests__/**`. Only **one** non-test source
-failure exists: `src/progress/tracker.ts:358` — `const ANSI_SGR = /\x1b\[[0-9;]*m/g;` flagged by
-`noControlCharactersInRegex` (the literal ESC `\x1b` control char in the ANSI-stripping regex).
+reality two of the failing files are under `src/__tests__/**` (which the prompt omits entirely).
+Only **one** non-test source failure exists: `src/progress/tracker.ts:358`
+(`const ANSI_SGR = /\x1b\[[0-9;]*m/g;`). That is the only failing file under the changeset gate's
+`changedFilePatterns` (`src/**` minus `src/__tests__/**`), so a source edit there needs its own
+changeset.
 
-This is the only failing file that falls under the changeset gate's `changedFilePatterns`
-(`src/**` minus `src/__tests__/**`), so a source edit there likely needs its own changeset.
+### `biome lint` vs `biome check` — scope guard (researcher)
+
+The gate is `npm run lint` = `biome lint .` (`package.json:28`, `release.yml:37`), which does NOT
+run Biome's assist actions. `biome check .` reports **10 errors** instead of 3 because `check`
+also runs `assist/source/organizeImports`, flagging unsorted imports across **6 unrelated files**
+(`src/index.ts`, `src/runner.ts`, `src/pipeline/pipeline.ts`, `src/progress/index.ts`, + test
+files). **Those are OUT OF SCOPE for Change #2.** The fix must NOT be performed via
+`biome check --write` — that would reorder imports across 6 unrelated `src/**` files, balloon the
+diff, and needlessly pull more files under the changeset gate. Scope strictly to `biome lint`.
 
 ### Per-failure detail (captured by reading the offending code)
 
@@ -202,10 +224,10 @@ There are three distinct failure classes, each needing a different fix posture:
    Purely mechanical; `biome lint --write` (`npm run lint:fix`) resolves them with no semantic
    change. Tests-only path → excluded from the changeset gate.
 
-2. **`noControlCharactersInRegex` — 1 error in `src/progress/tracker.ts`, 2 warnings in
-   `src/__tests__/progress-tracker.test.ts`.** These regexes match **real ANSI escape
-   sequences** and the flagged control char is the ESC byte `\x1b` (0x1B), which is the
-   legitimate, necessary content:
+2. **`noControlCharactersInRegex` — 3 ERRORS: 1 in `src/progress/tracker.ts`, 2 in
+   `src/__tests__/progress-tracker.test.ts` (both on line 141).** These regexes match **real
+   ANSI escape sequences** and the flagged control char is the ESC byte `\x1b` (0x1B), which is
+   the legitimate, necessary content:
    - `src/progress/tracker.ts:358` — `const ANSI_SGR = /\x1b\[[0-9;]*m/g;` used by
      `visibleWidth()` (line 360-362) to strip SGR color codes when measuring printed width.
    - `src/__tests__/progress-tracker.test.ts:141` — `second.match(/^\x1b\[(\d+)A\x1b\[0J/)`
@@ -225,22 +247,81 @@ There are three distinct failure classes, each needing a different fix posture:
    `new RegExp(...)` form, which costs readability. So the realistic options are (A) a
    narrowly-scoped `biome-ignore` with justification, or (B) the awkward `new RegExp(...)` form.
 
-3. **`noDescendingSpecificity` — 2 errors in `docs/styles.css`.** Bare element selectors
+3. **`noDescendingSpecificity` — 2 WARNINGS in `docs/styles.css`.** Bare element selectors
    (`pre` at line 596, `code` at line 605) appear *after* higher-specificity selectors for the
    same elements (`.terminal pre` at 300, `.note-card code` at 429). Biome flags the descending
    specificity ordering. `docs/**` is excluded from the changeset gate (no changeset needed). Fix
-   is a CSS edit; must preserve rendered styling (cascade correctness) → researcher Q on approach.
+   is a CSS edit; must preserve rendered styling (cascade correctness) → see Q4b.
 
-### Open requirements questions for Change #2 (to be answered via researcher)
+### Q4 — Fix posture per failure class (answered by researcher, empirically)
 
-- Fix approach for the `noControlCharactersInRegex` ANSI regexes (source + test): narrowly-scoped
-  `biome-ignore` suppression with justification, vs. a rule-satisfying code rewrite. Whichever is
-  chosen must apply equally to the legitimate uses and must not be a blanket/file-level disable.
-- Whether editing `src/progress/tracker.ts` (under the changeset gate) requires a changeset, and
-  if so whether it is an **empty** changeset (lint-only, zero consumer-visible behavior change —
-  CONTRIBUTING.md says zero-effect changes use `--empty`) or a versioned `patch`.
-- Fix approach for `docs/styles.css` descending specificity (reorder vs. other) while preserving
-  the rendered cascade.
+**4a — `noControlCharactersInRegex` (3 errors): use approach (A) — narrowly-scoped
+`biome-ignore`, NOT a rewrite.** Per-line
+`// biome-ignore lint/suspicious/noControlCharactersInRegex: <reason>` on each of the 3
+occurrences (the `tracker.ts:358` source regex and both ESC escapes on
+`progress-tracker.test.ts:141`), justification along the lines of "matches real ANSI SGR / cursor
+escape sequences; the ESC (0x1b) byte is the intended content." Rationale:
+- The control char is the **legitimate, necessary content** (ANSI terminal handling). This is
+  exactly the prompt's permitted "rule genuinely inappropriate for a specific location, narrowly
+  justify and scope" carve-out. A line-scoped `biome-ignore` with a reason IS the narrow/justified
+  form — NOT a blanket file-ignore or rule-disable (which the prompt forbids).
+- Approach (B) is a verified **readability regression** and is only achievable via a constructed
+  `new RegExp(...)`. Researcher independently confirmed my finding (codepoint detection) AND the
+  additional pitfalls of the only rule-passing rewrite: `new RegExp("\\x1b\\[…")` (constant-string
+  arg) trips `lint/complexity/useRegexLiterals`; `new RegExp(ESC + "…")` trips
+  `lint/style/useTemplate`. The ONLY clean rewrite is
+  `new RegExp(\`${ESC}\\[[0-9;]*m\`, "g")` with `const ESC = String.fromCharCode(0x1b)` — which
+  obscures the idiomatic ANSI-SGR pattern and, for the test's inline assertion, replaces a clear
+  literal with an awkward two-interpolation constructor.
+- Apply ONE technique uniformly to all 3 occurrences.
+- **(A)-vs-(B) is the one genuine judgment call in Change #2.** If the owner strongly prefers zero
+  suppressions, the runtime-`RegExp` form is available and verified clean for `tracker.ts`, but
+  researcher (and I) recommend (A) on readability grounds for both source and test.
+
+**4b — `noDescendingSpecificity` (2 warnings, `docs/styles.css`): selector reorder; rendering is
+preserved.** Move bare `pre {}` (596) to just before `.terminal pre {}` (300) and bare `code {}`
+(605) to just before `.note-card code {}` (429). Researcher verified on a copy:
+`noDescendingSpecificity` → 0, file length unchanged (11360 → 11360 bytes, pure move). Rendering
+is provably preserved because in BOTH pairs the specificities are **unequal** (`.terminal pre` /
+`.note-card code` = (0,1,1) vs bare `pre`/`code` = (0,0,1)); when specificities differ the cascade
+picks the higher one regardless of source order, so the reorder cannot change which declaration
+wins. The "equal-specificity could matter" case is not present. This rule is **not** auto-fixable
+(`biome lint --write` won't touch it) → manual edit. `docs/**` is outside the changeset gate.
+
+**4c — `noAdjacentSpacesInRegex` (4 warnings, `progress-render.test.ts`): `biome lint --write`,
+zero behavior change.** Researcher verified on a copy: 4 → 0, "Fixed 1 file." Transform is the
+documented safe fix (`/^scenarios  /` → `/^scenarios {2}/`, `/^phases     /` → `/^phases {5}/`,
+`/elapsed 16:48   done/` → `/elapsed 16:48 {3}done/`, `/elapsed 1:23:07   done/` →
+`/elapsed 1:23:07 {3}done/`). A `{n}` quantifier on a single space matches exactly n spaces —
+semantically identical, assertions match the same strings; no manual judgment.
+- Operational caution: `npm run lint:fix` = `biome lint --write .` runs over the whole repo. With
+  `--write` (no `--unsafe`) it applies only SAFE fixes, so it won't touch the control-char errors
+  (no fix) or reorder imports (assist/`check`, not `lint`). Still review the diff to confirm ONLY
+  the 4 regex lines changed — or scope it: `biome lint --write src/__tests__/progress-render.test.ts`.
+
+### Changeset footprint for Change #2 (researcher)
+
+Exactly **one** changeset is required:
+- `src/progress/tracker.ts` (the one control-char `biome-ignore` edit) → a **`patch`** changeset
+  (it is a `src/**` non-test path under the gate; the edit is behavior-preserving). Summary e.g.
+  "Suppress a false-positive Biome control-char lint on the ANSI SGR regex" (no `BREAKING:`).
+  Note this supersedes my earlier "empty vs patch" open question — researcher's call is **patch**,
+  because the gate (`changeset status`) requires a non-`none` entry for a `src/**` change, and a
+  behavior-preserving fix is a `patch` per CONTRIBUTING.md. (Open nuance flagged in Q5 below: is a
+  lint-suppression with zero consumer-visible effect better expressed as a `patch` or an `--empty`
+  changeset? See Q5.)
+- `src/__tests__/progress-tracker.test.ts`, `src/__tests__/progress-render.test.ts`,
+  `docs/styles.css` → **no changeset** (tests excluded by `!src/__tests__/**`; docs not in
+  `changedFilePatterns`).
+
+### Open Change #2 question: "passes cleanly" scope + patch-vs-empty for the suppression
+
+Two points still to confirm (Q5 to researcher):
+1. **"Passes cleanly" interpretation.** Fixing only the 3 control-char errors makes `npm run lint`
+   exit 0 today (warnings don't fail it). But the prompt says "passes **cleanly**" — researcher
+   and I read that as **zero diagnostics** (fix all 9: 3 errors + 6 warnings). Confirm this is the
+   intended bar (vs. "exit 0 is enough").
+2. **patch vs `--empty` for the `tracker.ts` suppression** — see Q5.
 
 ## Change 3 — Align Changesets' formatting with the Biome toolchain
 
