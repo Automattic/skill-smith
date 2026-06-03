@@ -215,6 +215,16 @@ There are three distinct failure classes, each needing a different fix posture:
    location" case. NOT auto-fixable (no safe fix offered). The fix posture is a judgment call
    (narrowly-scoped Biome suppression vs. a code rewrite that satisfies the rule) → researcher Q.
 
+   **Empirical finding (spec-analyst, verified with the repo's Biome 2.4.12 on a scratch file):**
+   `noControlCharactersInRegex` detects the control **codepoint**, not the escape notation. Inside
+   a regex *literal*, ALL of `\x1b`, `` (the literal ESC), and `\u{1b}` (with the `u` flag)
+   trip the rule. The ONLY representation that does not trip it is moving to a constructed
+   `new RegExp(...)` built from a runtime string (e.g. `String.fromCharCode(0x1b)` /
+   `String.fromCharCode(27)`). Consequence: approach (B) "swap the escape inside the literal" is
+   not viable — any code rewrite that satisfies the rule must abandon the regex literal for an
+   `new RegExp(...)` form, which costs readability. So the realistic options are (A) a
+   narrowly-scoped `biome-ignore` with justification, or (B) the awkward `new RegExp(...)` form.
+
 3. **`noDescendingSpecificity` — 2 errors in `docs/styles.css`.** Bare element selectors
    (`pre` at line 596, `code` at line 605) appear *after* higher-specificity selectors for the
    same elements (`.terminal pre` at 300, `.note-card code` at 429). Biome flags the descending
