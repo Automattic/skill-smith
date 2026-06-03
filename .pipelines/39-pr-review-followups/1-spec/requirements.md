@@ -299,29 +299,60 @@ semantically identical, assertions match the same strings; no manual judgment.
   (no fix) or reorder imports (assist/`check`, not `lint`). Still review the diff to confirm ONLY
   the 4 regex lines changed — or scope it: `biome lint --write src/__tests__/progress-render.test.ts`.
 
-### Changeset footprint for Change #2 (researcher)
+### Q5 — Changeset footprint + "passes cleanly" bar for Change #2 (answered by researcher)
 
-Exactly **one** changeset is required:
-- `src/progress/tracker.ts` (the one control-char `biome-ignore` edit) → a **`patch`** changeset
-  (it is a `src/**` non-test path under the gate; the edit is behavior-preserving). Summary e.g.
-  "Suppress a false-positive Biome control-char lint on the ANSI SGR regex" (no `BREAKING:`).
-  Note this supersedes my earlier "empty vs patch" open question — researcher's call is **patch**,
-  because the gate (`changeset status`) requires a non-`none` entry for a `src/**` change, and a
-  behavior-preserving fix is a `patch` per CONTRIBUTING.md. (Open nuance flagged in Q5 below: is a
-  lint-suppression with zero consumer-visible effect better expressed as a `patch` or an `--empty`
-  changeset? See Q5.)
+**5a — The `tracker.ts` suppression carries an `--empty` changeset, NOT a `patch`** (this
+**revises** the Q4 "patch" call). Empirically verified in a sandbox mirroring skillsmith (same
+`package.json` + `.changeset/config.json`, real `@changesets/cli@2.31.0`, a `src/progress/tracker.ts`
+edit, `--since=origin/trunk`): both gate steps pass with an empty changeset, and there is **no**
+policy/gate contradiction.
+
+| Condition | `validate-changesets.ts` (step 1) | `changeset status` (step 2) | Gate |
+|---|---|---|---|
+| No changeset | — | exit 1 ("packages changed but no changesets… run `changeset add --empty`") | FAILS |
+| **Empty** (`---\n---`) | exit 0 (shape valid) | exit 0 ("NO packages to be bumped") | **PASSES** |
+| Patch | exit 0 | exit 0 ("bumped at patch") | PASSES |
+
+So both empty and patch satisfy the gate; the deciding factor is **policy**, and policy says
+empty: CONTRIBUTING.md:97 — "A changeset for a refactor with **zero consumer-visible effect** is a
+signal the contributor should have used `--empty` instead; flag it in review." A `biome-ignore`
+comment on an internal ANSI regex changes no emitted code, no public type, no runtime behavior —
+the textbook zero-consumer-visible-effect change (even less visible than CONTRIBUTING.md:74's
+"cosmetic README edit" `--empty` archetype). A `patch` would manufacture a meaningless
+`CHANGELOG.md` entry — noise in the artifact this whole feature exists to keep meaningful.
+Verified inert at release time too: with the empty changeset present, `changeset version` exits 0,
+leaves version `0.1.0` (no bump), deletes the consumed file, and writes no CHANGELOG entry.
+
+- **Spec-wording caveat for the planner:** "use `--empty`" must mean the literal canonical
+  two-fence file `npx changeset --empty` produces (`---\n---`, no front matter, no body). The
+  validator's R-shape-2 (`validate-changesets.ts:95-99`) only treats *that exact* form as the valid
+  escape; a file with front matter but an empty body is a *different* validator error
+  (`:102-108`, line-4 "empty body"). So it is the empty file, not "no changeset" — it still lives
+  at `.changeset/<name>.md` and travels with the PR.
+
+**Corrected Change #2 changeset footprint — exactly one `--empty` changeset:**
+- `src/progress/tracker.ts` (the control-char `biome-ignore` edit) → **one `--empty` changeset**.
 - `src/__tests__/progress-tracker.test.ts`, `src/__tests__/progress-render.test.ts`,
   `docs/styles.css` → **no changeset** (tests excluded by `!src/__tests__/**`; docs not in
   `changedFilePatterns`).
 
-### Open Change #2 question: "passes cleanly" scope + patch-vs-empty for the suppression
+**5b — "Passes cleanly" = ZERO diagnostics from `biome lint .`** (all 3 errors AND all 6 warnings
+cleared), not merely exit 0.
+- "Passes cleanly" reads as "reports nothing"; leaving 6 warnings is a half-fix the next
+  contributor/pipeline re-encounters — the reactive-rediscovery cost this cleanup exists to remove.
+- Marginal cost of clearing the warnings is trivial and already scoped (4 are a safe auto-fix;
+  2 are a rendering-neutral CSS reorder).
+- All-clean is future-proof: if CI later runs warnings-as-errors / Biome promotes these to errors,
+  a "warnings-left" branch would suddenly fail.
+- **Caveat on the literal CI bar (note in spec):** today the *enforced* bar is exit 0 —
+  `release.yml:37` runs `npm run lint` and Biome's default exit is driven by **errors only**, so
+  the 6 warnings alone would not fail CI; only the 3 control-char errors make it exit 1 now. So
+  strictly, fixing just the 3 errors greens CI. The spec target is nonetheless **zero
+  diagnostics** ("`biome lint .` reports 0 errors and 0 warnings"); if the owner prefers the
+  minimal literal bar that's their call. (Making "clean" *enforceable* via warnings-as-errors in CI
+  is a scope expansion beyond these three changes — noted, not required.)
 
-Two points still to confirm (Q5 to researcher):
-1. **"Passes cleanly" interpretation.** Fixing only the 3 control-char errors makes `npm run lint`
-   exit 0 today (warnings don't fail it). But the prompt says "passes **cleanly**" — researcher
-   and I read that as **zero diagnostics** (fix all 9: 3 errors + 6 warnings). Confirm this is the
-   intended bar (vs. "exit 0 is enough").
-2. **patch vs `--empty` for the `tracker.ts` suppression** — see Q5.
+**Change #2 is now fully specified.**
 
 ## Change 3 — Align Changesets' formatting with the Biome toolchain
 
