@@ -393,26 +393,37 @@ The change has two distinct sub-problems (from the prompt) plus one empirical un
    `prettier: true` (default) and `prettier: false`, and whether `biome format` then wants to
    re-touch the output.
 
-   **Code-level finding (spec-analyst, read from `node_modules/@changesets/apply-release-plan`;
-   to be CONFIRMED by the researcher's runtime test):** the two files are handled by DIFFERENT
-   writers, which refines the prompt's framing:
-   - **`package.json` does NOT go through Prettier at all.** The package writer is a plain
-     `JSON.stringify(pkgJson, null, indent)` where `indent = detectIndent(existing).indent || "  "`
-     (`changesets-apply-release-plan.cjs.js:482-484`). It uses **`detect-indent`** on the existing
-     file, so it **preserves the file's current tabs** regardless of the `prettier` setting
-     (falling back to 2-space only if no indent is detected). So Prettier's `true` default likely
-     does NOT reformat `package.json` away from tabs — contrary to the prompt's worry.
-   - **`CHANGELOG.md` IS the file Prettier touches.** It is written via
-     `writeFormattedMarkdownFile`, which uses a `prettierInstance` only when `config.prettier !==
-     false` (`:372,510-513`); with `prettier: false` the instance is `undefined` and the markdown
-     is written **raw**. So the real Prettier coupling is on the changelog markdown, not the
-     package manifest.
-   If the runtime test confirms this, the accurate problem statement is: leaving `prettier: true`
-   couples **`CHANGELOG.md`** formatting to a transitive Prettier the repo doesn't manage; setting
-   `prettier: false` removes that coupling and writes raw markdown (which Biome's formatter then
-   governs like any other repo file). `package.json` keeps tabs either way. The researcher's test
-   should verify this observed behavior and check whether `biome format` wants to re-touch the
-   resulting `CHANGELOG.md` / `package.json`.
+   **EMPIRICAL RESULT (researcher ran real `changeset version`, minor bump 0.1.0→0.2.0, on
+   sandboxes seeded with skillsmith's actual `package.json`/`CHANGELOG.md`/`.changeset/config.json`
+   + the repo's installed `@changesets/cli@2.31.0`; confirms & extends my code-level read). Three
+   findings that REFRAME the prompt's premise:**
+   - **(1) `changeset version` does NOT mangle `package.json` indentation — it preserves the
+     existing TABS under BOTH `prettier:true` (default) AND `prettier:false`** (verified by
+     `od -c`: output begins `{ \n \t "name"…`, version correctly bumped, in both cases). Biome's
+     formatter on that output → "No fixes applied." So the worry "the release flow rewrites
+     `package.json` 2-space and fights Biome" does **NOT reproduce** — no `package.json` churn
+     either way. (Mechanism, from source: the package writer is `JSON.stringify(pkg, null, indent)`
+     with `indent = detectIndent(existing).indent`, `apply-release-plan.cjs.js:482-484` — it sniffs
+     and preserves the file's own indent, never routing `package.json` through Prettier.)
+   - **(2) For `CHANGELOG.md`, `prettier:true` (the default) produces BETTER markdown than
+     `prettier:false` — the OPPOSITE of the prompt's implied direction.** `prettier:true` →
+     clean `## 0.2.0`⏎⏎`### Minor Changes`⏎⏎`- entry`. `prettier:false` → **malformed**:
+     `## 0.2.0`⏎`### Minor Changes` (no blank line) then TWO blank lines before the entry. The raw
+     Changesets changelog writer emits ugly spacing; Prettier is what cleans it up. Turning Prettier
+     OFF *degrades* the changelog (still valid Markdown, but uglier).
+   - **(3) Biome NEVER touches `CHANGELOG.md` — it CANNOT. Biome 2.4.x does not support Markdown
+     formatting** (`biome format CHANGELOG.md` → "No files were processed", even with
+     `ignoreUnknown:false`; Biome formats only JS/TS/JSX/TSX/JSON/JSONC/HTML/CSS/GraphQL). So there
+     is **no possible Prettier-vs-Biome fight over the changelog** — Biome has zero opinion on `.md`.
+
+   **Consequence — Change #3 becomes a genuine TRADEOFF to spec, not a clear "set `prettier:false`":**
+   leaving `prettier:true` is empirically harmless-to-helpful (package.json keeps tabs; changelog
+   is cleaner; Biome ignores `.md`), but means the release flow tacitly depends on an **undeclared
+   transitive `prettier@2.8.8`** to format an artifact. Setting `prettier:false` gives a clean
+   "no coupling to a formatter the repo doesn't use" story (the prompt's stated desired outcome) at
+   the cost of an uglier-but-valid changelog. This decision is escalated as Q7 (and flagged to
+   team-lead, since it softens the prompt's framing of sub-problem #1). Note: this is independent of
+   sub-problem #2 (config.json tabs), which remains a clean no-downside fix.
 
 Other `.changeset/` contents: `README.md` (the changesets-init cheat sheet) and
 `initial-scaffolding.md` (a `none`-bump starter changeset — consistent with the bootstrap PR).
