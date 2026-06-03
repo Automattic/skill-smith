@@ -1,0 +1,10 @@
+name: hello-scenario
+description: Fixture scenario that passes the first sweep with an excluded improver.
+skills:
+  - foo
+prompt: |
+  Produce the scenario output.
+acceptance:
+  - mock acceptance
+rubrics:
+  - r1

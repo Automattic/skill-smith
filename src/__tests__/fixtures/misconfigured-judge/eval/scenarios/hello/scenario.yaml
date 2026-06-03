@@ -1,0 +1,10 @@
+name: hello-scenario
+description: Fixture scenario whose judge cannot grade.
+skills:
+  - foo
+prompt: |
+  Produce the scenario output.
+acceptance:
+  - mock acceptance
+rubrics:
+  - r1

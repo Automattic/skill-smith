@@ -1,0 +1,10 @@
+name: hello-scenario
+description: Fixture scenario where every test agent is excluded.
+skills:
+  - foo
+prompt: |
+  Produce the scenario output.
+acceptance:
+  - mock acceptance
+rubrics:
+  - r1
