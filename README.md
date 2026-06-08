@@ -89,7 +89,7 @@ Projects opt into the hooks they need. Two examples from the WordPress reference
 
 **`beforeTestAgent` — scaffold the artifact the agent will edit.** Generates a plugin skeleton inside `agentWorkspace` with a deterministic slug (`plugin-${scenario.name}-${agentId}`) so the e2e specs can activate it later.
 
-**`afterAllScenarios` — run e2e tests against the artifacts this iteration produced.** Walks the iteration directory for the plugins built this iteration, writes a `.wp-env.json` listing them, then boots `wp-env`. wp-env auto-activates every listed plugin on start, so the hook sets `lifecycleScripts.afterStart` to `wp plugin deactivate --all` — leaving each spec a clean slate. It then invokes Playwright for the scenario specs that ran; each spec runs across the configured testing-agent projects, activates its own plugin, sets up its fixtures (e.g. a post containing the block under test), and tears them down. Finally it stops `wp-env`, removes the generated `.wp-env.json`, and maps each failing spec back to its `(scenario, agent)` pair — returned as `failures` so a green judge but red e2e still fails the iteration. (For more on the loop this feeds, see [How the Self-Improvement works](#how-the-self-improvement-works).)
+**`afterAllScenarios` — run e2e tests against the artifacts this iteration produced.** Walks the iteration directory for the plugins built this iteration, writes a `.wp-env.json` listing them, then boots `wp-env`. wp-env auto-activates every listed plugin on start, so the hook sets `lifecycleScripts.afterStart` to `wp plugin deactivate --all` — leaving each spec a clean slate. It reads `ctx.skipped` (see [the hook context](#hooks)) to drop any skipped test agent, derives the runnable test-agent ids, and runs Playwright only against those — a skipped agent gets no Playwright project, no plugin build, and no spec, so the report attributes no e2e failure to it. It then invokes Playwright for the scenario specs that ran; each spec runs across the runnable testing-agent projects, activates its own plugin, sets up its fixtures (e.g. a post containing the block under test), and tears them down. Finally it stops `wp-env`, removes the generated `.wp-env.json`, and maps each failing spec back to its `(scenario, agent)` pair — returned as `failures` so a green judge but red e2e still fails the iteration. (For more on the loop this feeds, see [How the Self-Improvement works](#how-the-self-improvement-works).)
 
 ### Rubrics and the judge
 
@@ -149,7 +149,7 @@ The judges grade the *artifact a testing agent produced* against the rubrics. Th
 - return `false` — fail every scenario that ran this iteration (coarse).
 - return `{ failures: [{ scenario, agent?, details? }] }` — fail exactly those scenarios, or `(scenario, agent)` pairs when `agent` is named. `details` is surfaced to the improver so it learns *why* the artifact broke beyond what the judge saw.
 
-The harness only provides the mechanism; deciding which scenarios failed is the hook's job. The reference WordPress project uses it to build each plugin, boot `wp-env`, run the Playwright e2e specs for the scenarios that ran this iteration, and map each failing spec back to its `(scenario, agent)` pair — so a green judge but red e2e still fails the iteration and tells the improver to fix the underlying skill.
+The harness only provides the mechanism; deciding which scenarios failed is the hook's job. The reference WordPress project uses it to build each plugin, boot `wp-env`, run the Playwright e2e specs for the scenarios that ran this iteration, and map each failing spec back to its `(scenario, agent)` pair — so a green judge but red e2e still fails the iteration and tells the improver to fix the underlying skill. Before driving Playwright it reads `ctx.skipped` and derives the runnable test-agent ids, running e2e only against those: a skipped agent gets no Playwright project, no plugin build, and no spec, so the report attributes no e2e failure to an agent that never ran.
 
 ### Per-iteration reports
 
@@ -255,6 +255,8 @@ The base hooks (`beforeAll`, `beforeScenario`, ...) still fire. The iteration ad
 | `afterIteration` | last, after the improver — so it sees the post-improve state |
 
 Each receives the iteration number, the iteration directory, and (for `afterImprove`) `improvementPath`. `afterAllScenarios` is the only hook whose return value the harness consumes; the rest are fire-and-forget.
+
+Every hook context also carries a readonly **`skipped`** field — `ReadonlyArray<{ id, roles, reason }>`, the same data as `report.json`'s top-level [`skipped` array](#skipped-agents-in-reportjson). It is present from `beforeAll` onward (the skip set is fully known before the run starts) and lists each agent that could not run, with the `roles` it fills and the `reason`. It adds no mandatory callback — a hook that does not need it ignores it. The reference project's `afterAllScenarios` reads it to exclude skipped agents from the e2e run (see [the verification gate](#afterallscenarios--the-verification-gate)).
 
 ## Installation
 
