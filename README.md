@@ -97,6 +97,8 @@ A **rubric** is prose reference material the judge LLM consults — describing s
 
 **The judge does not read the skill.** The agent learns from the skill; the judge grades from the rubrics. Keeping them epistemically separate is what lets the harness catch a regression in the skill itself — if the judge consulted the same skill the agent did, a bad skill edit would simultaneously redefine "correct" and the regression would slip through.
 
+**If the judge can't run, the run stops.** When the agent in `config.roles.judge` is misconfigured — its provider credential is missing (see [When an agent can't run](#exit-codes)) — there is nothing to grade against, so the run stops up front. The harness prints a single clear message naming the judge agent and the reason, and exits `2` before any work begins: no graded matrix and no `report.json` are produced. This is why a misconfigured judge dominates: when one id fills several roles, the most-severe consequence applies, so an id that is both the judge and a test agent (or the improver) stops the run regardless of its other roles.
+
 ## How the Self-Improvement works
 
 When a run produces failures, the harness can loop: a single **improver** agent edits the failing skill, the affected scenarios re-run, and the loop stops when the suite passes or the iteration budget is exhausted. Self-improvement mode is opt-in (`mode: "self-improvement"`) — the default behaviour is the one-shot Skill Tester described above.
@@ -134,6 +136,8 @@ Every run lives under `${paths.base}/<runId>/`. Each iteration owns its own subd
 5. The loop exits early on all-pass. If `finalPass: true` and the last iteration ran a subset, the harness runs one extra full sweep at the end so the final report reflects the current state of every (scenario, agent) pair.
 
 The improver is the only agent that writes, and only inside `paths.skills`. The harness never commits, pushes, or captures a diff — your edits live in the working tree for human review. Set `roles.improver.prompt` to a string (or load one from disk) to replace the built-in improver instructions with a project-specific edit strategy.
+
+If the improver agent can't run — its provider credential is missing (see [When an agent can't run](#exit-codes)) — the current iteration still runs to completion: the testing agents and judge produce a complete, valid matrix, and that verdict stands. The loop then halts: no improver call, no skill edits, and no further iterations (not even the `finalPass` sweep). The skipped improver is surfaced once with its id and reason, and the run exits `2`.
 
 ### `afterAllScenarios` — the verification gate
 
