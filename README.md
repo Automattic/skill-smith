@@ -49,6 +49,18 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
 
 ![Skill Tester workflow diagram](assets/skill-tester-workflow.png)
 
+### Exit codes
+
+The process exit code tells a CI pipeline or an autonomous consumer how the run ended:
+
+- `0` — every executed evaluation passed and no declared agent was skipped.
+- `1` — an agent that ran genuinely failed its evaluation (and nothing was skipped).
+- `2` — a configuration error: one or more declared agents could not run because a required provider credential was missing. `2` takes precedence over `1`, so a run that has both a skipped agent and a genuine evaluation failure exits `2`.
+
+A skipped agent never lets the run exit `0` — even when every agent that did run passed.
+
+**When an agent can't run.** An agent backed by an API provider whose credential environment variable is unset (for example `OPENAI_API_KEY is not set`) is detected before it is ever invoked. It is removed from the run — it does no work, gets no workspace, contributes no pass/fail result, and is not re-selected in later iterations. It is announced **once** in the console, with its **id and reason**, under its own `SKIPPED AGENTS` heading that is visually distinct from a failing agent, and it is recorded in `report.json`. This is a configuration problem to fix, not a verdict on the skill — distinct from an agent that ran and failed its evaluation.
+
 ### Lifecycle
 
 1. **Init run.** Generate `runId`, load scenarios from `config.paths.scenarios`, and apply any positional scenario directory filters.
