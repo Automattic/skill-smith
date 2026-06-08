@@ -9,12 +9,19 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RunScenario, VerificationFailure } from "skillsmith";
+import config from "../../skillsmith.config";
+import { projectArgs } from "./project-args";
 
 // This file lives at `<projectRoot>/eval/utils/verify-e2e.ts`, so the
 // project root — where `node_modules`, `.wp-env.json`, and the npm
 // scripts live — is two directories up (matching `wp-cli.mjs`).
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const WP_ENV_PORT = Number(process.env.WP_ENV_PORT ?? 8987);
+
+// Every configured test agent gets a Playwright project (see
+// playwright.config.ts), so the configured project names are exactly the
+// test-agent ids the config declares.
+const CONFIGURED_PROJECT_NAMES = config.roles.test.agents;
 
 /**
  * Build every plugin produced in `iterationDirectory`, boot wp-env, run
@@ -30,6 +37,7 @@ const WP_ENV_PORT = Number(process.env.WP_ENV_PORT ?? 8987);
 export function runE2eVerification(
 	iterationDirectory: string,
 	scenarios: RunScenario[],
+	runnableAgentIds: string[],
 ): VerificationFailure[] {
 	// The iteration subdirectories are named after `scenario.name`, while
 	// the spec files live under `eval/scenarios/<dirName>/`. Playwright's
@@ -126,11 +134,22 @@ export function runE2eVerification(
 			env: wpEnv,
 		});
 		try {
-			execFileSync("npm", ["run", "test:e2e", "--", ...e2eSpecs], {
-				stdio: "inherit",
-				cwd: PROJECT_ROOT,
-				env: { ...wpEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath },
-			});
+			// Restrict the run to the runnable agents' Playwright projects.
+			// A misconfigured agent has no project forwarded here, so no spec
+			// runs for it and the merged report attributes no failure to it.
+			const projectSelectors = projectArgs(
+				runnableAgentIds,
+				CONFIGURED_PROJECT_NAMES,
+			);
+			execFileSync(
+				"npm",
+				["run", "test:e2e", "--", ...e2eSpecs, ...projectSelectors],
+				{
+					stdio: "inherit",
+					cwd: PROJECT_ROOT,
+					env: { ...wpEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath },
+				},
+			);
 		} catch {
 			// Playwright exits non-zero when specs fail. That is exactly the
 			// signal we are after — swallow it and read the JSON report.
