@@ -10,6 +10,7 @@ import type {
 } from "../config/types";
 import type { ProgressTracker } from "../progress";
 import type { TokenUsage } from "../providers/types";
+import type { SkippedAgent } from "../runnability";
 import {
 	type Cell,
 	classifyVerdict,
@@ -31,6 +32,7 @@ export interface RunAgentsParams {
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
+	skipped: ReadonlyArray<SkippedAgent>;
 	/**
 	 * When present, only testing agents whose ids appear in this list
 	 * run for this scenario. Used by `failed-pairs` mode to re-run only
@@ -75,6 +77,7 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 		log,
 		tracker,
 		scenarios,
+		skipped,
 		agentIdFilter,
 	} = params;
 
@@ -105,6 +108,7 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 				log,
 				tracker,
 				scenarios,
+				skipped,
 			}),
 		),
 	);
@@ -122,6 +126,7 @@ interface RunAgentPairParams {
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
+	skipped: ReadonlyArray<SkippedAgent>;
 }
 
 async function runAgentPair(params: RunAgentPairParams): Promise<void> {
@@ -137,6 +142,7 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		log,
 		tracker,
 		scenarios,
+		skipped,
 	} = params;
 	const agentDirectory = join(scenarioDirectory, agent.id);
 	const agentWorkspace = join(agentDirectory, "workspace");
@@ -149,6 +155,7 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		runDirectory,
 		iterations,
 		scenarios,
+		skipped,
 		scenario,
 		agent,
 		agentWorkspace,

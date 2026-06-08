@@ -1,4 +1,5 @@
 import type { ProviderId } from "../providers/types";
+import type { SkippedAgent } from "../runnability";
 
 /**
  * Top-level run mode. `test-only` runs a single iteration; `self-improvement`
@@ -147,6 +148,12 @@ export interface RunContext {
 	runDirectory: string;
 	iterations: IterationInfo[];
 	scenarios: RunScenario[];
+	/**
+	 * The agents this run skipped, keyed by id, with the role(s) each
+	 * fills and the reason it was skipped. Readable from the earliest
+	 * run-scoped hook (`beforeAll`) onward.
+	 */
+	readonly skipped: ReadonlyArray<SkippedAgent>;
 }
 
 export interface RunScenario {

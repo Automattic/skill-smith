@@ -33,6 +33,7 @@ import {
 	emitSummary,
 	prepareSummary,
 } from "../reports/summary";
+import type { SkippedAgent } from "../runnability";
 import {
 	type EnumeratedScenario,
 	enumerateScenarios,
@@ -103,6 +104,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		runDirectory,
 		iterations,
 		scenarios: runScenarios,
+		skipped: [],
 	};
 
 	const tracker = new ProgressTracker(
@@ -196,6 +198,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 					runDirectory,
 					iterations,
 					scenarios: runScenarios,
+					skipped: runCtx.skipped,
 					config,
 					agent: config.roles.improver.agent,
 					improverPrompt: config.roles.improver.prompt,
@@ -375,6 +378,7 @@ async function runOneIteration(
 					log,
 					tracker: args.tracker,
 					scenarios: args.runCtx.scenarios,
+					skipped: args.runCtx.skipped,
 				}),
 			),
 		);
@@ -491,6 +495,7 @@ interface ScenarioRunArgs {
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
+	skipped: ReadonlyArray<SkippedAgent>;
 }
 
 async function runScenario(
@@ -505,6 +510,7 @@ async function runScenario(
 		runDirectory: args.runDirectory,
 		iterations: args.iterations,
 		scenarios: args.scenarios,
+		skipped: args.skipped,
 		scenario,
 	};
 
@@ -535,6 +541,7 @@ async function runScenario(
 				log: args.log,
 				tracker: args.tracker,
 				scenarios: args.scenarios,
+				skipped: args.skipped,
 				agentIdFilter: args.agentFilter,
 			});
 		}
