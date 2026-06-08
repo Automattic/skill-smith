@@ -4,6 +4,7 @@ import type { Provider } from "./types";
 
 export const anthropicApiProvider: Provider = {
 	id: "anthropic-api",
+	requiredEnv: "ANTHROPIC_API_KEY",
 	invoke: (params) => {
 		if (!process.env.ANTHROPIC_API_KEY) {
 			return Promise.resolve({

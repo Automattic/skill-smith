@@ -4,6 +4,7 @@ import type { Provider } from "./types";
 
 export const geminiApiProvider: Provider = {
 	id: "gemini-api",
+	requiredEnv: "GOOGLE_GENERATIVE_AI_API_KEY",
 	invoke: (params) => {
 		if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
 			return Promise.resolve({
