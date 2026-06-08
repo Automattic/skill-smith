@@ -176,6 +176,23 @@ Reports are deliberately compact. The per-agent `review` block collapses to `{ p
 }
 ```
 
+### Skipped agents in `report.json`
+
+The merged `${runDirectory}/report.json` is `{ runId, pass, scenarios, skipped }`. The top-level **`skipped`** array is a sibling of `scenarios` — one entry per agent that could not run, carrying its `id`, the `roles` it fills, and the `reason`:
+
+```json
+{
+  "runId": "...",
+  "pass": false,
+  "scenarios": { },
+  "skipped": [
+    { "id": "gpt", "roles": ["test"], "reason": "OPENAI_API_KEY is not set" }
+  ]
+}
+```
+
+A skipped agent has **no row in the matrix** — it is not a `scenarios` cell. That is what tells it apart from a graded failure (which lives inside `scenarios` as a failing cell) and from the per-cell `SKIPPED` marker that the judge can record for an individual `(scenario, agent)` result. A run with no skips leaves `skipped` empty (`[]`), so `report.json` reads exactly as it did before.
+
 ### Configuration
 
 ```ts
