@@ -698,8 +698,23 @@ AC11→H6 R6.4 most-severe. AC12→H3#2 precedence. AC13→H7/R11.1 inert path.
 
 All HOW items (H1–H7) and sub-questions (H1a, H5b, H5d, H6a–H6d, playwright.config bug)
 are settled with cited evidence. The design is ready for the writer to synthesize
-`design-doc.md`. NOTE: the partner `design-doc-researcher` did not respond during this
-session; the analyst gathered the primary codebase evidence directly (every claim is
-file:line-cited and independently verifiable) and web-verified the one external fact
-(Playwright `--project` semantics). If the researcher later surfaces a contradiction,
-the affected entry should be revisited.
+`design-doc.md`.
+
+Provenance / cross-check: the analyst gathered the primary codebase evidence directly
+(every claim is file:line-cited and independently verifiable) and web-verified the
+external fact (Playwright `--project` restricts to exactly the named projects). The
+partner `design-doc-researcher` came online after the initial settle and independently
+CORROBORATED the foundation (provider contract shape, in-invoke result-errors, codex
+reading OPENAI_API_KEY without pre-checking, the binary 0/1 exit chokepoint, SKIPPED
+already yellow vs FAIL red, and — independently — the same `playwright.config.ts:23`
+bug). Three corroboration items are in flight and, if they change anything, only
+sharpen low-risk details (none touches the core decisions H1–H7):
+  (i) the EXACT Playwright failure mode for an unknown `--project` name (experiment) —
+      design is safe by construction regardless, since only configured ids are
+      forwarded; this only documents the failure mode and motivates forwarding the
+      INTERSECTION of runnable ids ∩ configured project names defensively;
+  (ii) how Playwright currently coerces the object-as-`name` at `playwright.config.ts:23`
+      (confirms the fix `name: agent.id`);
+  (iii) reading-only confirmation that no path materializes a skipped agent's workspace
+      dir (build-side filter remains unnecessary).
+These will be folded in on receipt; the writer may proceed in parallel.
