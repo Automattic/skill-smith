@@ -1,0 +1,10 @@
+name: gated-scenario
+description: Gated scenario the mock judge fails.
+skills:
+  - gated
+prompt: |
+  Exercise the gated skill.
+acceptance:
+  - skill carries the marker
+rubrics:
+  - r1

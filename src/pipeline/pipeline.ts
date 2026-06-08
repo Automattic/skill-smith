@@ -33,7 +33,7 @@ import {
 	emitSummary,
 	prepareSummary,
 } from "../reports/summary";
-import type { SkippedAgent } from "../runnability";
+import { classifyRunnability, decide, type SkippedAgent } from "../runnability";
 import {
 	type EnumeratedScenario,
 	enumerateScenarios,
@@ -91,6 +91,23 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	const runDirectory = resolve(projectRoot, config.paths.base, runId);
 	mkdirSync(runDirectory, { recursive: true });
 
+	const runnability = classifyRunnability(config, process.env);
+
+	// A misconfigured judge stops the whole run: there is no graded matrix
+	// to write, so bail before any hook fires, before the tracker, and
+	// before any report. Returning 2 (rather than throwing) keeps this off
+	// the runner's precondition path, which is exit 1.
+	const judgeId = config.roles.judge.agent.id;
+	const judgeSkip = runnability.skipped.find((s) => s.id === judgeId);
+	if (judgeSkip !== undefined && decide(judgeSkip.roles) === "STOP_RUN") {
+		console.error(
+			`skillsmith: judge agent "${judgeId}" is misconfigured: ${judgeSkip.reason}. Stopping the run.`,
+		);
+		return 2;
+	}
+
+	const runnableTestAgentIds = runnability.runnableTestAgentIds;
+
 	const iterations: IterationInfo[] = [];
 	const runScenarios: RunScenario[] = allScenarios.map(
 		({ dirName, scenario }) => ({
@@ -104,7 +121,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 		runDirectory,
 		iterations,
 		scenarios: runScenarios,
-		skipped: [],
+		skipped: runnability.skipped,
 	};
 
 	const tracker = new ProgressTracker(
@@ -112,7 +129,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 			runId,
 			scenarios: allScenarios.map((s) => ({
 				name: s.scenario.name,
-				agentIds: config.roles.test.agents.map((a) => a.id),
+				agentIds: runnableTestAgentIds,
 			})),
 		},
 		verbose ? { interactive: false } : {},
@@ -167,6 +184,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 				verbose: verbose ?? false,
 				selection: selection.scenarios,
 				agentFilter: selection.agentFilter,
+				runnableTestAgentIds,
 				iterations,
 				runCtx,
 				tracker,
@@ -181,16 +199,23 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 				mergedScenarios,
 				outcome.report.scenarios,
 			);
-			mergedPass = writeRunReport(runDirectory, runId, mergedScenarios);
+			mergedPass = writeRunReport(
+				runDirectory,
+				runId,
+				mergedScenarios,
+				runnability.skipped,
+			);
 			renderRunSummary();
 
 			// The improver is part of the iteration: it runs after the
 			// scenario sweep was graded and verified, when the run is not
-			// yet passing and there is budget left.
+			// yet passing and there is budget left. A misconfigured improver
+			// makes no edit, so the iteration just completed is the last one.
 			if (
 				!mergedPass &&
 				i < maxIterations &&
-				selfImprovement.mode === "self-improvement"
+				selfImprovement.mode === "self-improvement" &&
+				runnability.improverRunnable
 			) {
 				await runImprovement({
 					projectRoot,
@@ -213,13 +238,24 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 			await fireAfterIteration(config, runCtx, outcome, i);
 
 			if (mergedPass) break;
+			// A misconfigured improver made no edit this iteration, so the
+			// next iteration would re-run the same failing matrix to no
+			// effect — and would be a forbidden further iteration. The
+			// iteration just completed is the last one.
+			if (
+				selfImprovement.mode === "self-improvement" &&
+				!runnability.improverRunnable
+			) {
+				break;
+			}
 		}
 
 		if (
 			selfImprovement.finalPass &&
 			lastWasSubset &&
 			selfImprovement.mode === "self-improvement" &&
-			!mergedPass
+			!mergedPass &&
+			runnability.improverRunnable
 		) {
 			const i = iterations.length + 1;
 			const outcome = await runOneIteration({
@@ -232,6 +268,7 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 				verbose: verbose ?? false,
 				selection: allScenarios,
 				agentFilter: undefined,
+				runnableTestAgentIds,
 				iterations,
 				runCtx,
 				tracker,
@@ -243,7 +280,12 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 				mergedScenarios,
 				outcome.report.scenarios,
 			);
-			mergedPass = writeRunReport(runDirectory, runId, mergedScenarios);
+			mergedPass = writeRunReport(
+				runDirectory,
+				runId,
+				mergedScenarios,
+				runnability.skipped,
+			);
 			renderRunSummary();
 			await fireAfterIteration(config, runCtx, outcome, i);
 		}
@@ -278,6 +320,12 @@ interface RunOneIterationParams {
 	verbose: boolean;
 	selection: EnumeratedScenario[];
 	agentFilter: Record<string, string[]> | undefined;
+	/**
+	 * The test agents that are runnable this run. Applied as a run-scoped
+	 * allowlist at the agent loop, so a misconfigured test agent never runs
+	 * regardless of any per-scenario `agentFilter`.
+	 */
+	runnableTestAgentIds: string[];
 	iterations: IterationInfo[];
 	runCtx: RunContext;
 	tracker: ProgressTracker;
@@ -363,24 +411,34 @@ async function runOneIteration(
 		log.info(`  - ${s.scenario.name}${s.error ? ` [error: ${s.error}]` : ""}`);
 	}
 
+	// The runnable allowlist is a run-scoped filter applied whether or not
+	// a per-scenario `agentFilter` exists: when there is no per-scenario
+	// filter the allowlist itself becomes the filter; when there is one,
+	// the effective set is its intersection with the allowlist.
+	const runnableSet = new Set(args.runnableTestAgentIds);
 	let scenarioRecords: ScenarioRunRecord[];
 	try {
 		scenarioRecords = await Promise.all(
-			args.selection.map((s) =>
-				runScenario(s, {
+			args.selection.map((s) => {
+				const existingFilter = args.agentFilter?.[s.scenario.name];
+				const effectiveFilter =
+					existingFilter === undefined
+						? args.runnableTestAgentIds
+						: existingFilter.filter((id) => runnableSet.has(id));
+				return runScenario(s, {
 					runId: args.runId,
 					config: args.config,
 					projectRoot: args.projectRoot,
 					runDirectory: args.runDirectory,
 					iterationDirectory,
 					iterations: args.iterations,
-					agentFilter: args.agentFilter?.[s.scenario.name],
+					agentFilter: effectiveFilter,
 					log,
 					tracker: args.tracker,
 					scenarios: args.runCtx.scenarios,
 					skipped: args.runCtx.skipped,
-				}),
-			),
+				});
+			}),
 		);
 	} catch (err) {
 		log.dump(iterationDirectory);

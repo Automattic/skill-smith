@@ -1,0 +1,10 @@
+name: hello-scenario
+description: Multi-role skip fixture scenario.
+skills:
+  - foo
+prompt: |
+  Write a file `hello.txt` containing the word "hello".
+acceptance:
+  - hello.txt exists
+rubrics:
+  - r1
