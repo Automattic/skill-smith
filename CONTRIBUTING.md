@@ -22,9 +22,9 @@ The package is published as `@automattic/skillsmith` and versioned with [Changes
 A PR must include a changeset when any of the following are touched:
 
 - CLI behaviour or flag changes (`bin/skillsmith.mjs`).
-- Hook contract or `defineConfig` schema changes — public types in `src/config/types.ts`, the `defineConfig` signature, or the hook lifecycle order.
-- Report-JSON or on-disk run-layout changes — field names or shape of `report.json` / `run.json`, or the documented directory tree.
-- Provider support — added or removed providers, or changes to per-provider option types (anything that widens or narrows `ProviderId`).
+- Hook contract or `defineConfig` schema changes — public types in `src/config/types.ts`, the `defineConfig` signature, or the hook lifecycle order. This includes additive fields the harness passes *into* hooks, such as the readonly `RunContext.skipped` array (the agents removed before they ran).
+- Report-JSON or on-disk run-layout changes — field names or shape of `report.json` / `run.json`, or the documented directory tree. The top-level `skipped` array on `report.json` is one such field.
+- Provider support — added or removed providers, or changes to per-provider option types (anything that widens or narrows `ProviderId`). A provider exported from the public surface MAY also carry an optional readonly `requiredEnv?: string` naming the environment variable its credential needs, so the harness can detect a missing credential before invoking it; the shipped providers set `openai-api → OPENAI_API_KEY`, `anthropic-api → ANTHROPIC_API_KEY`, `gemini-api → GOOGLE_GENERATIVE_AI_API_KEY`, while credential-free providers (`claude-code`, `mock`, `codex`) omit it. Adding or changing `requiredEnv` is a provider-support change. Each of these additions — `requiredEnv`, `RunContext.skipped`, and the `report.json` `skipped` array — is consumer-visible and additive, so each is a `minor` bump (pre-1.0).
 - Bug fixes affecting any of the above — recorded as `patch`.
 - Dependency bumps **only** when behaviour, peer ranges, or `engines` change. Behaviour-equivalent bumps do not require a changeset.
 
