@@ -4,72 +4,97 @@ Tracks GitHub issue [Automattic/skillsmith#37](https://github.com/Automattic/ski
 
 ## Goal
 
-When the runtime encounters an agent it cannot run because it is misconfigured
-(for example, missing or invalid provider credentials), the run must handle it
-gracefully under a default **"warn"** policy instead of either failing opaquely
-or passing silently:
+When `skillsmith` runs with an agent it cannot run because it is **misconfigured**
+— a defect knowable independently of the agent's output, such as a missing or
+invalid credential, an unknown provider, a non-existent model, or a missing local
+tool — that agent is **removed from the run as if it had never been configured**,
+while the fact that it was removed is **recorded loudly** so the run is never
+mistaken for a clean one.
 
-- The run proceeds with the agents that **can** run; the misconfigured agent is
-  excluded from execution.
-- The misconfiguration is surfaced clearly in the run output.
-- The run's exit status is **non-zero**, so CI gates catch that fewer agents ran
-  than were declared. A partial run must not look green.
+Concretely, a misconfigured agent splits into two layers that must both hold:
 
-The non-zero exit status is the central requirement: a prior attempt skipped
-misconfigured agents **silently and exited zero**, so a partial run looked
-successful. That behavior must not return as the default.
+- **In the work, it's gone.** It runs no phase (test, judge, improve), is absent
+  from pass/fail accounting, is not re-selected in later iterations, and triggers
+  no per-agent provisioning. For everything that *executes*, the run behaves
+  exactly as if that agent were not in the configuration.
+- **In the outcome, it's present.** Every skipped agent is announced in the
+  human-readable CLI output **once per run, with its id and the reason**, visually
+  distinct from an agent that genuinely ran and failed; it appears in the
+  machine-readable report the same way; and the run **exits non-zero** so a
+  partial run never looks green.
 
-## Role-aware handling
+These two outcomes are **co-equal** — neither may be sacrificed for the other. (A
+prior attempt over-rotated on the exit code and let the human-readable surfacing
+decay into a generic, anonymous "skipped" marker. That regression must not return:
+a skipped agent's id and reason must reach the person reading the CLI.)
 
-The "warn" policy above governs **test agents**. Handling differs by role, and
-the following role-aware behavior is required:
+Roles differ:
 
-- A misconfigured **judge** stops the run — it cannot grade anything.
-- A misconfigured **improver** degrades the run to test-only.
-- A misconfigured **test agent** follows the "warn" policy above.
+- A misconfigured **test agent** is skipped per the above (the default **"warn"**
+  behavior).
+- A misconfigured **judge** stops the run — nothing can be graded.
+- A misconfigured **improver** lets the current iteration finish, then halts the
+  loop (no further iterations); the test/judge results still stand.
 
 The existing guard for the degenerate "all test agents are misconfigured" case
-must be preserved — that case must not become a vacuous pass.
+must be preserved — it must never become a vacuous pass.
 
-## Extensibility: design now, implement later
+## Directions to explore
 
-Implement **only** the "warn" policy. Design the API so that two further
-policies can be added later with a localized change rather than a rewrite:
+Recorded as the owner's intent, to be confirmed and made precise in later phases:
 
-- **"fail"** — stop the whole run up front when any agent is misconfigured.
-- **"skip"** — proceed and exit zero (the prior silent behavior, but opt-in).
-
-Route the decision through a **single policy seam** consumed at the decision
-points; do not scatter policy-specific branching across the codebase. Do **not**
-implement "fail" or "skip" now — just leave a clean seam for them.
-
-## The end-to-end harness must consume the API
-
-The end-to-end harness must not run e2e tests for misconfigured agents. Today,
-`testing-project/playwright.config.ts` creates one Playwright project per
-configured agent regardless of misconfiguration, so a skipped agent's e2e suite
-runs against a plugin that was never built and fails spuriously.
-
-Update `testing-project/skillsmith.config.ts` (and its e2e hook / Playwright
-setup as needed) so the e2e set excludes misconfigured agents via the new API.
-
-**Verification:** running `npx skillsmith counter` in `testing-project` with no
-OpenAI credentials (so `openai-api-nano` is misconfigured) must run e2e only for
-the configured agent and must not fail on the skipped one.
+- **Catch it early, purge if late.** Detect misconfiguration as early as it is
+  cheaply knowable — ideally at setup, before any phase runs (missing credential,
+  unknown provider, missing model/tool are checkable up front). A defect only
+  knowable once the agent is invoked (e.g. a present-but-invalid key) is caught at
+  that point, and the agent's lane is then removed retroactively, so the final
+  result still reads as if it were never configured.
+- **Distinguish "couldn't run" from "ran and failed" in the exit status**, so an
+  autonomous/CI consumer can tell a configuration/environment problem apart from a
+  genuine skill failure (e.g. distinct non-zero codes). The exact codes are open.
+- **Hooks and the e2e harness must not act on skipped agents** — the end-to-end
+  harness must not build plugins for or run Playwright projects against a skipped
+  agent (today it spuriously runs against a plugin that was never built). The
+  mechanism by which hooks/e2e learn the skipped set is open for design.
+- **Design the decision as a single policy seam.** Implement only the "warn"
+  behavior now, but route the "what to do about a misconfigured agent" decision
+  through one seam so two further policies can be added later by a localized
+  change, not a rewrite: **"fail"** (stop the whole run up front when any agent is
+  misconfigured) and **"skip"** (proceed and exit zero — the opt-in escape hatch
+  for when an absence is intentional). Do not implement "fail" or "skip" now.
+- **Keep transient failures out of scope.** Rate limits, 5xx, network blips,
+  context-length, content-filter, and step-cap exhaustion are ordinary test
+  failures, not misconfiguration — they stay in the matrix and must not remove a
+  lane.
 
 ## Constraints
 
 These apply to all produced code, tests, and documentation:
 
-- **Independent components, isolation:** keep the policy logic a self-contained
-  component; do not entangle it with unrelated pipeline code.
-- **Minimal change:** keep internal APIs unchanged wherever possible; make the
-  minimal change needed. Do not refactor or alter existing internal signatures
-  unless necessary.
-- **Comment sparingly:** comment only what is not obvious from the code itself —
-  not internal APIs and not self-explanatory code. Never modify comments on code
-  that has not changed.
-- **No process vocabulary in deliverables:** do not mention or reference internal
-  process artifacts (phase names, specifications, design documents, plans,
-  acceptance criteria, task identifiers, or similar tags) anywhere in code,
-  comments, tests, or documentation.
+- **The run must never silently look green when an agent it declared could not
+  run** — surfaced (id + reason) *and* non-zero exit.
+- **Per-agent errors stay in their lane.** An error invoking one agent (including
+  a missing tool throwing at spawn time) must be contained to that agent and must
+  never crash the whole run.
+- **Keep the live CLI intact.** The interface re-renders in place as the run
+  updates; skip surfacing must preserve that layout, not break the text
+  positioning.
+- **Independent component, isolated.** Keep the policy logic self-contained; do
+  not entangle it with unrelated runtime code.
+- **Minimal change.** Keep existing internal APIs/signatures unchanged wherever
+  possible; make only the change needed; no gratuitous refactors.
+- **Comment sparingly.** Only what is not obvious from the code; never modify
+  comments on code that did not change.
+- **No process vocabulary in deliverables.** No phase names, spec/design/plan
+  references, acceptance-criteria or task identifiers anywhere in code, comments,
+  tests, or documentation.
+
+## Context
+
+This supersedes an earlier attempt on the same issue whose code was clean but
+whose requirements had narrowed: a phase-0 rewrite re-centered the feature on the
+exit code and collapsed "announce each skipped agent with its id and reason,
+distinct from a real failure" into a single vague "surfaced in the output" line,
+which the implementation satisfied with a generic skipped row. This version keeps
+the exit-code guarantee **and** restores the human-readable surfacing as a
+co-equal outcome.
