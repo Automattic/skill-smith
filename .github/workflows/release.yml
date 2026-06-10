@@ -38,7 +38,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           # Ternary-trap-safe form: when the middle operand of `A && B || C` is falsy,
           # the expression always returns `C`. Empty string is falsy in GitHub Actions
