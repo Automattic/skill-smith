@@ -10,6 +10,9 @@ Run these before pushing a PR. Each maps to a script in [`package.json`](./packa
 - `npm run typecheck` — `tsc --noEmit` against the project's `tsconfig.json`.
 - `npm test` — Node test runner over `src/__tests__/*.test.ts`.
 - `npm run smoke` — runs `bin/skillsmith.mjs` end-to-end against the working directory.
+- `npm --prefix testing-project run check:config` — imports `testing-project/skillsmith.config.ts` and its full module graph (no agents, no API key, no wp-env, no network), catching config-load and import regressions the other checks miss because none of them loads the fixture config through its real runtime import graph.
+
+These same commands are declared as **Guardrails** in [`.rp.md`](./.rp.md), which the Radical Pipelines code and docs phases run automatically and judge by exit code — so the checks you run locally are the ones the pipeline gates on.
 
 ## Versioning policy
 
