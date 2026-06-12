@@ -299,6 +299,14 @@ Researcher's scratch-repo results (config mirroring skillsmith's):
   regardless of what changed," this gate would not guarantee that — a different
   invocation/check would be needed. The spec should state the *conditional*
   guarantee accurately and flag this choice for design.
+- **Why the `docs`-only phase tag is correct (rationale for the table).** Tagging
+  `changeset-status` `docs`-only is right because running it in the `code` phase
+  would force the *code-writer* to author the changeset, whereas the intent wants
+  the *doc-writer* to own it. The gate fires on versionable code changes, so if
+  it ran in the code phase the code-writer would be blocked until a changeset
+  exists — exactly the ownership the docs phase is meant to hold. (Researcher
+  re-confirmed all of F3 with the exact `--since=origin/trunk` form against a real
+  remote-tracking ref; `@changesets/cli` 2.31.0; exit codes unchanged.)
 
 ### F1b — config-smoke is import-only, no agents / no API keys / no wp-env (supports Q1 + the "full skillsmith run not a gate" constraint) — VERIFIED (analyst)
 
