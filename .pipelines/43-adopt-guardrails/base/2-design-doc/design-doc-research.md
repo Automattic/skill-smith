@@ -325,3 +325,18 @@ Researcher evidence (installed plugin v0.3.0):
    valid with `ci` (env: node v20.19.4, npm 10.8.2). Confirms analyst's addendum.
 
 Worktree left pristine (npm calls were read-only).
+
+### D3 grounding addendum (analyst, from CONTRIBUTING.md — predicts the researcher's empirical result)
+
+The empty-changeset escape's *documented intent* is explicit at
+**CONTRIBUTING.md:72-80** ("Empty changesets"): for a PR that touches
+release-relevant paths but warrants no release entry (e.g. a cosmetic README
+edit), `npx changeset --empty` "writes a file with no front matter and no body
+(just `---\n---` on disk). `changeset version` consumes and deletes the file
+without bumping anything; **the CI gate still passes because the changeset
+exists.**" So the project's stated design is that an empty changeset *satisfies
+presence*. This predicts the researcher's D3 sub-question 1 will find
+empty-changeset → `changeset status` exit 0 (gate aligned with policy). If the
+empirical check instead shows exit 1, that is a real gate-vs-policy discrepancy
+R6 must flag; CONTRIBUTING asserts alignment, so I expect confirmation, not a
+surprise. (Awaiting the researcher's empirical exit code to settle it.)
