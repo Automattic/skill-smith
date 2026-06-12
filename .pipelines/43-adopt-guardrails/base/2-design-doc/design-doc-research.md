@@ -340,3 +340,150 @@ empty-changeset → `changeset status` exit 0 (gate aligned with policy). If the
 empirical check instead shows exit 1, that is a real gate-vs-policy discrepancy
 R6 must flag; CONTRIBUTING asserts alignment, so I expect confirmation, not a
 surprise. (Awaiting the researcher's empirical exit code to settle it.)
+
+### D3 — RESOLVED (researcher confirmed empirically; gate aligned with policy, not stricter)
+
+**Decision: CONFIRMED — the intended guarantee is the conditional one,
+"release-relevant (versionable) changes carry a changeset," and
+`changeset-status` delivers exactly that. R6's wording is correct as written; no
+rewording needed.** `changeset-format` is the presence-agnostic shape gate;
+`changeset-status` is the conditional presence check — exactly R6's division of
+labor.
+
+Researcher evidence (isolated scratch repos with this repo's exact
+`changedFilePatterns`, an `origin/trunk` ref, package `@automattic/skillsmith`,
+changeset CLI 2.31.0 — the repo's version; scratch repos deleted, worktree
+pristine):
+
+1. **Empty changeset counts as "present" — gate aligned, NOT stricter.** Measured
+   `npx changeset status --since=origin/trunk` after changing README.md (a
+   versionable path): no changeset → exit **1**; **empty changeset** (`---\n---\n`,
+   verified by `od -c`) → exit **0**; `none`-bump changeset → exit **0**.
+   `changeset status` keys off *"does a `.changeset/*.md` file exist,"* not *"does
+   it bump a package"* — matching CONTRIBUTING.md:80 ("the CI gate still passes
+   because the changeset exists") and :37 (README cosmetic edits use the
+   empty-changeset escape). ⇒ the doc-writer is not forced to author a non-empty
+   changeset for a cosmetic versionable-path edit; an empty one suffices. R6 needs
+   no "stricter than policy" caveat. (Also explains trunk's green status today:
+   the committed `none`-bump `.changeset/initial-scaffolding.md` already counts as
+   present.)
+
+2. **No false-block on the doc-writer's outputs — confirmed for the exact files.**
+   Changing AGENTS.md + CONTRIBUTING.md + .rp.md + .pipelines/**/notes.md +
+   docs/index.md together, no changeset → exit **0** ("NO packages to be
+   bumped"); `git diff --name-only origin/trunk` confirmed none match
+   `changedFilePatterns`. The "docs-only tag doesn't falsely block" leg holds.
+   Controls proving teeth + exclusion: `bin/skillsmith.mjs` changed, no changeset
+   → exit **1**; `src/__tests__/foo.test.ts` changed, no changeset → exit **0**
+   (the `!src/__tests__/**` exclusion works).
+
+3. **No unconditional-changeset reading exists — the repo's own CI proves it.**
+   `.github/workflows/changeset-gate.yml:25-26` is the decisive evidence: the step
+   is named **"Require a changeset for release-relevant changes"** and runs
+   `npx changeset status --since=origin/${{ github.event.pull_request.base.ref }}`
+   — the conditional, versionable-path check by name and command, not an
+   unconditional per-PR presence check. **The pipeline's two changeset guardrails
+   are a faithful lift of this existing CI gate:** `changeset-gate.yml:23-24`
+   "Validate changeset shape" = `npx tsx scripts/validate-changesets.ts`
+   (= changeset-format), and `:25-26` = `changeset status` (= changeset-status).
+   `validate-changesets.ts` `main()` (lines 167-187) enumerates whatever `.md`
+   files exist and validates each — zero files → returns 0; it never asserts
+   presence, and the empty form `---\n---\n` is explicitly accepted (lines 95-99).
+   CONTRIBUTING.md frames the rule conditionally throughout (:16, :22, :31). The
+   changeset config has no `ignore`/`linked`/`fixed` and `commit:false` — nothing
+   imposing an unconditional requirement; `release.yml` is publish automation, not
+   a per-PR gate.
+
+**Design note worth surfacing in the doc:** the two pipeline changeset guardrails
+mirror the project's existing GitHub Actions changeset gate one-to-one
+(`changeset-gate.yml`). Adopting them as Guardrails brings the same gate the
+project already trusts in CI into the pipeline's code/docs phases — a continuity
+argument, not a new policy.
+
+---
+
+## Design complete — synthesis for the design-doc-writer
+
+All three design questions the spec delegated are resolved on verified evidence.
+This work is a documentation/config change: no new runtime modules, no algorithm
+to design. The design is the placement + wording + one helper script below. The
+six spec requirements (R1–R6) and five acceptance criteria (AC1–AC5) are
+unchanged; nothing here revises the spec.
+
+### Decision 1 (D1) — `## Guardrails` placement
+
+Append `## Guardrails` as the **final top-level section** of `.rp.md`,
+immediately after `## Health monitoring` (currently the last section). Peer `##`
+(not a `###` under a grouping heading — this repo's `.rp.md` is a flat
+one-`##`-per-convention file), committed to `.rp.md` (never `.rp.local.md`).
+Rationale: the plugin loader selects guardrails by the Phase column, never by
+position (`load.md:30`; all four phase agents select by phase tag), so placement
+is machine-irrelevant; "last" matches both RP worked examples (v1 sibling's
+top-level `## Guardrails` is last; v2's `### Guardrails` is last) and reads
+naturally as an operational run-time convention. The section content is R2's
+table verbatim, preceded by a one-line description, with R6's accurate per-gate
+prose.
+
+### Decision 2 (D2) — worktree-bootstrap home
+
+A new standalone **`## Worktree bootstrap`** section in `.rp.md`, placed
+**immediately after `## Claude Code worktrees`** (peer `##`, committed), written
+as an orchestrator run-step: "after `EnterWorktree`, before launching any phase
+agent or running any guardrail, run `bash scripts/bootstrap-worktree.sh`." The
+body is a committed **`scripts/bootstrap-worktree.sh`** with `set -euo pipefail`
+that runs `npm ci` (repo root) then `npm ci --prefix testing-project`.
+
+Why this shape:
+- `.rp.md` is the only artifact the orchestrator reliably reads at the start of
+  every run (`SKILL.md:42-46`, `load.md:5,7`, this repo's `.rp.md:3`), and its
+  run-start procedure has no bootstrap step (`autonomous-workflow.md:35-39`), so
+  the project must own it there. Orchestrator-directed imperative prose in
+  `.rp.md` that isn't a named convention is an established, obeyed pattern — the
+  plugin author's own v2 example has an `#### Orchestrator updates during a run`
+  subsection, and this repo's `.rp.md:26-39` already mirrors it.
+- **Standalone, not folded into `## Claude Code worktrees`:** that block is
+  plugin-canonical content (`claude-code.md:7,10-16`) a future `setup` re-run can
+  regenerate, which would drop folded-in project steps. A standalone section is
+  immune and more discoverable; adjacency to the worktrees section preserves the
+  "post-EnterWorktree" reading.
+- **Helper script as the body:** centralizes the exact `npm ci` (complete-,
+  clean-install) semantics R5 demands in one testable place the `.rp.md` step
+  names rather than restates (no drift). `scripts/` already exists. The `.rp.md`
+  step is the durable trigger; the script is the body.
+- **Two `npm ci` commands are genuinely required** — root `package.json` has no
+  npm `workspaces` key, so the two installs are independent. Both must be `npm
+  ci` (not `npm install`) per R5's complete-clean-install definition;
+  `set -euo pipefail` makes a partial/failed install a non-zero exit (loud
+  BLOCKER), honouring AC5.
+- AGENTS.md is not the trigger (not the orchestrator's run-start read); an
+  optional one-line human-facing pointer there is allowed but not required.
+
+### Decision 3 (D3) — changeset-status guarantee
+
+**Confirmed.** The intended guarantee is the conditional one: "release-relevant
+(versionable) changes carry a changeset," which `changeset-status` delivers (exits
+non-zero IFF a versionable path changed AND no `.changeset/*.md` exists; an empty
+or `none`-bump changeset satisfies it). `changeset-format` is the
+presence-agnostic shape gate. R6's wording stands; **no spec change.** The two
+guardrails are a one-to-one lift of the project's existing CI gate
+(`.github/workflows/changeset-gate.yml:23-26`), so adopting them is continuity
+with a gate the project already trusts — a useful framing for the design doc's
+rationale.
+
+### Net artifacts the code/docs phases will produce (all already in spec scope)
+
+1. `.rp.md`: append `## Guardrails` (last) + insert `## Worktree bootstrap`
+   (after `## Claude Code worktrees`). [D1, D2; R1, R2, R5, R6]
+2. `scripts/bootstrap-worktree.sh` (new, committed, `set -euo pipefail`, two
+   `npm ci`s). [D2; R5]
+3. `testing-project/package.json`: rename dep key `skillsmith` →
+   `@automattic/skillsmith`; add `check:config` script. [R3, R4]
+4. `testing-project/package-lock.json`: refreshed by `npm install` (absorbs the
+   pre-existing drift noted in spec R3). [R3]
+5. Optional-but-advised: align `testing-project/eval/utils/verify-e2e.ts:11` to
+   `@automattic/skillsmith` (removes a latent TS2307; not required by any
+   declared gate). The mandate decision was left to design — **recommendation:
+   make it, as cheap drift-elimination consistent with this pipeline's purpose,
+   but it is not load-bearing for any guardrail.**
+
+No code changes to `src/` and no plugin changes (out of scope per spec).
