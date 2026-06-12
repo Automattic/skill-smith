@@ -119,18 +119,83 @@ require exit 0. This pipeline's intent goes further than the minimum: it wants
 every code gate green *from the start* on trunk, so the spec should require
 exit 0 on trunk, not merely "executes."
 
-### F5 — Worktree bootstrap distinction (Q5) — PARTIALLY RESOLVED (analyst)
+### F5 — Worktree bootstrap distinction and ownership (Q5) — RESOLVED (analyst, from RP 0.3.0 plugin + this repo's docs)
 
 The "cannot execute ⇒ blocker" rule (F4) is exactly why bootstrap matters: a
-fresh `EnterWorktree` checkout has no `node_modules`, so `npm run …` / `npx …`
-gates would hit command-not-found and **block** the pipeline — a bootstrap
-omission, not a guardrail defect. The intent's mitigation (orchestrator runs
-`npm ci` + `npm ci --prefix testing-project` before any agent/guardrail runs)
-aligns with the contract. Open sub-question for the researcher: confirm the
-orchestrator is the right owner of this bootstrap and whether anything in the
-RP 0.3.0 setup/worktree conventions already covers it, or whether this repo's
-`.rp.md` / docs must state it (since the constraint forbids changing the
-plugin). Tracked in Q5 below.
+fresh `EnterWorktree` checkout has no `node_modules`, so every proposed gate
+(all `npm run …` / `npx …`) would hit command-not-found and **block** the
+pipeline — a bootstrap omission, not a guardrail defect.
+
+**The plugin does NOT bootstrap, and this repo doesn't document it.** Verified:
+
+- `EnterWorktree` is described only in
+  `conventions/claude-code.md:14-15,20,23` — it "creates the worktree and
+  enters it"; it says **nothing** about installing dependencies. There is **no**
+  `npm ci` / `npm install` / `node_modules` step anywhere in the RP 0.3.0 skill
+  references (`autonomous-workflow.md`, `autonomous-phases/4 - code.md`, etc.) —
+  grep across `skills/` finds zero such steps tied to worktree entry.
+- This repo's own docs likewise document no bootstrap: grep of `.rp.md`,
+  `AGENTS.md`, `CONTRIBUTING.md` finds no worktree `npm ci`/install step (the
+  CONTRIBUTING.md hits are about package consumers and an unrelated CI step).
+  `.rp.md` has no Claude Code "Setup actions" section.
+
+⇒ Because the constraint forbids changing the plugin, **bootstrap is a
+project-owned responsibility the spec must require**: after `EnterWorktree` and
+before launching any phase agent or running any guardrail, the orchestrator must
+run `npm ci` (root) **and** `npm ci --prefix testing-project` (the
+`testing-project/` workspace, which has its own `node_modules` — confirmed
+present in this bootstrapped worktree). The intent's mitigation (intent.md:39)
+is correct and necessary.
+
+**The drift guard still does its job.** Note the bootstrap requirement does NOT
+weaken the guardrail contract: if the orchestrator forgets to bootstrap, the
+gates fail the *execute* test → the agent reports a BLOCKER (F4), surfacing the
+omission loudly rather than silently passing. So "command-not-found in an
+un-bootstrapped worktree is a bootstrap omission, not a guardrail blocker"
+(intent.md:39) is about *diagnosis/ownership* (whose bug it is), not about
+suppressing the blocker — the agent still correctly blocks; the fix is to
+bootstrap, not to touch the guardrail.
+
+**Spec implication.** The spec must (a) require the project to declare the
+guardrails in `.rp.md`, and (b) require the orchestrator/run procedure to
+bootstrap both npm workspaces before any gate runs — ideally captured durably
+(e.g. in `.rp.md` and/or `AGENTS.md`) so every future run does it, not just this
+one. Whether that durable home is `.rp.md` prose, a documented run step, or a
+helper script is a design/plan decision; the spec's requirement is that the
+bootstrap is owned and performed before gates, given the plugin won't do it.
+
+### F7 — "bootstrapped" must mean a COMPLETE `npm ci`; partial node_modules is a real, observed failure mode (analyst)
+
+Concrete evidence that reinforces F5: when first inspected, this worktree's
+`node_modules` was **missing the entire `@changesets/*` subtree** (19 packages
+the lockfile expects, including `@changesets/cli`) and had **no `changeset`
+binary in `node_modules/.bin`** — even though the team-lead reported `npm ci`
+had been run. In that partial state `npx changeset status` only "worked" by
+npx's network fetch-on-miss, which is nondeterministic and offline-fragile — NOT
+acceptable for a deterministic gate.
+
+Running a fresh `npm ci` from the repo root fixed it (exit 0, "added 222
+packages"): afterward `node_modules/@changesets/` has all 19 packages,
+`node_modules/.bin/changeset` exists, and `npx changeset status
+--since=origin/trunk` resolves the **local** binary and exits 0. So:
+
+- This was a **stale/partial node_modules**, not a dep-key consequence — a clean
+  `npm ci` installs everything; the changeset binary is local after bootstrap
+  (no network dependency at run time).
+- **Lesson for the spec:** "bootstrapped" must mean a *complete, clean* `npm ci`
+  (and `npm ci --prefix testing-project`), not merely "node_modules exists." A
+  partial tree makes `npx`-based gates either fail-to-execute (BLOCKER, correctly
+  caught by the drift guard) or silently fall back to a network fetch. The spec
+  should require the bootstrap be a full `npm ci` of both workspaces, and the
+  acceptance check should run the gates from a *freshly and fully* installed
+  worktree.
+- **Determinism note for the design:** prefer the locally-installed binary
+  (`node_modules/.bin/changeset`, present after `npm ci`) over relying on `npx`'s
+  fetch behavior. `npx changeset` resolves the local bin when present, so the
+  intent's command is fine **post-bootstrap** — the design/plan should just
+  ensure the bin is installed (it is, after a complete `npm ci`) so `npx` never
+  reaches the network. (Note the worktree was left with a complete install after
+  this check; git working tree remains clean — node_modules is gitignored.)
 
 ### F2 — code-phase gate state on a bootstrapped trunk worktree (Q2) — STRONG EVIDENCE (analyst, ran in this worktree)
 
@@ -343,3 +408,53 @@ at config-smoke runtime (F1a) but IS resolved by `tsc`; whether the dep-key
 rename requires also aligning that specifier to keep `typecheck` green is the
 prerequisite-completeness question the design/plan must settle (it did not break
 typecheck on trunk only because the key currently matches verify-e2e's name).
+
+### F1d — precise prerequisite edit set + third specifier correction (Q1, researcher-confirmed)
+
+**Third specifier (correction to F1a's "exactly two").** The researcher found a
+third skillsmith-related import I missed because it's a *relative* path, not a
+package specifier: `testing-project/playwright.config.ts:4` →
+`import config from "./skillsmith.config"`. It resolves regardless of the dep
+key and is **not** in the config-smoke import graph (playwright.config isn't
+loaded by `import('./skillsmith.config.ts')`), so it's inert for this work. Full
+set: two package specifiers (config.ts `@automattic/skillsmith` value import;
+verify-e2e.ts bare `skillsmith` type-only import) + one relative import
+(playwright.config). No tsconfig `paths` aliases exist in
+`testing-project/tsconfig.json` or the root tsconfig — resolution is pure
+node_modules, no TS path trickery.
+
+**Why the dep-key rename works (mechanism, researcher-confirmed).** The root
+package's `name` IS `@automattic/skillsmith`, so a dep entry
+`"@automattic/skillsmith": "file:.."` resolves to the repo root and `npm
+install` links `node_modules/@automattic/skillsmith -> ../..`. The researcher
+simulated exactly this state (created the scoped symlink, ran config-smoke →
+exit 0, then removed it; git tree left clean) and confirmed the value import
+then resolves.
+
+**Precise prerequisite edits the spec must require (researcher-confirmed):**
+1. `testing-project/package.json`: rename dependency key
+   `"skillsmith": "file:.."` → `"@automattic/skillsmith": "file:.."`.
+2. Run `npm install` in `testing-project/` to update
+   `testing-project/package-lock.json` (re-key to `@automattic/skillsmith`,
+   link the scoped symlink) — the lockfile is part of the change, not just
+   `package.json`.
+3. Add to `testing-project/package.json` scripts:
+   `"check:config": "node --import tsx -e \"await import('./skillsmith.config.ts')\""`
+   (absent today).
+
+After these, `config-smoke` = `npm --prefix testing-project run check:config`
+exits 0 on trunk. The dep-key rename **alone** suffices for config-smoke runtime
+(verify-e2e's bare `skillsmith` is type-erased by tsx, never resolved at run
+time — confirmed empirically: `import type` from a nonexistent package loads
+exit 0 under `node --import tsx`).
+
+**STILL-OPEN sub-item (typecheck after the rename) — delegated to researcher.**
+The one unverified path: after renaming the dep key to `@automattic/skillsmith`,
+does `tsc --noEmit` (the `typecheck` gate) still resolve `verify-e2e.ts:11`'s
+bare `skillsmith` type-only import, or does it then fail (forcing the
+prerequisite to ALSO update verify-e2e.ts to the scoped name)? `tsc` resolves
+type-only imports (unlike tsx). This determines whether the prerequisite edit
+set is 3 items or 4. Researcher is running this check now; result will finalize
+the edit set. Until then the spec should state the edit set as "at minimum the 3
+edits above, plus aligning `verify-e2e.ts:11` to `@automattic/skillsmith` if the
+typecheck gate requires it (pending verification)."
