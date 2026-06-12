@@ -218,3 +218,37 @@ Researcher verdict (all from installed plugin v0.3.0, the version this repo runs
    `load.md:46`). "Append at end" is unconstrained and safe.
 
 Worktree left pristine (no scratch edits).
+
+### D2 grounding addendum (analyst, verified directly while researcher works)
+
+Two D2 sub-questions I confirmed from this repo's own files:
+
+- **No npm `workspaces` key in root `package.json`** (`grep -c '"workspaces"'` =
+  0; root `name` is `@automattic/skillsmith`, scripts `lint`/`typecheck`/`test`
+  present). ⇒ A single root `npm ci` does **not** install `testing-project/`;
+  `testing-project/` is an independent install with its own
+  `testing-project/package-lock.json` (present, ~890 KB). **The two-command
+  bootstrap (root `npm ci` + `npm ci --prefix testing-project`) is genuinely
+  required, not belt-and-suspenders.** Confirms spec R5's two-command form.
+- **Strong in-repo precedent for orchestrator-directed imperative run-steps in
+  `.rp.md`.** The `### Orchestrator updates during a run` subsection
+  (`.rp.md:26-39`, under `## Managing tasks`) is exactly project-authored,
+  orchestrator-addressed, imperative prose that is **not** one of the plugin's
+  named conventions, yet the orchestrator obeys it (Linear sync + branch push).
+  It even uses the identical idiom the bootstrap needs — "**At run start** — …
+  before launching anything." ⇒ `.rp.md` prose addressed to the orchestrator is
+  demonstrably a thing this orchestrator honours; the bootstrap step fits the
+  same mold. (Memory corroborates the orchestrator already performs these Linear
+  steps live.)
+
+  **Refined placement consideration for D2:** there are now three candidate homes
+  inside `.rp.md`, and the choice is semantic: (a) the existing `## Claude Code
+  worktrees` block (bootstrap is a *post-EnterWorktree worktree-lifecycle*
+  action — strong semantic fit, but the block is plugin-canonical content that a
+  future `setup` could regenerate); (b) a standalone `## Worktree bootstrap`
+  section (clean, owns the requirement, immune to worktrees-block regeneration);
+  (c) the `### Orchestrator updates during a run` block (already the orchestrator
+  run-start home, but its subject is issue-tracking sync, not worktree setup — a
+  semantic mismatch). I lean (a) or (b); handed to the researcher to settle
+  whether `setup`/`load` ever regenerates the worktrees block (which would
+  decide between folding-in vs. standalone).
