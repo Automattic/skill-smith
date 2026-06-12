@@ -148,3 +148,31 @@ nuances to test: README.md cosmetic-prose edits (policy allows an *empty*
 changeset escape — does `changeset-status` accept an empty changeset as
 "present"?), and the docs-phase doc-writer's own typical outputs
 (`AGENTS.md`/`CONTRIBUTING.md` = non-versionable, so no false block).
+
+### D1 precedent (analyst, from the RP repo's own `.rp.md` files — cross-check for the researcher)
+
+Checked the worked-example `.rp.md` the spec-research F4 cited and the RP repo's
+own dogfooded conventions file:
+
+- **`51-guardrails-convention-v2/.rp.md`** (the worked example) section order:
+  `## Shared conventions` → `### Managing tasks` → `### Pipeline slugs` →
+  `### Artifact folders` → `### Commit format` → `### Worktrees` →
+  `### Branch names` → `### Team spawning` → `### Agent models` →
+  `### Health monitoring` → **`### Guardrails` (line 104, LAST)**.
+- **The RP repo's trunk `.rp.md`** has the same `## Shared conventions` →
+  `### …` structure but no Guardrails section yet (Guardrails is the v2 worktree's
+  in-progress addition). The RP plugin's bundled `0.3.0/.rp.md` is identical in
+  shape (two-level: one `## Shared conventions` wrapper, conventions as `###`).
+
+**Key mapping (resolves the level question and the position question together).**
+The RP repo nests every convention as a `###` under a single `## Shared
+conventions` grouping heading, so *their* Guardrails is `### Guardrails` placed
+**last in the group**. **This repo's `.rp.md` has no `## Shared conventions`
+wrapper** — it is a flat list of `##` conventions. The structure-preserving image
+of "last `###` under the shared group" in a flat-`##` file is a **`## Guardrails`
+appended last**. That is exactly what spec R1 mandates (peer `##`, not a `###`
+under a grouping heading) and what my D1 hypothesis proposed. So the precedent
+**independently corroborates** both the heading level (peer `##` here) and the
+position (last). Pending the researcher's confirmation on loader
+position-independence, D1 resolves to **append `## Guardrails` as the final
+top-level section, after `## Health monitoring`.**
