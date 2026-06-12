@@ -252,3 +252,76 @@ Two D2 sub-questions I confirmed from this repo's own files:
   semantic mismatch). I lean (a) or (b); handed to the researcher to settle
   whether `setup`/`load` ever regenerates the worktrees block (which would
   decide between folding-in vs. standalone).
+
+### D2 — RESOLVED (researcher confirmed `.rp.md`-prose home; standalone section + helper script)
+
+**Decision:**
+- **Home = `.rp.md` prose**, written as an orchestrator run-step: "after
+  `EnterWorktree` and before launching any phase agent or running any guardrail,
+  run the bootstrap." A new **standalone `## Worktree bootstrap` section placed
+  immediately after `## Claude Code worktrees`** (peer `##`, committed) — NOT
+  folded into the worktrees block.
+- **Body = a committed helper script `scripts/bootstrap-worktree.sh`** that runs
+  `npm ci` (root) then `npm ci --prefix testing-project`, with `set -euo
+  pipefail` so a partial/failed install surfaces as a non-zero exit. The `.rp.md`
+  step invokes it by name (e.g. `bash scripts/bootstrap-worktree.sh`); the
+  `.rp.md` step is the durable *trigger*, the script is the *body*.
+- The two `npm ci` commands are **genuinely required** (no npm `workspaces`
+  config — the two installs are independent). Both must be `npm ci` (not `npm
+  install`) to honour R5's "complete, clean install" definition.
+- AGENTS.md is intentionally **not** the trigger (it is not the orchestrator's
+  run-start read); a one-line human-facing pointer there is optional
+  belt-and-suspenders the writer may add for human contributors.
+
+Researcher evidence (installed plugin v0.3.0):
+
+1. **`.rp.md` is the orchestrator's reliable per-run read, and a prose run-step
+   is honoured — with a direct precedent.** The orchestrator must load `.rp.md`
+   conventions before any workflow: `SKILL.md:42-46`, `load.md:5,7`, and this
+   repo's `.rp.md:3`. The run-start gap is verbatim-confirmed: `autonomous-
+   workflow.md:35-39` has exactly three steps (create team, start health monitor,
+   capture base ref), no bootstrap; the per-phase loop `:50-56` has none;
+   `EnterWorktree` doesn't install deps (`claude-code.md:14`). **Precedent for
+   obeyed non-convention orchestrator prose exists in the plugin author's OWN
+   example:** `51-guardrails-convention-v2/.rp.md:26-34` has an `#### Orchestrator
+   updates during a run` subsection of imperative run-steps ("At run start … before
+   launching anything", "Push at run close-out…") — and none of these map to a
+   named convention in the `load.md:11-22` table (the 10 named conventions are
+   Pipeline base slug, Artifact folder, Commit format, Issues, Worktrees, Branch
+   names, Team spawning, Agent models, Health monitoring, Guardrails). skillsmith's
+   own `.rp.md:26-39` already mirrors this. ⇒ a bootstrap run-step is the same
+   shape and within the orchestrator's remit.
+
+2. **Standalone section, not folded into Worktrees — overwrite risk is real.**
+   `## Claude Code worktrees` is plugin-canonical content (`claude-code.md:7`
+   calls it "the canonical content for `.rp.md`"; `claude-code.md:10-16` prescribes
+   the exact block). A future `setup` re-run regenerates canonical blocks, so
+   project-specific steps folded inside would be lost first. (`setup.md:213-218`
+   does require owner confirmation before overwriting and only merges/appends when
+   the owner explicitly chooses — so not silent — but a standalone section is
+   structurally safer and survives a careless merge.) Place it right after
+   `## Claude Code worktrees` for the post-EnterWorktree adjacency without the
+   overwrite coupling. Orthogonal to D1 (bootstrap near Worktrees; Guardrails at
+   end).
+
+3. **Helper script recommended over inline prose.** Centralizes the exact
+   install semantics (the `npm ci` complete-install guarantee R5 demands) in one
+   testable place; the `.rp.md` prose names the script rather than restating
+   commands, so it can't drift. `scripts/` already exists
+   (`scripts/validate-changesets.ts`) — no new structure. No plugin obstacle: the
+   orchestrator already runs project-named commands on instruction (guardrail
+   commands verbatim, `/loop`, `gh`, Linear MCP). Durability comes from the
+   `.rp.md` step naming the script, not the script's existence. Must use `npm ci`
+   in both workspaces and `set -euo pipefail`. (Inline prose is an acceptable
+   zero-new-files fallback but loses the testable, centralized contract.)
+
+4. **`npm ci --prefix testing-project` is correct; two commands genuinely
+   required.** Root `package.json` has **no** `workspaces` key, so a single root
+   `npm ci` does not install `testing-project/` — independent installs. Both
+   lockfiles present (`package-lock.json` 112 KB; `testing-project/package-lock.json`
+   889 KB, `lockfileVersion: 3`), so `npm ci` is valid in both. `--prefix` verified
+   non-destructively to target the subdir (`npm run --prefix testing-project`
+   resolves `skillsmith-testing-project@0.1.0`); `--prefix` is a global npm flag
+   valid with `ci` (env: node v20.19.4, npm 10.8.2). Confirms analyst's addendum.
+
+Worktree left pristine (npm calls were read-only).
