@@ -533,10 +533,23 @@ shows only the spec artifact folder). Results:
   testing-project, which is not a declared guardrail.
 
 ⇒ **The prerequisite is firmly the 3 edits** (rename + `npm install` +
-`check:config`). Changing `verify-e2e.ts:11` to `@automattic/skillsmith` is
-**OPTIONAL cleanup** — recommended for consistency (removes a latent TS2307 for
-anyone running `tsc` inside testing-project), but **not required by any declared
-gate**. The spec can mandate it or merely note it.
+`check:config`). The researcher verified both paths with real edits + installs
+(reverted to pristine each time): with only the 3 edits, `npm run typecheck`
+(root) and config-smoke both exit 0, while `tsc` run *inside* testing-project
+(not a declared gate) emits `TS2307: Cannot find module 'skillsmith'`; adding the
+4th edit (`verify-e2e.ts:11` → `@automattic/skillsmith`) clears that TS2307 and
+keeps root typecheck + testing-project tsc + config-smoke all at exit 0.
+
+Changing `verify-e2e.ts:11` to `@automattic/skillsmith` is therefore **OPTIONAL
+cleanup** — not required by any declared gate, but recommended: it removes the
+latent TS2307 (which would bite an IDE, or any future gate that typechecks
+testing-project) and leaves one package name everywhere. **Design-phase
+recommendation:** the researcher leans toward *mandating* the 4th edit, reasoning
+that this pipeline exists precisely to catch config/import drift, and leaving two
+names for one package (`@automattic/skillsmith` in config.ts vs bare `skillsmith`
+in verify-e2e.ts) is exactly that kind of drift — the same split that caused the
+confusion here. The spec should require the 3 edits and present the 4th as
+"optional but advised," leaving the mandate decision to design.
 
 - **Lockfile-drift heads-up (pre-existing, not caused by this work).** The
   committed `testing-project/package-lock.json` is already stale vs the current
@@ -596,10 +609,13 @@ These three make config-smoke green-on-trunk AND keep the declared `typecheck`
 gate green (the root tsconfig does not compile `testing-project/`, so the
 post-rename TS2307 on `verify-e2e.ts:11` is invisible to `npm run typecheck`).
 
-**Optional cleanup (recommended, not required):** change
+**Optional cleanup (recommended, not required by any declared gate):** change
 `testing-project/eval/utils/verify-e2e.ts:11`'s `import type … from "skillsmith"`
 → `"@automattic/skillsmith"` for consistency — it removes a latent TS2307 for
-anyone running `tsc` inside testing-project, but no declared gate requires it.
+anyone running `tsc` inside testing-project and leaves one package name
+everywhere. The research lean is to *mandate* it (this pipeline is about catching
+import drift; two names for one package is that drift), but the mandate decision
+is left to the design phase. Present as "optional but advised." (F1e.)
 
 **R4 — Add the `check:config` script.** Add to `testing-project/package.json`
 scripts: `"check:config": "node --import tsx -e \"await
