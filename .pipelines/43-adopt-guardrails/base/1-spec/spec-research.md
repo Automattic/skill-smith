@@ -27,25 +27,28 @@ fixing the issue-37 circular import itself.
 | changeset-format | `npx tsx scripts/validate-changesets.ts`        | code, docs |
 | changeset-status | `npx changeset status --since=origin/trunk`     | docs       |
 
-## Open questions
+## Questions (all RESOLVED)
 
-- **Q1** — Does `config-smoke` work as claimed: fail on the issue-37 bug,
-  green on trunk after the dep-key fix? Full set of `skillsmith` /
-  `@automattic/skillsmith` import specifiers in the config-smoke graph.
+- **Q1** — Does `config-smoke` work as claimed (fail on issue-37, green on trunk
+  after the dep-key fix)? Full import-specifier set? → **F1, F1a–F1e.** Yes;
+  firmly 3 prerequisite edits; verified by a real edit.
 - **Q2** — Are typecheck / lint / tests green on a freshly bootstrapped trunk
-  worktree? Scope and right remedy for the known `validate-changesets.test.ts`
-  failures.
+  worktree? Right remedy for the "known" `validate-changesets.test.ts` failures?
+  → **F2.** All green; the intent's failure assumption is **stale** — no remedy
+  needed.
 - **Q3** — Exact behavior of `changeset-format` and `changeset-status`; why
-  format is code+docs and status is docs-only; behavior with/without
-  changesets present.
-- **Q4** — The Guardrails declaration format in Radical Pipelines 0.3.0:
-  table shape/columns, phase tags, where in `.rp.md` it lives, how the four
-  mandated agents consume it.
-- **Q5** — Worktree bootstrap: confirm `npm ci` (root) + `npm ci --prefix
-  testing-project` expectation; how command-not-found (bootstrap omission) is
-  distinguished from a real gate failure, and whose responsibility each is.
-- **Q6** — Acceptance criteria, including how we prove `config-smoke` fails on
-  the `37-skip-misconfigured-agents-v3` branch and passes on trunk.
+  format is code+docs and status is docs-only? → **F3.** format = shape-only,
+  presence-agnostic; status = conditional presence check (versionable path +
+  no changeset ⇒ exit 1).
+- **Q4** — The Guardrails declaration format in RP 0.3.0 and the agent-consumption
+  contract? → **F4.** `### Guardrails` table; cannot-execute = blocker, non-zero
+  = work, exit 0 at run time.
+- **Q5** — Worktree bootstrap ownership and the command-not-found vs gate-fail
+  distinction? → **F5, F7.** Plugin doesn't bootstrap; project must run a
+  complete `npm ci` of both workspaces before gates; partial install ⇒ blocker.
+- **Q6** — How do we prove `config-smoke` fails on `37-skip-misconfigured-agents-v3`
+  and passes on trunk? → **F1, F6.** Concrete `TypeError` at `verify-e2e.ts:24`
+  with the dep-key fix applied; trunk's cycle is already gone.
 
 ## Findings
 
@@ -197,7 +200,7 @@ packages"): afterward `node_modules/@changesets/` has all 19 packages,
   reaches the network. (Note the worktree was left with a complete install after
   this check; git working tree remains clean — node_modules is gitignored.)
 
-### F2 — code-phase gate state on a bootstrapped trunk worktree (Q2) — STRONG EVIDENCE (analyst, ran in this worktree)
+### F2 — code-phase gate state on a bootstrapped trunk worktree (Q2) — RESOLVED (analyst ran the gates; researcher independently corroborated)
 
 This worktree is already bootstrapped (`node_modules` present in root and
 `testing-project/`, per team-lead's `npm ci`). Ran each proposed code gate from
@@ -226,33 +229,76 @@ pre-existing `validate-changesets.test.ts` CLI smoke failures
   role)` and `(judge role)` (`smoke`/codex e2e, `# SKIP`), not changeset tests.
 
 ⇒ The `tests` gate is green on trunk **as-is**; no skip-with-reason or pre-fix
-is required. The researcher should independently re-confirm `npm test` exit 0
-and the identity of the 2 skips so the spec can drop the intent's prerequisite
-about changeset-test failures.
+is required. The researcher independently re-confirmed `npm test` exit 0 (149
+tests, 147 pass, 2 skipped), ran `validate-changesets.test.ts` in isolation (all
+12 pass including both B8 CLI smoke subtests), and identified the 2 skips as the
+codex e2e tests — so the spec drops the intent's prerequisite about
+changeset-test failures.
 
-### F3 — changeset gate semantics (Q3) — PARTIAL (analyst), needs researcher confirmation
+### F3 — changeset gate semantics (Q3) — RESOLVED (researcher, empirical + CLI source)
 
-- `changeset-format` (`npx tsx scripts/validate-changesets.ts`) is a *shape*
-  validator over `.changeset/*.md` (front-matter fence, valid bump, known
-  package name, non-empty body, pre-1.0 `major` forbidden — see the unit tests
-  `validate-changesets.test.ts:66-156`). It passes when **no** changesets exist
-  (the canonical empty case `B2`), which is why the intent tags it `code, docs`:
-  safe on both phases. Confirmed exit 0 on trunk.
-- `changeset-status` (`npx changeset status --since=origin/trunk`) reports which
-  packages would be bumped relative to `origin/trunk`. **Open question for the
-  researcher:** does this command *enforce changeset presence* (exit non-zero
-  when the branch adds no changeset), or does it exit 0 regardless? On trunk it
-  exits 0 with "NO packages to be bumped" because HEAD == origin/trunk (no diff).
-  The intent's rationale ("docs-only because the changeset is authored by the
-  doc-writer") presumes this gate *fails* when the doc-writer hasn't written a
-  changeset — but `changeset status` historically exits 0 even with zero
-  changesets, and only some configurations/flags make it fail. The researcher
-  must determine the *actual* exit-code behavior of
-  `npx changeset status --since=origin/trunk` on a branch that (a) has a new
-  changeset, and (b) has none, so the spec can state precisely what this gate
-  guarantees — or whether it's effectively a no-op and the real presence-check
-  is something else. (Direct `.bin/changeset` invocation isn't available; the
-  binary resolves only via `npx`/`@changesets/cli`.)
+**`changeset-format`** (`npx tsx scripts/validate-changesets.ts`, `code, docs`):
+a *shape* validator over `.changeset/*.md` (front-matter fence, valid bump,
+known package name, non-empty body, pre-1.0 `major` forbidden — unit tests
+`validate-changesets.test.ts:66-156`). The researcher ran the real script: empty
+`.changeset/` (README only) → **exit 0**; one valid changeset → **exit 0**. It
+validates the shape of changesets that *exist*; it **never enforces presence**.
+This is why it's safe on both phases (intent's `code, docs` tag is correct).
+
+**`changeset-status`** (`npx changeset status --since=origin/trunk`, `docs`): IS
+a changeset-presence check, but a **CONDITIONAL** one. From `@changesets/cli`
+2.31.0 source (`status` command):
+
+```
+const changedPackages = await getVersionableChangedPackages(config, { cwd, ref: sinceBranch });
+if (changedPackages.length > 0 && changesets.length === 0) {
+  error("Some packages have been changed but no changesets were found...");
+  process.exit(1);
+}
+// else: print plan, exit 0
+```
+
+So **`status` exits 1 IFF (a *versionable* file changed since the ref) AND
+(zero changeset files exist).** "Versionable" = a changed path matching the
+repo's `.changeset/config.json` `changedFilePatterns`: `src/**`, `bin/**`,
+`package.json`, `examples/**`, `README.md`, excluding `src/__tests__/**`.
+Researcher's scratch-repo results (config mirroring skillsmith's):
+
+| Branch state (since `origin/trunk`) | Changeset? | Exit |
+| ----------------------------------- | ---------- | ---- |
+| changes `src/index.ts` (versionable) | none      | **1** ("…no changesets were found. Run `changeset add`…") |
+| changes `src/index.ts` + valid changeset | yes  | 0 |
+| changes only `docs/foo.md` (non-versionable) | none | 0 (gate doesn't fire) |
+| changes `README.md` (versionable per patterns) | none | **1** |
+
+- **`--since` does NOT change the exit logic** — plain `changeset status` and
+  `--since=origin/trunk` both apply the same check; `--since` only picks the
+  comparison ref (plain status defaults to `config.baseBranch` = `trunk`). The
+  earlier "plain status exit 0" was a muddled-branch artifact; re-run clean it's
+  exit 1. **Keep `--since=origin/trunk`**: it compares against the remote-tracking
+  ref, safer in a pipeline worktree where local `trunk` may be stale/absent.
+- No `.changeset/config.json` setting (`commit:false`, `prettier:false`, no
+  `snapshot`, no `___experimentalUnsafeOptions`) alters these semantics.
+
+**Net guarantee statement for the spec:**
+- `changeset-format`: every changeset file *present* is well-formed; passes when
+  none exist. **Presence-agnostic.**
+- `changeset-status`: IF the branch changed any versionable path, THEN ≥1
+  changeset must exist. **Conditional presence check** — real teeth for
+  versionable changes (including `README.md`), but does NOT force a changeset for
+  a docs-phase change confined to non-versionable files (e.g. `AGENTS.md`,
+  `CONTRIBUTING.md`).
+- ⇒ The intent's rationale ("docs-only because the changeset is authored by the
+  doc-writer") **holds for versionable changes** but is incomplete: the gate is
+  NOT a no-op, yet it also does not unconditionally force a changeset on every
+  docs-phase PR. This matches the repo's AGENTS.md rule "every release-relevant
+  change records a changeset" — release-relevant ≈ versionable. **Design-phase
+  decision to confirm:** if the desired guarantee is exactly "release-relevant
+  changes carry a changeset," `changeset-status` delivers it and earns its place.
+  If the desired guarantee were "the doc-writer ALWAYS authors a changeset
+  regardless of what changed," this gate would not guarantee that — a different
+  invocation/check would be needed. The spec should state the *conditional*
+  guarantee accurately and flag this choice for design.
 
 ### F1b — config-smoke is import-only, no agents / no API keys / no wp-env (supports Q1 + the "full skillsmith run not a gate" constraint) — VERIFIED (analyst)
 
@@ -275,7 +321,7 @@ constraint that "a full `skillsmith` run must not be part of any gate." The
 gate's value is precisely that it exercises the import/resolution graph (where
 the issue-37 circular import lives) without the expensive nondeterministic run.
 
-### F6 — proving config-smoke catches the issue-37 bug (Q6) — PARTIAL (analyst), needs researcher
+### F6 — proving config-smoke catches the issue-37 bug (Q6) — analyst's initial framing (RESOLVED in F1; read F1's "Q6" block for the confirmed signature)
 
 The `37-skip-misconfigured-agents-v3` worktree exists at
 `/Users/darerodz/Code/skillsmith/.claude/worktrees/37-skip-misconfigured-agents-v3`
@@ -301,7 +347,7 @@ acceptance criterion can cite a concrete, reproducible signal rather than "it
 fails somehow." (The v3 design docs describe the pipeline broadly but do not
 pin the circular-import mechanism; intent.md:12 is the authoritative statement.)
 
-### F1a — full skillsmith import-specifier set under testing-project/ (Q1b) — VERIFIED (analyst), runtime-vs-typecheck nuance flagged for researcher
+### F1a — full skillsmith import-specifier set under testing-project/ (Q1b) — VERIFIED (analyst); runtime-vs-typecheck nuance resolved in F1d/F1e
 
 Exhaustive grep of `testing-project/` (excluding node_modules) for every
 `skillsmith` / `@automattic/skillsmith` specifier yields exactly **two**:
@@ -505,8 +551,8 @@ gate**. The spec can mandate it or merely note it.
 
 ## Synthesis for the spec-writer — testable requirements
 
-Derived from the findings above. Two data points are still pending from the
-researcher and are marked **[PENDING]**; everything else is verified.
+Derived from the findings above. All six research questions are resolved and
+empirically verified — there are no open data points.
 
 ### Requirements
 
@@ -529,8 +575,8 @@ green on a freshly + fully bootstrapped trunk worktree (F2):
 | changeset-status | `npx changeset status --since=origin/trunk`      | docs       |
 
 (The Name column may be capitalized/styled to match the repo's house format;
-the Command and Phase columns are load-bearing. `changeset-status`'s
-docs-only justification is **[PENDING F3]** — see R6.)
+the Command and Phase columns are load-bearing. `changeset-status` is docs-only
+and is a *conditional* changeset-presence check — see R6 and F3.)
 
 **R3 — Dependency-key prerequisite (config-smoke enabler).** Make
 `@automattic/skillsmith` resolvable from `testing-project/` so config-smoke
@@ -571,14 +617,20 @@ a fresh worktree and before launching any phase agent or running any guardrail.
 every future run does it. (A missing/partial install makes gates fail the
 *execute* test → BLOCKER, which is the correct loud signal, not a silent pass.)
 
-**R6 — State what each gate guarantees (no over-claiming).** The spec must
-describe each gate's guarantee accurately. In particular: `changeset-format`
-validates changeset *shape* and passes when no changesets exist (F3,
-`validate-changesets.test.ts` B2); whether `changeset-status` enforces changeset
-*presence* or is effectively a no-op on this repo's config is **[PENDING F3]** —
-the spec must reflect the verified behavior, not the assumed one, and the
-design phase may revisit the gate's invocation if it doesn't do what its
-rationale claims.
+**R6 — State what each gate guarantees (no over-claiming).** Per F3 (verified):
+- `changeset-format` validates changeset *shape* and passes when no changesets
+  exist — **presence-agnostic**.
+- `changeset-status` is a **conditional changeset-presence check**: it exits
+  non-zero IFF the branch changed a *versionable* path (`src/**`, `bin/**`,
+  `package.json`, `examples/**`, `README.md`, excluding `src/__tests__/**`) AND
+  no changeset exists. It is NOT a no-op (it has teeth, including README edits),
+  but it does NOT force a changeset for a docs-phase change confined to
+  non-versionable files. Keep the `--since=origin/trunk` form.
+
+The spec should state this conditional guarantee accurately, and flag for the
+design phase the choice of whether the desired guarantee is "release-relevant
+(versionable) changes carry a changeset" (which this gate delivers) vs. "the
+doc-writer always authors a changeset" (which it does not).
 
 **Out of scope (from intent, reaffirmed):** changing the RP plugin; including a
 full `skillsmith` run in any gate; fixing the issue-37 circular import itself
@@ -605,7 +657,10 @@ Weaker fallback: config-smoke exits non-zero on v3 as-is (conflates dep-key +
 cycle). Spec should adopt the stronger form (F1, F6).
 
 **AC4 — `docs`-phase guardrails behave as specified** (changeset-format +
-changeset-status). Exact assertion for changeset-status is **[PENDING F3]**.
+changeset-status). changeset-format exits 0 (shape-only, presence-agnostic).
+changeset-status exits non-zero on a branch that changed a versionable path with
+no changeset, and exits 0 once a changeset is added (or when only non-versionable
+paths changed) — the conditional presence check of F3.
 
 **AC5 — Bootstrap precedes gates.** The run procedure performs the complete
 `npm ci` of both workspaces before any guardrail runs; a deliberately
