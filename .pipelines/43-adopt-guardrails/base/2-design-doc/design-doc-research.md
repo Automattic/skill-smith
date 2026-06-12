@@ -114,3 +114,37 @@ it, so the script alone is not self-durable. Open sub-question: should the home
 be the worktree convention block (co-located with `## Claude Code worktrees`) or
 a standalone `## Worktree bootstrap` section? And is a helper script worth adding
 as the *body* the `.rp.md` step invokes?
+
+### D3 grounding (analyst, from this repo's policy docs — pre-Q&A)
+
+Confirming the *intended* changeset-status guarantee against what the repo
+already documents:
+
+- **AGENTS.md** states the contract as "Record a changeset for every
+  **release-relevant** change."
+- **CONTRIBUTING.md:16** restates it: "every PR that **affects consumers**
+  carries a small `.changeset/*.md`."
+- **CONTRIBUTING.md:22-31** enumerates *when required* (CLI/`bin`, hook/
+  `defineConfig` schema, report-JSON shape, provider support, bug fixes to those,
+  behaviour-affecting dep bumps) and *when NOT required* — explicitly listing
+  **`.rp.md`, `.pipelines/**`, the `testing-project/` fixture, the `docs/`
+  landing page, `package-lock.json`-only, tests, docs prose-only**.
+- The gate's "versionable" set (from `.changeset/config.json changedFilePatterns`,
+  F3) = `src/**`, `bin/**`, `package.json`, `examples/**`, `README.md`,
+  `!src/__tests__/**`. **This is the machine proxy for "release-relevant," and it
+  does not fire on the paths CONTRIBUTING.md exempts** (`.rp.md`, `.pipelines/**`,
+  `testing-project/`, `docs/`, `src/__tests__/**`). So a docs-phase change
+  confined to those non-versionable paths is correctly NOT forced to carry a
+  changeset.
+
+⇒ The repo's own stated guarantee is unambiguously **"release-relevant
+(versionable) changes carry a changeset,"** and `changeset-status` delivers
+exactly that. This strongly supports answering D3 "yes, confirmed." Residual
+checks to hand the researcher: confirm the gate's `changedFilePatterns` set does
+not *contradict* CONTRIBUTING's required/exempt lists in a way that would (a)
+block a legitimate docs-phase change confined to non-versionable paths, or (b)
+wave through a release-relevant change the policy says needs a changeset. Two
+nuances to test: README.md cosmetic-prose edits (policy allows an *empty*
+changeset escape — does `changeset-status` accept an empty changeset as
+"present"?), and the docs-phase doc-writer's own typical outputs
+(`AGENTS.md`/`CONTRIBUTING.md` = non-versionable, so no false block).
