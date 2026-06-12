@@ -73,5 +73,44 @@ explicit and answered.
 
 ## Q&A
 
-(Topics driven one at a time with the design-doc-researcher; findings recorded
-below as they resolve.)
+Topics driven one at a time with the design-doc-researcher; findings recorded
+below as they resolve.
+
+### D2 grounding (analyst, from RP 0.3.0 plugin source — pre-Q&A)
+
+Where does the orchestrator actually read run-start instructions, so the
+bootstrap home is one it will honour every run?
+
+- **The orchestrator's run-start procedure has no bootstrap step.**
+  `reference/autonomous-workflow.md:36-39` ("At run start") lists exactly three
+  steps: (1) create the team, (2) start the health monitor, (3) capture the base
+  ref. There is **no** "install dependencies" / `npm ci` / worktree-bootstrap
+  step. The per-phase loop (`autonomous-workflow.md:46-55`) creates the phase
+  subfolder, reads the phase reference, and runs the phase — also no bootstrap.
+- **`EnterWorktree` does not install dependencies** (`conventions/claude-code.md:14`
+  — "Creates the worktree … and enters it"; nothing about `node_modules`).
+  Confirms spec F5.
+- **"Setup actions" is NOT a per-run bootstrap hook.** `setup.md:205-209` and
+  `pi.md:43` define a "Setup actions" step, but it runs once at *project setup*
+  (when `.rp.md` is authored), and the Claude Code rules file (`claude-code.md`)
+  has **no** "Setup actions" section at all (it's a Pi-specific agent-install
+  step). So we cannot lean on a plugin "Setup actions" auto-run to bootstrap each
+  worktree.
+- **What the orchestrator *does* read every run: `.rp.md`.** Both `load.md:5`
+  ("Read it at the start of any workflow") and this repo's `.rp.md:3` ("Read it
+  at the start of any workflow") make `.rp.md` the orchestrator's run-start
+  reading. ⇒ A bootstrap instruction placed in `.rp.md` as an orchestrator
+  run-step is the one the orchestrator actually loads at the start of every run.
+
+**Analyst's pre-Q&A lean for D2 (to be corroborated/refuted by the researcher):**
+the durable home is **`.rp.md` prose** — a short orchestrator run-step that says
+"after `EnterWorktree`, before launching any phase agent or running any
+guardrail, run `npm ci` (root) and `npm ci --prefix testing-project`." It is
+agent/orchestrator-facing, machine-relevant, lives where the orchestrator reads
+at run start, and is committed (travels to every worktree). `AGENTS.md` and
+`CONTRIBUTING.md` are human-facing and not part of the orchestrator's run-start
+read; a helper script still needs an instruction telling the orchestrator to run
+it, so the script alone is not self-durable. Open sub-question: should the home
+be the worktree convention block (co-located with `## Claude Code worktrees`) or
+a standalone `## Worktree bootstrap` section? And is a helper script worth adding
+as the *body* the `.rp.md` step invokes?
