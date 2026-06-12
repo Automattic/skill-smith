@@ -176,3 +176,45 @@ under a grouping heading) and what my D1 hypothesis proposed. So the precedent
 position (last). Pending the researcher's confirmation on loader
 position-independence, D1 resolves to **append `## Guardrails` as the final
 top-level section, after `## Health monitoring`.**
+
+### D1 — RESOLVED (researcher confirmed loader position-independence; one precedent correction)
+
+**Decision: append `## Guardrails` as the final top-level section of `.rp.md`,
+immediately after `## Health monitoring` (the file's current last section, ending
+at line 81).** A peer `##`, committed to `.rp.md` (never `.rp.local.md`).
+
+Researcher verdict (all from installed plugin v0.3.0, the version this repo runs):
+
+1. **Loader independence from position — CONFIRMED.** Selection is purely
+   phase-membership, never positional: `load.md:30` — "select the guardrails
+   whose phase(s) include the current phase." Every run-time consumer echoes
+   phase-only selection: code-writer (`agents/code-writer.md:13,44,46,48,52`),
+   code-reviewer (`agents/code-reviewer.md:18,32,97,98`), doc-writer
+   (`agents/doc-writer.md:38,40,42,45`), doc-reviewer
+   (`agents/doc-reviewer.md:33,98,99`) — all select by the Phase column, not by
+   where the section sits. A grep for order/position/first/last/above/below/
+   adjacent wording in the guardrail/`.rp.md` consumers found only false
+   positives (a doc's own layout, the `.rp.local.md` merge note, an intra-
+   `setup.md` cross-ref). The canonical `.rp.md` template
+   (`claude-code.md:9-44`) prescribes no Guardrails placement at all. ⇒ middle
+   vs. end is machine-irrelevant.
+
+2. **Precedent — corrected and strengthened.** My framing of the v2 example was
+   imprecise: `51-guardrails-convention-v2/.rp.md` is a *nested* file
+   (`## Shared conventions` group, conventions as `###`), with `### Guardrails`
+   last (line 104, after `### Health monitoring`) — so it is precedent for
+   "Guardrails goes last," not a structural template for our flat file. The
+   **directly analogous** precedent is the v1 sibling
+   `/Users/darerodz/Code/radical-pipelines/.claude/worktrees/51-guardrails-convention/.rp.md`:
+   there Guardrails is a **top-level `## Guardrails` peer at line 103 — the last
+   section** — which matches skillsmith's target shape (peer `##`, committed)
+   exactly, and it too is last. (radical-pipelines' main `.rp.md` declares no
+   Guardrails yet.) Net: across both example files that declare Guardrails, it is
+   the last section and immediately follows Health monitoring.
+
+3. **No anchoring constraint.** No loader or agent requires Guardrails to
+   precede/follow any section or sit adjacent to anything. The only structural
+   constraints are the ones spec R1 already fixed (peer `##`, committed-only —
+   `load.md:46`). "Append at end" is unconstrained and safe.
+
+Worktree left pristine (no scratch edits).
