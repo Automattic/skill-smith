@@ -458,3 +458,156 @@ set is 3 items or 4. Researcher is running this check now; result will finalize
 the edit set. Until then the spec should state the edit set as "at minimum the 3
 edits above, plus aligning `verify-e2e.ts:11` to `@automattic/skillsmith` if the
 typecheck gate requires it (pending verification)."
+
+### F1e — prerequisite is firmly 3 edits; typecheck stays green; lockfile-drift note (Q1 CLOSED, researcher did the real edit)
+
+The researcher performed the **real** edit (not a symlink simulation) and
+restored the worktree pristine afterward (`git checkout HEAD --
+testing-project/package.json testing-project/package-lock.json`, removed the
+stray `@automattic` dir, re-confirmed config-smoke back to exit 1, `git status`
+shows only the spec artifact folder). Results:
+
+- **config-smoke green after the rename: confirmed for real.** Edited the dep
+  key → `npm install` (exit 0) → config-smoke `node --import tsx -e "await
+  import('./skillsmith.config.ts')"` → **exit 0, clean**.
+- **`npm install` REPLACES the symlink:** it links
+  `node_modules/@automattic/skillsmith -> ../../..` and **removes** the old bare
+  `node_modules/skillsmith` symlink (not kept alongside). So after the rename
+  the bare `skillsmith` specifier has no node_modules target.
+- **Typecheck stays green — the decisive subtlety.** `tsc --noEmit` run *inside*
+  `testing-project/` fails after the rename: `verify-e2e.ts(11,55): error TS2307:
+  Cannot find module 'skillsmith'`. BUT the **declared** `typecheck` gate is
+  `npm run typecheck` = `tsc --noEmit` from the **repo root**, and the root
+  `tsconfig.json` `include` is only `["src/**/*", "skillsmith.config.ts",
+  "examples/**/*"]` with `exclude: ["node_modules", "dist"]` — it **does not
+  compile `testing-project/`**. So `npm run typecheck` after the rename →
+  **exit 0**. The bare-`skillsmith` inconsistency is invisible to ALL declared
+  gates (config-smoke type-erases it at runtime; root typecheck never compiles
+  testing-project). It would only surface if someone ran `tsc` inside
+  testing-project, which is not a declared guardrail.
+
+⇒ **The prerequisite is firmly the 3 edits** (rename + `npm install` +
+`check:config`). Changing `verify-e2e.ts:11` to `@automattic/skillsmith` is
+**OPTIONAL cleanup** — recommended for consistency (removes a latent TS2307 for
+anyone running `tsc` inside testing-project), but **not required by any declared
+gate**. The spec can mandate it or merely note it.
+
+- **Lockfile-drift heads-up (pre-existing, not caused by this work).** The
+  committed `testing-project/package-lock.json` is already stale vs the current
+  root `package.json`: it records the mirrored root `zod ^3.25.76` (root now
+  `^4.0.0`), and is missing the `@changesets/changelog-github` +
+  `@changesets/cli` devDeps and the root `name` field. So the prerequisite `npm
+  install` will pick up these drifted entries in the same lockfile update,
+  making the PR's lockfile diff larger than just the dep-key rename. The spec
+  should note this so the diff doesn't look like scope creep.
+
+---
+
+## Synthesis for the spec-writer — testable requirements
+
+Derived from the findings above. Two data points are still pending from the
+researcher and are marked **[PENDING]**; everything else is verified.
+
+### Requirements
+
+**R1 — Declare a Guardrails convention in `.rp.md`.** Add a `### Guardrails`
+subsection to the shared section of this repo's `.rp.md` (committed; never in
+`.rp.local.md`), as a three-column `| Name | Command | Phase |` markdown table.
+Each command is judged pass/fail solely by exit code; the only valid Phase
+values are `code`, `docs`, or `code, docs`. (Format per F4.)
+
+**R2 — The declared gates.** Declare exactly these, validated as runnable and
+green on a freshly + fully bootstrapped trunk worktree (F2):
+
+| Name             | Command                                          | Phase      |
+| ---------------- | ------------------------------------------------ | ---------- |
+| typecheck        | `npm run typecheck`                              | code       |
+| lint             | `npm run lint`                                   | code       |
+| tests            | `npm test`                                       | code       |
+| config-smoke     | `npm --prefix testing-project run check:config`  | code       |
+| changeset-format | `npx tsx scripts/validate-changesets.ts`         | code, docs |
+| changeset-status | `npx changeset status --since=origin/trunk`      | docs       |
+
+(The Name column may be capitalized/styled to match the repo's house format;
+the Command and Phase columns are load-bearing. `changeset-status`'s
+docs-only justification is **[PENDING F3]** — see R6.)
+
+**R3 — Dependency-key prerequisite (config-smoke enabler).** Make
+`@automattic/skillsmith` resolvable from `testing-project/` so config-smoke
+imports cleanly. **Firmly 3 required edits** (verified by a real edit, F1, F1d,
+F1e):
+1. `testing-project/package.json`: rename dep key `"skillsmith": "file:.."` →
+   `"@automattic/skillsmith": "file:.."`.
+2. Update `testing-project/package-lock.json` via `npm install` in
+   `testing-project/` (re-keys to `@automattic/skillsmith`; npm replaces the bare
+   `node_modules/skillsmith` symlink with the scoped one). **Note:** this same
+   `npm install` will also absorb pre-existing lockfile drift (root `zod`
+   `^3.25.76`→`^4.0.0`, missing changesets devDeps, missing root `name`), so the
+   PR's lockfile diff is larger than the rename alone — not scope creep (F1e).
+3. Add the `check:config` script (R4).
+
+These three make config-smoke green-on-trunk AND keep the declared `typecheck`
+gate green (the root tsconfig does not compile `testing-project/`, so the
+post-rename TS2307 on `verify-e2e.ts:11` is invisible to `npm run typecheck`).
+
+**Optional cleanup (recommended, not required):** change
+`testing-project/eval/utils/verify-e2e.ts:11`'s `import type … from "skillsmith"`
+→ `"@automattic/skillsmith"` for consistency — it removes a latent TS2307 for
+anyone running `tsc` inside testing-project, but no declared gate requires it.
+
+**R4 — Add the `check:config` script.** Add to `testing-project/package.json`
+scripts: `"check:config": "node --import tsx -e \"await
+import('./skillsmith.config.ts')\""`. It must import the config (and its full
+graph) with no agent spawn, no wp-env, no API key, no network (F1b) — satisfying
+the constraint that no full `skillsmith` run is part of any gate.
+
+**R5 — Worktree bootstrap is project-owned and must run before any gate.** Since
+the RP plugin does not install dependencies on `EnterWorktree` and the
+constraint forbids changing the plugin, this repo must own the bootstrap: a
+complete `npm ci` (root) **and** `npm ci --prefix testing-project` after entering
+a fresh worktree and before launching any phase agent or running any guardrail.
+"Bootstrapped" means a *complete* install, not merely "node_modules exists"
+(F5, F7). Capture this durably (e.g. `.rp.md` / `AGENTS.md` / a run step) so
+every future run does it. (A missing/partial install makes gates fail the
+*execute* test → BLOCKER, which is the correct loud signal, not a silent pass.)
+
+**R6 — State what each gate guarantees (no over-claiming).** The spec must
+describe each gate's guarantee accurately. In particular: `changeset-format`
+validates changeset *shape* and passes when no changesets exist (F3,
+`validate-changesets.test.ts` B2); whether `changeset-status` enforces changeset
+*presence* or is effectively a no-op on this repo's config is **[PENDING F3]** —
+the spec must reflect the verified behavior, not the assumed one, and the
+design phase may revisit the gate's invocation if it doesn't do what its
+rationale claims.
+
+**Out of scope (from intent, reaffirmed):** changing the RP plugin; including a
+full `skillsmith` run in any gate; fixing the issue-37 circular import itself
+(that's the issue-37 pipeline). Note the intent's assumption of pre-existing
+`validate-changesets.test.ts` failures is **stale** — do NOT add a skip/fix for
+it; the `tests` gate is already green (F2).
+
+### Acceptance criteria
+
+**AC1 — Each declared command executes** in the main checkout (the setup-time
+"did it execute?" bar, F4).
+
+**AC2 — All `code`-phase guardrails exit 0 on a freshly + fully bootstrapped
+trunk worktree** (typecheck, lint, tests, config-smoke, changeset-format).
+Verified today for all but config-smoke as-is; config-smoke reaches exit 0 only
+after R3 (F1, F2).
+
+**AC3 — config-smoke catches the issue-37 regression class.** Recommended
+(stronger) form: with the dep-key fix applied on the
+`37-skip-misconfigured-agents-v3` branch, config-smoke exits non-zero **with the
+`TypeError: Cannot read properties of undefined (reading 'roles')` at
+`verify-e2e.ts:24`** (the circular import), AND exits 0 on a dep-key-fixed trunk.
+Weaker fallback: config-smoke exits non-zero on v3 as-is (conflates dep-key +
+cycle). Spec should adopt the stronger form (F1, F6).
+
+**AC4 — `docs`-phase guardrails behave as specified** (changeset-format +
+changeset-status). Exact assertion for changeset-status is **[PENDING F3]**.
+
+**AC5 — Bootstrap precedes gates.** The run procedure performs the complete
+`npm ci` of both workspaces before any guardrail runs; a deliberately
+un-bootstrapped worktree makes the `npm`/`npx` gates report a BLOCKER (cannot
+execute), confirming the drift guard (F5, F7).
