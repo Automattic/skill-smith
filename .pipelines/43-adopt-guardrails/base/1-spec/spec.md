@@ -46,9 +46,16 @@ changeset gates behave as specified.
 
 ### R1 — Declare a Guardrails convention in `.rp.md`
 
-Add a `### Guardrails` subsection to the **shared** section of this repo's
-`.rp.md`. It must be committed to `.rp.md` itself; it must never live in
-`.rp.local.md` (the plugin reads Guardrails only from the committed file).
+Add a top-level `## Guardrails` section to this repo's `.rp.md`. This repo's
+`.rp.md` is a flat list of `##` conventions with no shared/per-tool grouping
+heading, so Guardrails is a peer `##` section, not a `###` subsection nested
+under a grouping heading. (The plugin's loader finds Guardrails semantically
+from the committed `.rp.md` prose and does not parse by heading level, so a
+top-level `## Guardrails` is valid for machine consumption and matches the
+file's existing one-`##`-per-convention shape.) It must be committed to
+`.rp.md` itself; it must never live in `.rp.local.md` (the plugin reads
+Guardrails only from the committed file). The exact placement of the section
+within `.rp.md` is delegated to the design phase.
 
 The declaration is a three-column markdown table with header `| Name | Command | Phase |`,
 preceded by a one-line description of what the gates are. For each row:
