@@ -9,7 +9,6 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RunScenario, VerificationFailure } from "@automattic/skillsmith";
-import config from "../../skillsmith.config";
 import { projectArgs } from "./project-args";
 
 // This file lives at `<projectRoot>/eval/utils/verify-e2e.ts`, so the
@@ -17,11 +16,6 @@ import { projectArgs } from "./project-args";
 // scripts live — is two directories up (matching `wp-cli.mjs`).
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const WP_ENV_PORT = Number(process.env.WP_ENV_PORT ?? 8987);
-
-// Every configured test agent gets a Playwright project (see
-// playwright.config.ts), so the configured project names are exactly the
-// test-agent ids the config declares.
-const CONFIGURED_PROJECT_NAMES = config.roles.test.agents;
 
 /**
  * Build every plugin produced in `iterationDirectory`, boot wp-env, run
@@ -33,11 +27,20 @@ const CONFIGURED_PROJECT_NAMES = config.roles.test.agents;
  * Playwright projects are named after the testing-agent ids (see
  * playwright.config.ts), so a failing spec's `projectName` maps back to
  * the agent, and its file path maps back to the scenario directory.
+ *
+ * `configuredProjectNames` is the full set of Playwright project names the
+ * config declares (every configured test agent gets a project). It is
+ * passed in by the caller rather than read here so this module does not
+ * depend on the config module. Only the runnable subset
+ * (`runnableAgentIds`) is forwarded to Playwright, so a misconfigured
+ * agent has no project run for it and the report attributes no failure
+ * to it.
  */
 export function runE2eVerification(
 	iterationDirectory: string,
 	scenarios: RunScenario[],
 	runnableAgentIds: string[],
+	configuredProjectNames: string[],
 ): VerificationFailure[] {
 	// The iteration subdirectories are named after `scenario.name`, while
 	// the spec files live under `eval/scenarios/<dirName>/`. Playwright's
@@ -139,7 +142,7 @@ export function runE2eVerification(
 			// runs for it and the merged report attributes no failure to it.
 			const projectSelectors = projectArgs(
 				runnableAgentIds,
-				CONFIGURED_PROJECT_NAMES,
+				configuredProjectNames,
 			);
 			execFileSync(
 				"npm",
