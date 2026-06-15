@@ -12,8 +12,6 @@ Run these before pushing a PR. Each maps to a script in [`package.json`](./packa
 - `npm run smoke` — runs `bin/skillsmith.mjs` end-to-end against the working directory.
 - `npm --prefix testing-project run check:config` — imports `testing-project/skillsmith.config.ts` and its full module graph (no agents, no API key, no wp-env, no network), catching config-load and import regressions the other checks miss because none of them loads the fixture config through its real runtime import graph.
 
-These same commands are declared as **Guardrails** in [`.rp.md`](./.rp.md), which the Radical Pipelines code and docs phases run automatically and judge by exit code — so the checks you run locally are the ones the pipeline gates on.
-
 ## Versioning policy
 
 The package is published as `@automattic/skillsmith` and versioned with [Changesets](https://github.com/changesets/changesets). The contract is short: every PR that affects consumers carries a small `.changeset/*.md` file describing the change; on merge to `trunk`, automation opens a "Version Packages" PR that, when a maintainer merges it, bumps `package.json:version`, appends to `CHANGELOG.md`, tags the commit, creates a GitHub Release, and publishes to npm.
