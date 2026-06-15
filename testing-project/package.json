@@ -7,10 +7,11 @@
 		"env:start": "wp-env start",
 		"env:stop": "wp-env stop",
 		"test:e2e": "playwright test",
-		"skillsmith": "skillsmith"
+		"skillsmith": "skillsmith",
+		"check:config": "node --import tsx -e \"await import('./skillsmith.config.ts')\""
 	},
 	"dependencies": {
-		"skillsmith": "file:.."
+		"@automattic/skillsmith": "file:.."
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.59.1",

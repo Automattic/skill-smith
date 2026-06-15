@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { RunScenario, VerificationFailure } from "skillsmith";
+import type { RunScenario, VerificationFailure } from "@automattic/skillsmith";
 
 // This file lives at `<projectRoot>/eval/utils/verify-e2e.ts`, so the
 // project root — where `node_modules`, `.wp-env.json`, and the npm
