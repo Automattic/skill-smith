@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { RunScenario, VerificationFailure } from "skillsmith";
+import type { RunScenario, VerificationFailure } from "@automattic/skillsmith";
 import config from "../../skillsmith.config";
 import { projectArgs } from "./project-args";
 
