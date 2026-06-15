@@ -39,19 +39,27 @@ change the public API of the `@automattic/skillsmith` package.
    is removed.** Today `verify-e2e.ts` reads `config.roles.test.agents` at module
    top level (the sole module-init-time read of `config` within the cycle, and
    the cause of the crash). After the fix, nothing in the config import graph
-   reads the imported `config` at module-initialization time. (This requirement
-   states the observable property; how the configured project names are obtained
-   at run time — e.g. read lazily when needed, or supplied as input — is left to
-   the design phase.)
+   reads the imported `config` at module-initialization time — this is the
+   root-cause property whose *consequence*, a clean load, is what Requirement 1
+   and the regression test (Requirement 5) observe. The absence of the eager read
+   itself is not a runtime-observable event; it is verifiable by code inspection
+   of the config import graph (`verify-e2e.ts` no longer reads
+   `config.roles.test.agents`, or any property of the imported `config`, at module
+   top level). How the configured project names are instead obtained at run time —
+   e.g. read lazily when needed, or supplied as input — is left to the design
+   phase.
 
 4. **The skip-misconfigured-agents behavior is preserved (no regression).**
    - The runnable (post-skip-filter) set of agent ids continues to drive the e2e
      run: it is what determines which agents Playwright runs, and nothing else
      decides this.
    - For any given runnable set, the `--project` selectors forwarded to the
-     Playwright child process are identical to today's behavior (e.g. a runnable
-     set of `["haiku"]`, with `gpt` skipped, forwards exactly
-     `["--project", "haiku"]`).
+     Playwright child process are identical to today's behavior. The selectors
+     preserve the order of the runnable set, appending one `--project <id>` pair
+     per runnable id that is a configured project name. So a runnable set of
+     `["haiku"]`, with `gpt` skipped, forwards exactly `["--project", "haiku"]`,
+     and a runnable set of `["haiku", "gpt"]` (neither skipped) forwards exactly
+     `["--project", "haiku", "--project", "gpt"]` — in that order.
    - The set of configured project names used to build those `--project`
      selectors continues to derive from `skillsmith.config.ts`'s declared
      `roles.test.agents`, not from a hardcoded literal or any other source, so
@@ -63,11 +71,13 @@ change the public API of the `@automattic/skillsmith` package.
    test is added at `src/__tests__/<name>.test.ts` that:
    - does `await import("../../testing-project/skillsmith.config")` and asserts it
      resolves without throwing;
-   - asserts the default export's `roles.test.agents` deep-equals
-     `["haiku", "gpt"]`;
-   - is a pure import-and-shape check: it never invokes `runE2eVerification` or
-     the `afterAllScenarios` hook, and requires no wp-env, Playwright, network
-     access, or credentials;
+   - asserts the default export is structurally intact, covering the full
+     Requirement 2 guarantee: `roles.test.agents` deep-equals `["haiku", "gpt"]`,
+     `agents` has keys `["haiku", "opus", "gpt"]`, `mode` equals `"test-only"`,
+     and `hooks.afterAllScenarios` is a function;
+   - is a pure import-and-shape check: it reads only the imported default export
+     and never invokes `runE2eVerification` or the `afterAllScenarios` hook, and
+     requires no wp-env, Playwright, network access, or credentials;
    - runs under the existing root suite runner (`node --import tsx --test`);
    - fails before the fix is applied and passes after it.
 
@@ -100,27 +110,28 @@ change the public API of the `@automattic/skillsmith` package.
   `["haiku", "gpt"]`, with `agents`, `roles`, `hooks`, `selfImprovement`, and
   `mode` unchanged from their authored values.
 
-- **AC3 — No module-init read of `config` in the cycle.** Given the fix is
-  applied, when the config import graph is initialized (i.e. on import of
-  `skillsmith.config.ts`), then no module-initialization-time read of the
-  imported `config` occurs anywhere in that graph.
+- **AC3 — Project-selector forwarding unchanged (order-preserving).** Given a
+  runnable set of `["haiku"]` (with `gpt` skipped), when the e2e verification
+  forwards project selectors to the Playwright child, then the forwarded
+  `--project` selectors are exactly `["--project", "haiku"]`; and given a runnable
+  set of `["haiku", "gpt"]` (neither skipped), the forwarded selectors are exactly
+  `["--project", "haiku", "--project", "gpt"]`, in that order — one `--project
+  <id>` pair per runnable id, preserving runnable-set order, identical to current
+  behavior.
 
-- **AC4 — Project-selector forwarding unchanged.** Given a runnable set of
-  `["haiku"]` (with `gpt` skipped), when the e2e verification forwards project
-  selectors to the Playwright child, then the forwarded `--project` selectors are
-  exactly `["--project", "haiku"]` — identical to current behavior.
-
-- **AC5 — Source-of-truth coupling.** Given the fix is applied, when the
+- **AC4 — Source-of-truth coupling.** Given the fix is applied, when the
   configured project names used to build the `--project` selectors are
   determined, then they deep-equal `skillsmith.config.ts`'s declared
   `roles.test.agents` (`["haiku", "gpt"]`) and are not a hardcoded literal
   divorced from the config; so that renaming, adding, or removing a declared test
   agent changes the configured project names accordingly.
 
-- **AC6 — Regression test fails before, passes after.** Given the root-suite test
+- **AC5 — Regression test fails before, passes after.** Given the root-suite test
   at `src/__tests__/<name>.test.ts` that imports
-  `testing-project/skillsmith.config` and asserts no-throw plus
-  `roles.test.agents` deep-equals `["haiku", "gpt"]`, when it is run under
+  `testing-project/skillsmith.config` and asserts no-throw plus the full
+  structural shape of Requirement 2 / AC2 — `roles.test.agents` deep-equals
+  `["haiku", "gpt"]`, `agents` has keys `["haiku", "opus", "gpt"]`, `mode` equals
+  `"test-only"`, and `hooks.afterAllScenarios` is a function — when it is run under
   `node --import tsx --test` against the unfixed code, then it fails; and when it
   is run against the fixed code, then it passes — without requiring wp-env,
   Playwright, network, or credentials, and without invoking `runE2eVerification`
