@@ -69,10 +69,18 @@ export default defineConfig({
 			const runnableAgentIds = config.roles.test.agents
 				.map((agent) => agent.id)
 				.filter((id) => !skippedTestIds.has(id));
+			// The full configured set (no skipped filtering): every declared
+			// test agent has a Playwright project, so verify-e2e needs all
+			// project names to know which selectors are valid before narrowing
+			// to the runnable subset.
+			const configuredProjectNames = config.roles.test.agents.map(
+				(agent) => agent.id,
+			);
 			const failures = runE2eVerification(
 				iterationDirectory,
 				scenarios,
 				runnableAgentIds,
+				configuredProjectNames,
 			);
 			return failures.length > 0 ? { failures } : true;
 		},
