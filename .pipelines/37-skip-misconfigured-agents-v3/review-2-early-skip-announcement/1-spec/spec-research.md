@@ -100,6 +100,64 @@ logic" and it matches the existing `console.error`-before-tracker pattern
 paint" sufficient, or must the message also survive being re-emitted while the
 dashboard is live, e.g. if the announcement should persist across iteration repaints?)*
 
+### Q1/Q2 — researcher's confirmed findings (cross-checked, agreed)
+
+Researcher CONFIRMED all analyst Q1 findings with the same line refs. Key additions:
+
+**Design provenance (important for the spec rationale):** The v3 base design
+*deliberately* surfaced skips **only** in the final static summary — "a one-shot print
+after the dashboard's final paint that does not interact with the cursor re-render"
+(base design-doc §7.2/§8, `.pipelines/.../base/2-design-doc/design-doc.md:417-449`),
+and §6.4:367 noted "An early surface is possible if preferred, but the chosen design
+avoids the extra branch." **This review reverses that specific choice for test/improver
+skips.**
+
+**The live-output guard already exists in the codebase:** `RunLog` defaults
+`mirrorStderr: false` with the comment "the progress tracker owns the live stderr view"
+(`src/util/run-log.ts:10-13,26`); the pipeline only enables mirroring in
+verbose/non-interactive mode (`pipeline.ts:135` → `{ interactive: false }`). So a naive
+`console.error` / `process.stderr.write` for the skip *during the run* is precisely the
+anti-pattern that corrupts the cursor math. **The fix must route the announcement
+THROUGH the tracker** (not a raw stderr write while the dashboard is live).
+
+**Reuse target inside the tracker:** the tracker already surfaces things mid-run via
+its `failures: Failure[]` list (`tracker.ts:77`), rendered in the "failures (K):"
+section (`render.ts:60-67`). Existing mid-run entry points that record + repaint:
+`scenarioSkipped(name, reason)` (`tracker.ts:158-170`, used at `pipeline.ts:358`) and
+`phaseFinished(...,{status:"failed"})` (`tracker.ts:180-199`). `Failure = { scenario,
+agentId, phase: PhaseName|undefined, detail }` (`types.ts:6-13`). There is **no**
+agent-level skip method yet — the implementation adds one (e.g. `agentSkipped(id,
+reason)` that records into the snapshot and repaints) OR seeds the skip list into the
+tracker at construction (tracker is built at `pipeline.ts:127`, after detection at 94).
+
+**"Early" ordering nuance:** the tracker does not paint until its first event-driven
+paint (`onTick` guards on `lastPaintAt===0`; non-interactive only writes on `finish()`,
+`tracker.ts:251-253`). So to surface early, the announcement must either (a) be seeded
+so the tracker's *first* paint already includes it, or (b) trigger a paint itself.
+
+**Unchanged (v3 behavior preserved):** skip MECHANISM is untouched — runnable
+allowlist via `agentIdFilter`, `runnability.skipped`, exit code 2
+(`summary.ts:78`), top-level `skipped` array in `report.json`. Only when/how the skip
+is ANNOUNCED changes.
+
+**Tests:** `skip-misconfigured.test.ts` asserts skips land in report.json's `skipped`
+array and that the judge-stop message hits stderr early (lines 160-191); there is NO
+existing test asserting test/improver skips are announced DURING the run. New
+acceptance criteria need a test that the announcement appears at detection time and
+goes through the tracker (not a raw stderr write).
+
+**Open spec decisions surfaced by both analyst + researcher:**
+- D1: Does the early announcement REPLACE the end-of-run `SKIPPED AGENTS` block, or is
+  it ADDITIVE (early + final recap)? (Intent says "rather than only at the end" →
+  early is required; whether the final block stays is a spec call.)
+- D2: How is it rendered in the live dashboard — a distinct "skipped agents" section in
+  the snapshot, vs. reusing the `failures` list?
+- D3: Does the judge STOP_RUN message need to change, or is it already conformant
+  (it already prints early, before the tracker, then returns)?
+- D4: Verbose / non-interactive behavior (tracker `interactive:false`, only writes on
+  `finish()`) — must the early announcement still appear early there, or is the
+  through-the-tracker route acceptable to defer to `finish()` in that mode?
+
 ## Established requirements
 
 _(populated as answers firm up)_
