@@ -158,6 +158,28 @@ goes through the tracker (not a raw stderr write).
   `finish()`) — must the early announcement still appear early there, or is the
   through-the-tracker route acceptable to defer to `finish()` in that mode?
 
+### Testability concern (analyst, feeds acceptance criteria)
+
+The existing test harness (`skip-misconfigured.test.ts:28-54`) runs via
+`console.log`/`console.error` overrides and is **not a TTY** → the tracker runs
+**non-interactive** (only writes on `finish()`, `tracker.ts:251-253`). Consequence:
+
+- The judge-stop test (lines 160-191) works because its message is a plain
+  `console.error` that fires **immediately**, independent of TTY/tracker. That is the
+  precedent for an "early, like other errors" announcement that is *observable in tests*.
+- If the early test/improver skip notice is routed **purely** through the tracker, in
+  non-interactive mode it would only surface at `finish()` — making "early" untestable
+  by capture and arguably not actually early in non-TTY/CI runs.
+- **Therefore** the spec should require the early announcement to be emitted at
+  detection time through a path that fires immediately in BOTH interactive and
+  non-interactive mode (e.g. the tracker seeds + paints immediately on being told the
+  skip list, OR a dedicated early emit that the tracker accounts for so it isn't
+  clobbered) — and an acceptance test must assert the announcement appears **before**
+  any scenario/phase output (ordering), not merely that it appears somewhere.
+
+This couples D2 and D4: whatever rendering path is chosen must fire immediately and
+must not corrupt the in-place repaint when the dashboard is live.
+
 ## Established requirements
 
-_(populated as answers firm up)_
+_(populated as answers firm up — pending D1-D4 resolution)_
