@@ -15,11 +15,20 @@ the skip is announced:
 - **Unchanged**: the skip behavior itself (misconfigured agents excluded from all
   phases) must NOT change.
 
-## Open questions (intent)
+## Open questions (intent) — ALL RESOLVED
 
-- Where is misconfiguration detected, and where is the announcement currently emitted?
-- What is the existing early-error-surfacing pattern to follow/reuse?
-- What is the live-output update mechanism, and how must the message integrate with it?
+- ~~Where is misconfiguration detected, and where is the announcement currently
+  emitted?~~ → Detection: `classifyRunnability` (`runnability.ts:59` /
+  `pipeline.ts:94`), once up front. Current announcement of test/improver skips: only at
+  exit via `pushSkipBlock`/`emitSummary` (`summary.ts:201-212`, `pipeline.ts:310`). See R1/R2.
+- ~~What is the existing early-error-surfacing pattern to follow/reuse?~~ → Judge-stop
+  `console.error` before the tracker (`pipeline.ts:103-106`, returns 2) and
+  precondition/user-facing errors (`runner.ts:40-43`). One-shot stderr line before the
+  live dashboard. See R5/D3.
+- ~~What is the live-output update mechanism, and how must the message integrate with
+  it?~~ → `ProgressTracker` in-place repaint via ANSI cursor math (`tracker.ts:232-254`).
+  Integrate by rendering through the tracker (distinct skip section) in interactive mode;
+  plain early stderr line in non-interactive/verbose. See R4/R5/D2/D4.
 
 ## Codebase findings (analyst's own read, to be cross-checked with researcher)
 
@@ -214,15 +223,135 @@ end-of-run `SKIPPED AGENTS` summary block (`summary.ts:201-212`) and exit-2 beha
   `"OPENAI_API_KEY is not set"` (`skip-misconfigured.test.ts:118`). Same template.
 - Judge early print is `pipeline.ts:103-106` then `return 2`. All other cites confirmed.
 
-### Still pending (sent, awaiting researcher)
+### D2 RESOLVED — distinct net-new "skipped agents" section (not the failures list)
 
-- D2: dashboard rendering — distinct "skipped agents" snapshot section vs reusing
-  `failures`. (Analyst-verified: `RunSnapshot` has NO skip field today — net-new;
-  leaning distinct section, cyan, not counted as failures.)
-- D3: judge STOP_RUN message — leave as-is (already early, returns before any paint)?
-- D4: verbose / non-interactive — must early announcement still appear early there?
-  (Couples with testability concern above.)
+Owner calls it an "info/warning message" — semantically NOT a failure (soft signal).
+Strong grounding in code conventions:
+- Established three-way color convention: red fail (`render.ts:149`), yellow per-cell
+  SKIPPED (`summary.ts:296-299`), cyan agent-level `SKIPPED AGENTS`
+  (`summary.ts:208`, base design §7.2:421-422 "visually distinct"). A distinct live
+  section continues this convention.
+- A whole-AGENT skip does not fit the `Failure` shape (`{scenario, agentId, phase,
+  detail}`, `types.ts:9-13`) — no scenario, no phase. Reusing the failures list would
+  conflate config skips with scenario-enumeration errors (which already abuse
+  `agentId:"—", phase:undefined` at `tracker.ts:163-168`) and inflate the "failures
+  (K):" count (`render.ts:62`), contradicting base design §8.
+- **Net-new confirmed** (analyst + researcher): `RunSnapshot` (`types.ts:42-55`) has no
+  skip field; `renderSnapshot` (`render.ts:23-70`) has no skip branch. Implementation =
+  add a field to `RunSnapshot` (e.g. `skippedAgents: {id, reason}[]`), a render branch
+  in `renderSnapshot`, and a tracker carrier/seed.
+
+### D3 RESOLVED — leave judge STOP_RUN message unchanged (already conformant)
+
+Judge-stop already prints at detection (`pipeline.ts:103-106`) then `return 2` BEFORE
+the tracker is constructed (line 127) — it is already "early, at the moment known" with
+zero live-output concern (no dashboard exists yet). It is the de-facto "similar to
+other errors" precedent the intent points to (cf. `runner.ts:40-43`). The owner's
+"appears at the end" complaint can only be about the test/improver skips. **Out of
+scope; spec should state judge-stop is already conformant** so a reviewer doesn't think
+it was overlooked. (Touching it risks regressing tests at
+`skip-misconfigured.test.ts:160-191` and `:193-215`.)
+
+### D4 RESOLVED — early in BOTH modes; cannot be routed PURELY through the tracker
+
+Empirically verified: in non-interactive mode `flush()` writes ONLY when `finished`
+(`tracker.ts:251`); during the run it writes nothing. Verbose sets `interactive:false`
+(`pipeline.ts:135`). So a snapshot-field-only solution would, in verbose/non-TTY mode,
+surface the skip ONLY in the single end-of-run block — re-introducing the exact defect,
+in verbose mode. Judge-stop, by contrast, is early in ALL modes because its
+`console.error` is unconditional and runs before the tracker.
+
+**Decision (requirement, not implementation):** the early announcement MUST appear
+early in BOTH interactive and non-interactive/verbose modes, consistent with judge-stop.
+The mode split:
+- **Interactive/TTY:** rendered through the tracker (distinct skip section, seeded so the
+  FIRST paint includes it / or a method that triggers a paint). The tracker owns the
+  cursor math, so the message rides inside the repaint and never pushes the dashboard
+  down — satisfies "respect the live-output update logic."
+- **Non-interactive/verbose:** there is NO live in-place dashboard to corrupt (tracker
+  prints once at finish). A plain early stderr line at detection is SAFE and is the
+  correct way to be early here (mirrors judge-stop). Detection is at `pipeline.ts:94`,
+  before the tracker.
+
+This is the one place "route everything through the tracker" is too simple; the
+implementation needs a small mode-aware split, and an acceptance test must assert the
+early appearance in a non-TTY capture (ordering: announcement before any scenario/phase
+output), since the test harness is non-TTY.
 
 ## Established requirements
 
-_(populated once D2-D4 land)_
+All grounded in intent + the single PR #45 review comment (identical to intent.md;
+researcher pulled it via `gh api`) + the v3 base design and current code on this branch.
+
+**R1 — Detection point is the announcement trigger.** The early announcement is emitted
+at the moment misconfiguration is known: immediately after `classifyRunnability`
+(`src/pipeline/pipeline.ts:94`), using the in-memory `runnability.skipped` list
+(`SkippedAgent = {id, roles, reason}`), before scenario work runs. No new detection
+logic; reuse the existing `RunnabilityResult`.
+
+**R2 — Scope of the early announcement: test- and improver-role skips** (consequences
+`EXCLUDE_LANE` / `HALT_AFTER_ITERATION`). These are the skips currently surfaced only at
+command exit. The judge `STOP_RUN` skip is already announced early and is unchanged (R7).
+
+**R3 — Each announced skip names the agent id AND the reason** (e.g.
+`"<id>: <REQUIRED_ENV> is not set"`), so the user learns WHICH agent/model is
+unavailable and WHY, early enough to fix the env and re-run.
+
+**R4 — Respect the live-output update logic (interactive/TTY).** When the live
+dashboard is active, the announcement is rendered through the `ProgressTracker` so it is
+part of the in-place repaint and does NOT get pushed down, overwritten, or corrupt the
+cursor math. Concretely: a distinct skip section in `RunSnapshot`/`renderSnapshot`
+(visually distinct from failures, per the cyan convention), populated at/just after
+tracker construction so the first paint includes it. It is NOT a raw stderr write while
+the dashboard repaints.
+
+**R5 — Early in non-interactive/verbose mode too.** Where the tracker does not repaint
+during the run, the announcement is emitted as an early line on stderr at detection time
+(no live-output conflict), consistent with the judge-stop precedent. Net effect: the
+announcement appears early in BOTH modes.
+
+**R6 — Skip BEHAVIOR is unchanged (v3 preserved).** Misconfigured agents remain
+excluded from all phases. Untouched: runnable allowlist / `agentIdFilter`,
+`runnability.skipped` threading, top-level `skipped` array in `report.json`, and exit
+code 2 when any agent is skipped (`summary.ts:78`). This review changes only WHEN/HOW the
+skip is announced.
+
+**R7 — End-of-run summary is unchanged (additive change).** The final `SKIPPED AGENTS`
+block (`summary.ts:201-212`) and its `summary.txt` mirror remain exactly as-is. The
+early announcement is ADDITIVE. The two surfaces are independent data paths (early =
+in-memory `runnability.skipped`; end = `report.json`'s `skipped` array) and intentionally
+both name the skipped agents (live notice vs persisted record) — not accidental
+double-reporting. Judge-stop message also unchanged (already conformant).
+
+### Acceptance criteria
+
+- **AC1 (early, test-role):** A run with a misconfigured test agent (and a runnable one)
+  prints an announcement naming the skipped agent id and reason at detection time —
+  BEFORE any scenario/phase output. Asserted on captured stderr ordering in the existing
+  non-TTY test harness (`skip-misconfigured.test.ts` style). The runnable agent is still
+  graded; report.json `skipped` array unchanged.
+- **AC2 (early, improver-role):** A run with a misconfigured improver prints the early
+  announcement naming it + reason before scenario work; the iteration still completes then
+  halts (existing v3 behavior, `skip-misconfigured.test.ts:217-272`), unchanged.
+- **AC3 (live-output safety, interactive):** In interactive/TTY mode the announcement is
+  emitted through the tracker (part of the repaint) and does not corrupt the dashboard /
+  push it down. Verifiable via a tracker/render unit test that the snapshot's skip section
+  renders distinctly and the in-place repaint math (`lastPaintedLines`/`terminalRows`)
+  accounts for it.
+- **AC4 (early in verbose/non-TTY):** With `interactive:false` (verbose), the
+  announcement still appears early (not only at finish). Asserted by ordering in a
+  non-TTY capture.
+- **AC5 (end block unchanged):** All existing `summary.test.ts` skip/exit-2/`summary.txt`
+  assertions remain green with no changes (lines 311, 329, 369, 381, 406, 421, 439).
+- **AC6 (behavior unchanged):** Existing `skip-misconfigured.test.ts` assertions on the
+  report-level `skipped` array, exit code 2, judge STOP_RUN early stderr message, and
+  exit-code precedence (`:274`) remain green unchanged.
+- **AC7 (no false signal):** A run with NO skips produces no early announcement and no
+  skip section in the live dashboard (regression guard).
+
+### Out of scope
+
+- Removing or relocating the end-of-run `SKIPPED AGENTS` summary block (R7).
+- Changing the judge `STOP_RUN` early message (D3 — already conformant).
+- Any change to the skip MECHANISM / which agents are skipped / exit codes (R6).
+- New detection logic — reuse existing `classifyRunnability` / `RunnabilityResult`.
