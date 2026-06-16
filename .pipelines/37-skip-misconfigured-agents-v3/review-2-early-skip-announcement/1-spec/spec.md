@@ -134,34 +134,69 @@ deliberate and is not accidental double-reporting.
 
 ## Acceptance Criteria
 
-- **AC1 (early, test-role).** A run with a misconfigured test agent (and at least one
-  runnable test agent) prints an announcement naming the skipped agent id and reason at
-  detection time — **before any scenario/phase output**. This is asserted on captured
-  stderr **ordering** in the existing non-TTY test harness (`skip-misconfigured.test.ts`
-  style): the announcement must appear before the first scenario/phase line, not merely
-  appear somewhere. The runnable agent is still graded; the `report.json` `skipped` array
-  is unchanged.
+Verification is split by mode, matching what each harness can actually observe. The
+non-TTY full-pipeline harness (`skip-misconfigured.test.ts`, under `src/__tests__/`)
+captures **only `console.log` / `console.error`** — it does not intercept
+`process.stderr.write`, and in non-interactive mode the `ProgressTracker` paints nothing
+mid-run (it writes only at `finish()`), so there is no captured "scenario/phase line" to
+order against. The early-in-non-TTY ACs (AC1, AC2, AC4) therefore assert on the
+**captured `console.error`** channel that R5 routes the early announcement through. The
+interactive live-output safety and first-paint earliness (AC3) are asserted at the
+tracker/render layer, which DOES observe the painted block by injecting a `Writable` into
+`TrackerOptions.stream` (as `progress-tracker.test.ts` already does).
 
-- **AC2 (early, improver-role).** A run with a misconfigured improver prints the early
-  announcement naming it and its reason before scenario work; the iteration still
-  completes and then halts (existing v3 behavior), unchanged.
+- **AC1 (early, test-role; non-TTY capture).** A run with a misconfigured test agent (and
+  at least one runnable test agent), run through the existing non-TTY harness
+  (`skip-misconfigured.test.ts`, under `src/__tests__/`), emits the early announcement on
+  the **captured `console.error`** channel. Asserted by substring match on captured
+  stderr: it names the skipped agent **id** (e.g. `gpt`) AND the **reason** (e.g.
+  `OPENAI_API_KEY is not set`) — matching how the existing judge-stop test asserts
+  (`/gpt/`, `/OPENAI_API_KEY is not set/`), not an exact format string. For ordering, the
+  announcement is emitted at detection time (immediately after `classifyRunnability`,
+  before any agent loop runs), so it **precedes any later captured `console.*` text the
+  harness DOES capture** (e.g. the end-of-run summary lines on stdout); there is no
+  captured scenario/phase line to order against, so no such clause is asserted. The
+  runnable agent is still graded; the `report.json` `skipped` array is unchanged.
 
-- **AC3 (live-output safety, interactive).** In interactive/TTY mode the announcement is
-  emitted through the tracker (part of the repaint) and does not corrupt the dashboard or
-  push it down. Verifiable via a tracker/render unit test: the snapshot's skip section
-  renders distinctly (not in the failures list, not inflating the failures count) and the
-  in-place repaint math (`lastPaintedLines` / rendered block height) accounts for it.
+- **AC2 (early, improver-role; non-TTY capture).** A run with a misconfigured improver,
+  through the same non-TTY harness, emits the early announcement on **captured
+  `console.error`** naming the improver id and reason (substring match, as in AC1). The
+  iteration still completes and then halts (existing v3 behavior), unchanged.
 
-- **AC4 (early in verbose/non-TTY).** With `interactive:false` (verbose / non-TTY), the
-  announcement still appears early — not only at finish. Asserted by stderr **ordering** in
-  a non-TTY capture (announcement before any scenario/phase output).
+- **AC3 (live-output safety + first-paint earliness, interactive).** Asserted at the
+  tracker/render layer by injecting a `Writable` into `TrackerOptions.stream`
+  (`progress-tracker.test.ts` pattern) and, for the render half, by calling
+  `renderSnapshot` directly (`progress-render.test.ts` pattern). It checks all of:
+  - **Distinctness (render).** A `RunSnapshot` carrying a skip entry renders a skip
+    section visually distinct from failures (cyan agent-level `SKIPPED AGENTS`, per the
+    three-way color convention), the entry is **not** in the `failures` list, and it does
+    **not** inflate the `failures (K):` count.
+  - **First-paint inclusion (tracker).** The **first** emitted interactive block already
+    contains the skip section (skip list populated at/just after tracker construction, per
+    R4) — mirroring the existing first-paint assertion in `progress-tracker.test.ts`.
+  - **Repaint safety (tracker, observable).** After a subsequent event, the next paint's
+    in-place erase prefix matches `/^\x1b\[(\d+)A\x1b\[0J/` and its cursor-up row count
+    accounts for the skip section's height — asserted on the **observable erase-count /
+    block height** in the captured `Writable` chunks (as `progress-tracker.test.ts`
+    already does), not on the tracker's private `lastPaintedLines` field.
 
-- **AC5 (end block unchanged).** All existing `summary.test.ts` assertions covering the
-  end-of-run skip block, exit code 2, and `summary.txt` remain green with no changes.
+- **AC4 (early in verbose/non-TTY; captured channel).** With `interactive:false` (verbose
+  / non-TTY) the early announcement still appears at detection time — not only at
+  `finish()`. Asserted the same way as AC1/AC2: the announcement is present on the
+  **captured `console.error`** channel (substring match on id + reason), emitted at
+  detection before the agent loop runs. (No captured scenario/phase line exists in this
+  mode either; the ordering claim is carried by AC3's first-paint assertion for the
+  interactive path.)
 
-- **AC6 (behavior unchanged).** Existing `skip-misconfigured.test.ts` assertions on the
-  report-level `skipped` array, exit code 2, the judge `STOP_RUN` early stderr message, and
-  exit-code precedence remain green with no changes.
+- **AC5 (end block unchanged).** All existing `summary.test.ts` (under `src/__tests__/`)
+  assertions covering the end-of-run skip block, exit code 2, and `summary.txt` remain
+  green with no changes.
 
-- **AC7 (no false signal).** A run with NO skips produces no early announcement and no
-  skip section in the live dashboard (regression guard).
+- **AC6 (behavior unchanged).** Existing `skip-misconfigured.test.ts` (under
+  `src/__tests__/`) assertions on the report-level `skipped` array, exit code 2, the judge
+  `STOP_RUN` early stderr message, and exit-code precedence remain green with no changes.
+
+- **AC7 (no false signal).** A run with NO skips produces no early announcement on the
+  captured `console.error` channel and no skip section in a rendered `RunSnapshot` /
+  tracker paint (regression guard, checkable at both the non-TTY harness and the
+  render/tracker layer).
