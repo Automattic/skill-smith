@@ -80,6 +80,26 @@ appear while the dashboard is live.
 
 (analyst's pre-read above; cross-check with researcher's answer)
 
+**Timeline of the run (analyst-verified):**
+1. `pipeline.ts:94` — detection (`classifyRunnability`).
+2. `pipeline.ts:103-105` — judge skip (`STOP_RUN`) prints early via `console.error`,
+   returns 2. (Before the tracker exists; run bails — no conflict.)
+3. `pipeline.ts:127` — tracker constructed. No paint yet (`tickTimer` set, but
+   `onTick` no-ops until `lastPaintAt !== 0`).
+4. `pipeline.ts:351` — `beginIteration()` → `requestPaint()` → **first `flush()`/paint**
+   (inside `runOneIteration`). This is the first time the dashboard hits stderr.
+
+**Safe window for an early static announcement:** between step 1/3 and step 4 the
+stream is untouched by the tracker. A one-time line printed to stderr there sits
+**above** the dashboard; the tracker then paints its block below it, and its repaint
+cursor math (`\x1b[${lastPaintedLines}A`) only ever walks up its own block height —
+never up to the static announcement. So a line printed *before the first paint* is not
+pushed down or clobbered. This is the cleanest way to "respect the live-output update
+logic" and it matches the existing `console.error`-before-tracker pattern
+(`runner.ts:41`, `pipeline.ts:103`). *(To confirm with researcher: is "before first
+paint" sufficient, or must the message also survive being re-emitted while the
+dashboard is live, e.g. if the announcement should persist across iteration repaints?)*
+
 ## Established requirements
 
 _(populated as answers firm up)_
