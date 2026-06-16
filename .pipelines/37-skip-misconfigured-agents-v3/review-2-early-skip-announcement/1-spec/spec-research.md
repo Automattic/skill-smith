@@ -180,6 +180,49 @@ The existing test harness (`skip-misconfigured.test.ts:28-54`) runs via
 This couples D2 and D4: whatever rendering path is chosen must fire immediately and
 must not corrupt the in-place repaint when the dashboard is live.
 
+### D1 RESOLVED — additive (keep end block; add early announcement)
+
+Researcher pulled the actual PR #45 review thread (`gh api .../pulls/45/reviews`):
+exactly ONE owner comment, text identical to intent.md, no inline replies/extra signal.
+The complaint is strictly about **timing** ("appears at the end" → should be "at the
+moment ... known"). Nothing in the intent or thread asks to remove/relocate the final
+summary block. Intent Constraints (lines 21-24) name only two: respect live-output, and
+preserve skip behavior — neither touches the end block.
+
+**Decision: ADDITIVE.** Add an early, at-detection announcement; the existing
+end-of-run `SKIPPED AGENTS` summary block (`summary.ts:201-212`) and exit-2 behavior
+(`summary.ts:78`) are **unchanged**.
+- Removing the end block (option b) would be out of scope and a regression beyond the
+  review's stated change, and would force deleting a large deliberate test surface for
+  no requested reason.
+- "Recap" (option c) is (a) in code; spec phrases it as (a).
+- The two surfaces serve different moments: early = live up-front notice (user can
+  Ctrl-C and fix env without waiting); end = consolidated final record in console +
+  `summary.txt`.
+- **Test impact: ZERO changes to `summary.test.ts`** (all its skip/exit-2/`summary.txt`
+  coverage at lines 311, 329, 369, 381, 406, 421, 439 stays green). New test surface is
+  purely additive (assert early announcement during the run).
+- **Spec must state explicitly:** the two surfaces both name the skipped agents
+  (intentional duplication across two moments), and they are **independent data paths**
+  — early reads in-memory `runnability.skipped`; end reads `report.json`'s `skipped`
+  array (`summary.ts:139-154`). State this so a reviewer doesn't flag double-reporting.
+
+### Q1 line-precision tweaks (researcher)
+
+- Reason string literal is ``${requiredEnv} is not set`` (`runnability.ts:47`); exact
+  env var depends on the provider descriptor. Fixtures use `openai-api` →
+  `"OPENAI_API_KEY is not set"` (`skip-misconfigured.test.ts:118`). Same template.
+- Judge early print is `pipeline.ts:103-106` then `return 2`. All other cites confirmed.
+
+### Still pending (sent, awaiting researcher)
+
+- D2: dashboard rendering — distinct "skipped agents" snapshot section vs reusing
+  `failures`. (Analyst-verified: `RunSnapshot` has NO skip field today — net-new;
+  leaning distinct section, cyan, not counted as failures.)
+- D3: judge STOP_RUN message — leave as-is (already early, returns before any paint)?
+- D4: verbose / non-interactive — must early announcement still appear early there?
+  (Couples with testability concern above.)
+
 ## Established requirements
 
-_(populated as answers firm up — pending D1-D4 resolution)_
+_(populated once D2-D4 land)_
