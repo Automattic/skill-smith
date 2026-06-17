@@ -38,7 +38,11 @@ export default defineConfig({
 	// `provider` and `model`; extra keys (e.g. `effort`) flow through
 	// to the provider that interprets them.
 	agents: {
-		// Anthropic via Claude Code CLI (uses your local CC auth).
+		// Anthropic via Claude Code CLI. Authenticates with your Claude Code
+		// subscription (interactive `/login`, or `CLAUDE_CODE_OAUTH_TOKEN` in
+		// headless/CI). It uses the subscription even when a pay-as-you-go
+		// Anthropic credential is also exported — that credential is ignored
+		// here, so it stays billed to `anthropic-api` below, not to this agent.
 		"cc-haiku": {
 			provider: "claude-code",
 			model: "claude-haiku-4-5",
