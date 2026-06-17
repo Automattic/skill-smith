@@ -1,12 +1,14 @@
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { Codex } from "@openai/codex-sdk";
 import { anthropicApiProvider } from "./anthropic-api";
-import { claudeCodeProvider } from "./claude-code";
+import { createClaudeCodeProvider } from "./claude-code";
 import { createCodexProvider } from "./codex";
 import { geminiApiProvider } from "./gemini-api";
 import { mockProvider } from "./mock";
 import { openaiApiProvider } from "./openai-api";
 import type { Provider, ProviderId } from "./types";
 
+const claudeCodeProvider = createClaudeCodeProvider(query);
 const codexProvider = createCodexProvider(Codex);
 
 export const PROVIDERS: Record<ProviderId, Provider> = {
