@@ -18,6 +18,9 @@ export interface RenderOptions {
  *   failures (K):
  *     ✗ <scenario>  <agent>  <phase>  <detail>
  *
+ *   SKIPPED AGENTS                         (omitted when none)
+ *     <agent>: <reason>
+ *
  * Pure: no I/O, no time, no environment lookups.
  */
 export function renderSnapshot(
@@ -63,6 +66,14 @@ export function renderSnapshot(
 		const widths = failureColumnWidths(snap.failures);
 		for (const f of snap.failures) {
 			lines.push(`  ${formatFailure(f, widths, color)}`);
+		}
+	}
+
+	if (snap.skippedAgents.length > 0) {
+		lines.push("");
+		lines.push(paint("SKIPPED AGENTS", "cyan", color));
+		for (const s of snap.skippedAgents) {
+			lines.push(`  ${s.id}: ${s.reason}`);
 		}
 	}
 
