@@ -3,11 +3,16 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type {
 	CodexOptions,
 	ThreadEvent,
 	ThreadOptions,
 } from "@openai/codex-sdk";
+import {
+	createClaudeCodeProvider,
+	type QueryFn,
+} from "../providers/claude-code";
 import { type CodexCtor, createCodexProvider } from "../providers/codex";
 import { getProvider, isProviderId } from "../providers/registry";
 import type { InvokeParams } from "../providers/types";
@@ -415,4 +420,81 @@ test("codex provider keeps large system prompts out of constructor config", asyn
 	assert.ok(developerInstructions.length < 256);
 	assert.ok(captured.prompt?.includes(largeSystemPrompt));
 	assert.ok(captured.prompt?.includes("small user prompt"));
+});
+
+/** Holder for the SDK options the capturing fake `QueryFn` was called with. */
+interface CapturedQuery {
+	options?: Options;
+}
+
+/**
+ * Build a capturing fake {@link QueryFn} that records the options it is called
+ * with and yields a single canned terminal `result` message. It spawns no CLI
+ * and needs no credentials, so the provider's env-scrub path can be exercised
+ * offline and deterministically.
+ *
+ * @param captured - Holder the fake writes the received `args.options` into, so
+ *   the caller can assert on `options.env`.
+ * @returns A fake `QueryFn` yielding one `success` result with a valid `usage`
+ *   object, so the provider's usage-accounting path runs without error.
+ */
+function makeClaudeCodeFake(captured: CapturedQuery): QueryFn {
+	return ({ options }) => {
+		captured.options = options;
+		async function* generator(): AsyncGenerator<SDKMessage> {
+			yield {
+				type: "result",
+				subtype: "success",
+				result: "canned final text",
+				usage: {
+					input_tokens: 0,
+					cache_creation_input_tokens: 0,
+					cache_read_input_tokens: 0,
+					output_tokens: 0,
+				},
+				// biome-ignore lint/suspicious/noExplicitAny: canned stand-in for the SDK result message shape
+			} as any as SDKMessage;
+		}
+		return generator();
+	};
+}
+
+test("claude-code provider scrubs pay-as-you-go keys from the env passed to query", async () => {
+	const priorEnv = {
+		ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+		ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
+		CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN,
+		PATH: process.env.PATH,
+	};
+	process.env.ANTHROPIC_API_KEY = "test-api-key";
+	process.env.ANTHROPIC_AUTH_TOKEN = "test-auth-token";
+	process.env.CLAUDE_CODE_OAUTH_TOKEN = "test-oauth-token";
+	process.env.PATH = "/test/bin";
+	const captured: CapturedQuery = {};
+	const fake = makeClaudeCodeFake(captured);
+	const provider = createClaudeCodeProvider(fake);
+
+	try {
+		await provider.invoke(baseParams());
+
+		// Copy-not-mutate: the scrub must leave process.env untouched. Checked
+		// before the finally restore so a restore cannot mask an in-place
+		// `delete process.env.ANTHROPIC_API_KEY`.
+		assert.equal(process.env.ANTHROPIC_API_KEY, "test-api-key");
+		assert.equal(process.env.ANTHROPIC_AUTH_TOKEN, "test-auth-token");
+	} finally {
+		for (const [key, value] of Object.entries(priorEnv)) {
+			if (value === undefined) {
+				delete process.env[key];
+			} else {
+				process.env[key] = value;
+			}
+		}
+	}
+
+	const env = captured.options?.env;
+	assert.equal(env?.ANTHROPIC_API_KEY, undefined);
+	assert.equal(env?.ANTHROPIC_AUTH_TOKEN, undefined);
+	assert.equal(env?.CLAUDE_CODE_OAUTH_TOKEN, "test-oauth-token");
+	assert.equal(env?.PATH, "/test/bin");
 });
