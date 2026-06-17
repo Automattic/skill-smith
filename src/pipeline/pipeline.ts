@@ -108,6 +108,13 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 	const runnableTestAgentIds = runnability.runnableTestAgentIds;
 
+	// Test/improver skips to announce early (R2 scope). Any STOP_RUN
+	// (judge) id was already printed and `return 2`'d above; the filter
+	// makes the test/improver-only scope explicit and future-proof.
+	const earlySkips = runnability.skipped
+		.filter((s) => decide(s.roles) !== "STOP_RUN")
+		.map((s) => ({ id: s.id, reason: s.reason }));
+
 	const iterations: IterationInfo[] = [];
 	const runScenarios: RunScenario[] = allScenarios.map(
 		({ dirName, scenario }) => ({
@@ -131,9 +138,21 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 				name: s.scenario.name,
 				agentIds: runnableTestAgentIds,
 			})),
+			skippedAgents: earlySkips,
 		},
 		verbose ? { interactive: false } : {},
 	);
+	// In interactive mode the seeded skip section rides every paint (R4),
+	// so emit nothing extra. When the dashboard will not repaint mid-run
+	// (resolved non-interactive: non-TTY or `verbose`), announce each skip
+	// early on stderr at detection time.
+	if (!tracker.interactive) {
+		for (const s of earlySkips) {
+			console.error(
+				`skillsmith: skipping misconfigured agent "${s.id}": ${s.reason}`,
+			);
+		}
+	}
 	const maxIterations =
 		selfImprovement.mode === "test-only" ? 1 : selfImprovement.maxIterations;
 
