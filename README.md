@@ -137,7 +137,7 @@ Every run lives under `${paths.base}/<runId>/`. Each iteration owns its own subd
 
 The improver is the only agent that writes, and only inside `paths.skills`. The harness never commits, pushes, or captures a diff — your edits live in the working tree for human review. Set `roles.improver.prompt` to a string (or load one from disk) to replace the built-in improver instructions with a project-specific edit strategy.
 
-If the improver agent can't run — its provider credential is missing (see [When an agent can't run](#exit-codes)) — the current iteration still runs to completion: the testing agents and judge produce a complete, valid matrix, and that verdict stands. The loop then halts: no improver call, no skill edits, and no further iterations (not even the `finalPass` sweep). The skipped improver is surfaced once with its id and reason, and the run exits `2`.
+If the improver agent can't run — its provider credential is missing (see [When an agent can't run](#exit-codes)) — the current iteration still runs to completion: the testing agents and judge produce a complete, valid matrix, and that verdict stands. The loop then halts: no improver call, no skill edits, and no further iterations (not even the `finalPass` sweep). The skipped improver is surfaced early — as soon as the misconfiguration is detected, before the run does its work — and again in the end-of-run summary, each time with its id and reason, and the run exits `2`.
 
 ### `afterAllScenarios` — the verification gate
 
