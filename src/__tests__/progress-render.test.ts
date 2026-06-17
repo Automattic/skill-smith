@@ -27,6 +27,7 @@ function snap(overrides: Partial<RunSnapshot> = {}): RunSnapshot {
 			},
 		},
 		failures: [],
+		skippedAgents: [],
 		finished: false,
 		...overrides,
 	};
@@ -264,6 +265,55 @@ test("color: true wraps the cross glyph in red ANSI", () => {
 
 	const ESC = String.fromCharCode(27);
 	assert.ok(out.includes(`${ESC}[31m✗${ESC}[0m`), "expected red cross glyph");
+});
+
+test("renders a SKIPPED AGENTS section with one id: reason line per entry", () => {
+	const out = renderSnapshot(
+		snap({
+			skippedAgents: [{ id: "gpt", reason: "OPENAI_API_KEY is not set" }],
+		}),
+		{ color: false },
+	);
+
+	assert.match(out, /\nSKIPPED AGENTS\n/);
+	assert.match(out, /\n {2}gpt: OPENAI_API_KEY is not set/);
+});
+
+test("a skip entry does not inflate the failures count or appear in failures rows", () => {
+	const failures: Failure[] = [
+		{
+			scenario: "follow-instructions",
+			agentId: "opus",
+			phase: "judge",
+			detail: 'rubric "no-emojis" not pass',
+		},
+		{
+			scenario: "no-emojis",
+			agentId: "sonnet",
+			phase: "testing",
+			detail: "agent timeout after 60s",
+		},
+	];
+	const out = renderSnapshot(
+		snap({
+			failures,
+			skippedAgents: [{ id: "gpt", reason: "OPENAI_API_KEY is not set" }],
+		}),
+		{ color: false },
+	);
+
+	// The failures count reflects only genuine failures; the skip is separate.
+	assert.match(out, /\nfailures \(2\):\n/);
+
+	// The skip's id/reason live in the SKIPPED AGENTS section, never as a
+	// failure row (no ✗ glyph carrying the skip id or reason).
+	assert.doesNotMatch(out, /✗.*gpt/);
+	assert.doesNotMatch(out, /✗.*OPENAI_API_KEY is not set/);
+});
+
+test("no skipped agents: omits the SKIPPED AGENTS section entirely", () => {
+	const out = renderSnapshot(snap({ skippedAgents: [] }));
+	assert.doesNotMatch(out, /SKIPPED AGENTS/);
 });
 
 test("formats hh:mm:ss when run exceeds an hour", () => {

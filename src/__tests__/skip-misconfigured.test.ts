@@ -301,3 +301,85 @@ test("exit-code precedence: a genuine failure plus a skip both surface and exit 
 
 	rmSync(baseDir, { recursive: true, force: true });
 });
+
+test("a misconfigured test agent is announced early on stderr (non-TTY)", async () => {
+	// AC1 + AC4: the harness resolves non-interactive (non-TTY), so the
+	// early skip is announced via console.error at detection — captured on
+	// stderr here — rather than only riding a live dashboard.
+	const projectRoot = join(fixtures, "skip-test-project");
+	const baseDir = join(projectRoot, ".skillsmith");
+	rmSync(baseDir, { recursive: true, force: true });
+
+	const { exitCode, stderr, stdout } = await runWithoutOpenAIKey(projectRoot);
+	assert.equal(exitCode, 2, "a skipped test agent still forces exit 2");
+
+	// The early announcement names the misconfigured id and the reason.
+	assert.match(stderr, /gpt/, "the early skip line names the test agent id");
+	assert.match(
+		stderr,
+		/OPENAI_API_KEY is not set/,
+		"the early skip line states the reason",
+	);
+	assert.match(
+		stderr,
+		/skipping misconfigured agent/,
+		"the early console.error fired because the run resolved non-interactive",
+	);
+
+	// It is emitted at detection, before the end-of-run summary on stdout.
+	assert.match(stdout, /RUN RESULT/, "the run still prints its end summary");
+
+	rmSync(baseDir, { recursive: true, force: true });
+});
+
+test("a misconfigured improver is announced early on stderr (non-TTY)", async () => {
+	// AC2 + AC4: improver-role skips (HALT_AFTER_ITERATION) are announced
+	// early too, on the same non-interactive console.error path.
+	const projectRoot = join(fixtures, "skip-improver-project");
+	const baseDir = join(projectRoot, ".skillsmith");
+	const skillPath = join(projectRoot, "skills", "wp-foo", "SKILL.md");
+	const pristineSkill = readFileSync(skillPath, "utf8");
+	rmSync(baseDir, { recursive: true, force: true });
+
+	let result: CapturedRun;
+	try {
+		result = await runWithoutOpenAIKey(projectRoot);
+	} finally {
+		writeFileSync(skillPath, pristineSkill);
+	}
+	assert.equal(result.exitCode, 2, "the misconfigured improver forces exit 2");
+
+	assert.match(result.stderr, /gpt/, "the early skip line names the improver id");
+	assert.match(
+		result.stderr,
+		/OPENAI_API_KEY is not set/,
+		"the early skip line states the reason",
+	);
+	assert.match(
+		result.stderr,
+		/skipping misconfigured agent/,
+		"the improver skip is announced early on the non-interactive path",
+	);
+
+	rmSync(baseDir, { recursive: true, force: true });
+});
+
+test("a skip-free mock run emits no early skip announcement (no false signal)", async () => {
+	// AC7 at the pipeline layer: a fully-runnable mock-only run (no
+	// requiredEnv, nothing misconfigured) must not emit the early skip line.
+	// runWithoutOpenAIKey deletes the key, but smoke-project uses only the
+	// mock provider, so no agent is misconfigured.
+	const projectRoot = join(fixtures, "smoke-project");
+	const baseDir = join(projectRoot, ".skillsmith");
+	rmSync(baseDir, { recursive: true, force: true });
+
+	const { exitCode, stderr } = await runWithoutOpenAIKey(projectRoot);
+	assert.equal(exitCode, 0, "the all-mock run passes");
+	assert.doesNotMatch(
+		stderr,
+		/skipping misconfigured agent/,
+		"no early skip line when nothing is skipped",
+	);
+
+	rmSync(baseDir, { recursive: true, force: true });
+});
