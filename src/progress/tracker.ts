@@ -142,6 +142,8 @@ export class ProgressTracker {
 		this.iteration = { current, total };
 		const activeSet =
 			activeScenarios === undefined ? undefined : new Set(activeScenarios);
+		// Config skips are run-scoped (detected once up front); deliberately
+		// NOT cleared here — unlike failures, which are per-iteration.
 		this.failures = [];
 		for (const s of this.scenarios.values()) {
 			s.active = activeSet === undefined || activeSet.has(s.name);
