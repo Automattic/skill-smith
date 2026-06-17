@@ -59,7 +59,7 @@ The process exit code tells a CI pipeline or an autonomous consumer how the run 
 
 A skipped agent never lets the run exit `0` — even when every agent that did run passed.
 
-**When an agent can't run.** An agent backed by an API provider whose credential environment variable is unset (for example `OPENAI_API_KEY is not set`) is detected before it is ever invoked. It is removed from the run — it does no work, gets no workspace, contributes no pass/fail result, and is not re-selected in later iterations. It is announced **once** in the console, with its **id and reason**, under its own `SKIPPED AGENTS` heading that is visually distinct from a failing agent, and it is recorded in `report.json`. This is a configuration problem to fix, not a verdict on the skill — distinct from an agent that ran and failed its evaluation.
+**When an agent can't run.** An agent backed by an API provider whose credential environment variable is unset (for example `OPENAI_API_KEY is not set`) is detected before it is ever invoked. It is removed from the run — it does no work, gets no workspace, contributes no pass/fail result, and is not re-selected in later iterations. It is announced **early — as soon as the misconfiguration is detected, before the run does its work — and again in the end-of-run summary**, each time in the console with its **id and reason**, under its own `SKIPPED AGENTS` heading that is visually distinct from a failing agent, and it is recorded in `report.json`. This is a configuration problem to fix, not a verdict on the skill — distinct from an agent that ran and failed its evaluation.
 
 ### Lifecycle
 
