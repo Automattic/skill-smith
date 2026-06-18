@@ -98,6 +98,8 @@ function validateRoles(
 	validateTestRole(roles.test, agentIds, errors);
 	validateSingleRole(roles.judge, "roles.judge", agentIds, errors);
 	validateSingleRole(roles.improver, "roles.improver", agentIds, errors);
+	if (roles.validator !== undefined)
+		validateSingleRole(roles.validator, "roles.validator", agentIds, errors);
 }
 
 function validateTestRole(
@@ -191,6 +193,16 @@ function validateSelfImprovement(
 			(block.maxIterations as number) < 1
 		) {
 			errors.push("selfImprovement.maxIterations must be an integer >= 1");
+		}
+	}
+	if (block.maxValidationRounds !== undefined) {
+		if (
+			!Number.isInteger(block.maxValidationRounds) ||
+			(block.maxValidationRounds as number) < 1
+		) {
+			errors.push(
+				"selfImprovement.maxValidationRounds must be an integer >= 1",
+			);
 		}
 	}
 	if (block.scope !== undefined && !VALID_SCOPES.includes(block.scope)) {
