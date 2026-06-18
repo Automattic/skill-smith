@@ -19,6 +19,13 @@ import type { InvokeParams, InvokeResult, Provider } from "./types";
 const GATE = "MOCK_GATE";
 const MARKER = "SKILLSMITH_LOOP_OK";
 
+// Sentinel the validator-loop fixtures use to drive the revise→approve
+// path: the gated improver appends this on round 0 (the leak the mock
+// validator flags), then strips it on the revise round so validate#2
+// approves. The literal doubles as the prompt sentinel both the mock
+// validator and improver branch on.
+const LEAK = "LEAK_TOKEN";
+
 const PASS_JSON = JSON.stringify({
 	rubrics: { r1: { pass: true, notes: "mock" } },
 	acceptance: [{ item: "mock acceptance", pass: true, notes: "mock" }],
@@ -59,6 +66,22 @@ function invokeTesting(params: InvokeParams): InvokeResult {
 	// directly by appending the success marker to every SKILL.md it
 	// finds — no proposal, no reviewer, no executor.
 	if (params.systemPrompt.includes("improver agent")) {
+		// Validator-loop fixtures opt in via VALIDATOR_LOOP_FIXTURE. On round
+		// 0 (no findings yet) add the marker AND the leak; on a revise round
+		// the rendered finding names LEAK_TOKEN, so strip the leak and keep
+		// the marker. The no-validator `loop-project` path lacks the opt-in
+		// and keeps the unchanged `applyMarkerToSkills` behaviour (AC4).
+		if (params.prompt.includes("VALIDATOR_LOOP_FIXTURE")) {
+			const isReviseRound = params.prompt.includes("LEAK_TOKEN");
+			const edited = isReviseRound
+				? removeLeakTokenFromSkills(params.cwd)
+				: applyMarkerAndLeakToSkills(params.cwd);
+			return {
+				finalText: `improver edited ${edited} skill(s)`,
+				toolUseCount: edited,
+			};
+		}
+
 		const edited = applyMarkerToSkills(params.cwd);
 		return {
 			finalText: `improver applied marker to ${edited} skill(s)`,
@@ -94,6 +117,13 @@ function invokeTesting(params: InvokeParams): InvokeResult {
 }
 
 function invokeJudge(params: InvokeParams): InvokeResult {
+	// Validator agent: runs role:"judge", so it lands here. Branch before
+	// the generic judge PASS/FAIL fallthrough. It inspects the post-edit
+	// skill via the user prompt's skillsBlob, so we key off `params.prompt`.
+	if (params.systemPrompt.includes("validator agent")) {
+		return invokeValidator(params);
+	}
+
 	// Gated judge: the testing agent's workspace files are inlined into
 	// the user prompt. Fail until the skill edit propagates a pass.
 	if (params.prompt.includes("GATE_FAIL")) {
@@ -104,6 +134,35 @@ function invokeJudge(params: InvokeParams): InvokeResult {
 	}
 
 	return { finalText: PASS_JSON, toolUseCount: 0 };
+}
+
+// Deterministic validator: returns an R9-shaped verdict off sentinels in
+// the post-edit skill (surfaced via the user prompt's skillsBlob). A leak
+// (or the AC5 cap control) yields `revise` with a finding naming the leak;
+// otherwise `approve` with no findings.
+function invokeValidator(params: InvokeParams): InvokeResult {
+	const neverApprove = params.prompt.includes("NEVER_APPROVE");
+	const leaked = params.prompt.includes("LEAK_TOKEN");
+	if (neverApprove || leaked) {
+		return {
+			finalText: JSON.stringify({
+				verdict: "revise",
+				findings: [
+					{
+						leak_type: "scenario-value",
+						span: "LEAK_TOKEN",
+						why: "scenario-unique token copied into the skill",
+						suggested_fix: "use a generic example value",
+					},
+				],
+			}),
+			toolUseCount: 0,
+		};
+	}
+	return {
+		finalText: JSON.stringify({ verdict: "approve", findings: [] }),
+		toolUseCount: 0,
+	};
 }
 
 // Append the success marker to every immediate <dir>/SKILL.md under
@@ -123,6 +182,58 @@ function applyMarkerToSkills(skillsDir: string): number {
 		const body = readFileSync(skillPath, "utf8");
 		if (body.includes(MARKER)) continue;
 		writeFileSync(skillPath, `${body}\n${MARKER}\n`);
+		edited++;
+	}
+	return edited;
+}
+
+// Round 0 of the validator loop: append BOTH the success marker (so the
+// gated judge flips GATE_FAIL→GATE_PASS) AND the leak token (which the
+// mock validator flags) to every immediate <dir>/SKILL.md under skillsDir
+// that doesn't already carry the marker. Returns the count edited.
+function applyMarkerAndLeakToSkills(skillsDir: string): number {
+	let edited = 0;
+	let entries: Dirent[];
+	try {
+		entries = readdirSync(skillsDir, { withFileTypes: true });
+	} catch {
+		return 0;
+	}
+	for (const entry of entries) {
+		if (!entry.isDirectory()) continue;
+		const skillPath = join(skillsDir, entry.name, "SKILL.md");
+		if (!existsSync(skillPath)) continue;
+		const body = readFileSync(skillPath, "utf8");
+		if (body.includes(MARKER)) continue;
+		writeFileSync(skillPath, `${body}\n${MARKER}\n${LEAK}\n`);
+		edited++;
+	}
+	return edited;
+}
+
+// Revise round of the validator loop: strip the leak token from every
+// immediate <dir>/SKILL.md under skillsDir that carries it, leaving the
+// marker intact so the scenario still passes. The post-edit skill becomes
+// leak-free, so validate#2 approves. Returns the count edited.
+function removeLeakTokenFromSkills(skillsDir: string): number {
+	let edited = 0;
+	let entries: Dirent[];
+	try {
+		entries = readdirSync(skillsDir, { withFileTypes: true });
+	} catch {
+		return 0;
+	}
+	for (const entry of entries) {
+		if (!entry.isDirectory()) continue;
+		const skillPath = join(skillsDir, entry.name, "SKILL.md");
+		if (!existsSync(skillPath)) continue;
+		const body = readFileSync(skillPath, "utf8");
+		if (!body.includes(LEAK)) continue;
+		const stripped = body
+			.split("\n")
+			.filter((line) => line !== LEAK)
+			.join("\n");
+		writeFileSync(skillPath, stripped);
 		edited++;
 	}
 	return edited;
