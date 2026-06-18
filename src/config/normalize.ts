@@ -36,6 +36,9 @@ export function normalizeConfig(
 		},
 		judge: normalizeSingleRole(input.roles.judge, agents),
 		improver: normalizeSingleRole(input.roles.improver, agents),
+		...(input.roles.validator !== undefined
+			? { validator: normalizeSingleRole(input.roles.validator, agents) }
+			: {}),
 	};
 
 	const out: SkillsmithConfig = {
