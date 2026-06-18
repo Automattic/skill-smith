@@ -1,6 +1,6 @@
 # Doc plan review — APPROVED
 
-**Artifact:** `.pipelines/48-prevent-overfitting/base/3-plan/doc-plan.md` (commit 9c9f9a0, tasks DT1–DT4)
+**Artifact:** `.pipelines/48-prevent-overfitting/base/3-plan/doc-plan.md` (commit ae9ab63, tasks DT1–DT4)
 **Reviewer:** doc-plan-reviewer (adversarial)
 **Verdict:** APPROVED — ready for doc-writers after the code ships.
 
@@ -86,10 +86,15 @@ match this exactly; "no persisted diff / no git" matches §5.1/C3/R5.
 
 ## Non-blocking note (no action required for this verdict)
 
-The task-spawn brief described "7 tasks D1–D7"; the plan under review contains exactly four tasks
-(DT1–DT4) and is internally consistent across its task graph, task bodies, and coverage matrix. Four
-tasks correctly cover the four distinct doc surfaces (README narrative, README config reference, README
-CLI, examples + changeset-verify). The "7 tasks" figure is stale brief wording, not a defect in the
-plan. No change needed.
+The task-spawn brief described "7 tasks D1–D7" and cited commit "9c9f9a0"; both were stale/incorrect
+brief framing (team lead confirmed). The plan ACTUALLY on disk and committed is **commit ae9ab63** with
+exactly **four tasks (DT1–DT4)**, internally consistent across its task graph, task bodies, and coverage
+matrix. Verified the on-disk plan is identical to HEAD (no uncommitted edits), `9c9f9a0` does not exist
+as a git object, and the four tasks cover the four distinct doc surfaces (README narrative, README
+config reference, README CLI, `examples/skillsmith.config.ts` + changeset-verify). The doc surface is
+`README.md` + `examples/skillsmith.config.ts` only; `docs/` is a static site (index.html/styles.css)
+with no config/CLI reference — there is no `docs/configuration.md` / `docs/cli.md` /
+`docs/self-improvement.md`, and the plan correctly does not name any. This review was performed against
+the files the plan actually names; the stale-brief filenames were never required to exist.
 
 **Approved for execution by doc-writers once the code phase (T1–T13) has shipped.**
