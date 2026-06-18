@@ -82,10 +82,8 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	const config = await loadConfig(projectRoot);
 	checkPaths(config, projectRoot);
 	const selfImprovement = resolveSelfImprovement(config, params.overrides);
-	const allScenarios = filterScenarios(
-		enumerateScenarios(config.paths, projectRoot),
-		params.scenarios,
-	);
+	const enumerated = enumerateScenarios(config.paths, projectRoot); // FULL corpus
+	const allScenarios = filterScenarios(enumerated, params.scenarios); // run subset
 
 	const runDirectory = resolve(projectRoot, config.paths.base, runId);
 	mkdirSync(runDirectory, { recursive: true });
@@ -203,6 +201,8 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 					iterationDirectory: outcome.iterationDirectory,
 					iterationReport: outcome.report,
 					allScenarios,
+					corpus: enumerated,
+					maxValidationRounds: selfImprovement.maxValidationRounds,
 					log: outcome.log,
 				});
 			}

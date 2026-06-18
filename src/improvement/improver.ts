@@ -13,6 +13,9 @@ import type { EnumeratedScenario } from "../scenarios/enumerate";
 import { tryHook } from "../util/hooks";
 import type { RunLog } from "../util/run-log";
 import { buildImprovementContext } from "./context";
+import { readSkillsRoot } from "./read-skills-root";
+import { runValidator } from "./validator";
+import type { ValidatorFinding } from "./validator-verdict";
 
 const DEFAULT_PROMPT = `# Improver instructions
 
@@ -51,6 +54,14 @@ export interface RunImprovementParams {
 	iterationDirectory: string;
 	iterationReport: IterationReport;
 	allScenarios: EnumeratedScenario[];
+	/**
+	 * The FULL enumerated scenario corpus (before any `--scenarios` filter),
+	 * threaded to the validator so its breadth test is sound (§4.3). Distinct
+	 * from `allScenarios`, which is the filtered run subset the improver edits.
+	 */
+	corpus: EnumeratedScenario[];
+	/** Cap on validator revise rounds when a validator is configured (§8.2). */
+	maxValidationRounds: number;
 	log: RunLog;
 }
 
@@ -80,6 +91,8 @@ export async function runImprovement(
 		iterationDirectory,
 		iterationReport,
 		allScenarios,
+		corpus,
+		maxValidationRounds,
 		log,
 		runDirectory,
 		iterations,
@@ -131,49 +144,123 @@ export async function runImprovement(
 		"Do not invoke `skillsmith` or any wrapper that would re-enter the harness.",
 	].join("\n");
 
-	const userMessage = [
-		`# Iteration ${iteration} report`,
-		JSON.stringify(context.report, null, 2),
-		"",
-		"# Skills referenced by the failing scenarios",
-		`skill ids: ${context.skillIds.join(", ") || "(none)"}`,
-		"",
-		context.skillsBlob || "(no skill text available)",
-	].join("\n");
-
-	log.info(
-		`improver starting: provider=${agent.provider} model=${agent.model} cwd=${skillsDir}`,
-	);
-
-	const provider = getProvider(agent.provider);
-	const result = await provider.invoke({
-		agent,
-		systemPrompt,
-		prompt: userMessage,
-		cwd: skillsDir,
-		role: "testing",
-	});
-
 	const improvementPath = join(iterationDirectory, "improvement.md");
-	const body =
-		result.error !== undefined
-			? `<!-- improver error: ${result.error} -->\n\n${result.finalText}`
-			: result.finalText;
-	writeFileSync(improvementPath, body);
 
-	if (result.error !== undefined) {
-		log.info(`improver error: ${result.error}`);
+	/**
+	 * One improver pass. On round 0 (`findings === undefined`) the user
+	 * message is byte-identical to the single pre-validator invoke and
+	 * `improvement.md` is written. On a revise round (`findings !== undefined`)
+	 * the validator's findings are appended to the USER message with each
+	 * `span` verbatim (§2.0 rule 1) — so the improver can locate the offending
+	 * substring — and the improver re-edits the skills in place WITHOUT
+	 * rewriting `improvement.md` (§2.0 rule 2). `improvementPath` is the same
+	 * round-0 path on every call.
+	 */
+	const invokeImprover = async (
+		findings: ValidatorFinding[] | undefined,
+	): Promise<{ improvementPath: string }> => {
+		const userMessage = [
+			`# Iteration ${iteration} report`,
+			JSON.stringify(context.report, null, 2),
+			"",
+			"# Skills referenced by the failing scenarios",
+			`skill ids: ${context.skillIds.join(", ") || "(none)"}`,
+			"",
+			context.skillsBlob || "(no skill text available)",
+			...(findings !== undefined ? ["", renderFindings(findings)] : []),
+		].join("\n");
+
+		log.info(
+			`improver starting: provider=${agent.provider} model=${agent.model} cwd=${skillsDir}`,
+		);
+
+		const provider = getProvider(agent.provider);
+		const result = await provider.invoke({
+			agent,
+			systemPrompt,
+			prompt: userMessage,
+			cwd: skillsDir,
+			role: "testing",
+		});
+
+		// `improvement.md` is the round-0 transcript and is written ONCE, on
+		// the round-0 call (§2.0 rule 2 / §9.3). Revise rounds re-edit in place
+		// and log but do not clobber it.
+		if (findings === undefined) {
+			const body =
+				result.error !== undefined
+					? `<!-- improver error: ${result.error} -->\n\n${result.finalText}`
+					: result.finalText;
+			writeFileSync(improvementPath, body);
+		}
+
+		if (result.error !== undefined) {
+			log.info(`improver error: ${result.error}`);
+		} else {
+			log.info(`improver done: tool-uses=${result.toolUseCount}`);
+		}
+
+		return { improvementPath };
+	};
+
+	let result = await invokeImprover(undefined);
+
+	if (config.roles.validator === undefined) {
+		// No-validator path: round 0 already ran the single improver pass,
+		// wrote improvement.md, and logged. Nothing else runs — this branch is
+		// byte-identical to the pre-validator behavior (C4/AC4).
 	} else {
-		log.info(`improver done: tool-uses=${result.toolUseCount}`);
+		const validator = config.roles.validator;
+		let round = 0; // counts REVISE rounds TAKEN
+		while (true) {
+			const after = readSkillsRoot(skillsDir);
+			const outcome = await runValidator({
+				skillsBlob: after,
+				corpus,
+				config,
+				projectRoot,
+				agent: validator.agent,
+				validatorPrompt: validator.prompt,
+				iterationDirectory,
+				round,
+				log,
+			});
+			// Approve OR fail-open → break (the validator never reverts).
+			if (outcome.verdict !== "revise") break;
+			// Cap check AFTER each validation, BEFORE the next improver invoke:
+			// the terminal validation of the last un-revised edit always runs
+			// (§2.1). On the cap we KEEP the last edit and warn — no revert (D2).
+			if (round >= maxValidationRounds) {
+				log.info("WARNING: validation cap reached without approval");
+				break;
+			}
+			round++;
+			result = await invokeImprover(outcome.findings);
+		}
 	}
 
 	await tryHook(
 		"afterImprove",
 		`iteration:${iteration}`,
 		config.hooks?.afterImprove,
-		{ ...baseCtx, improvementPath },
+		{ ...baseCtx, improvementPath: result.improvementPath },
 		log,
 	);
 
-	return { improvementPath };
+	return { improvementPath: result.improvementPath };
+}
+
+/**
+ * Render the validator's findings as a `# Validator findings` section for the
+ * improver's USER message. Each finding is listed as
+ * `[<leak_type>] <span> — <why>; fix: <suggested_fix>` with the `span`
+ * verbatim, so the improver can locate the offending substring (§2.0 rule 1).
+ */
+function renderFindings(findings: ValidatorFinding[]): string {
+	return [
+		"# Validator findings",
+		...findings.map(
+			(f) => `[${f.leak_type}] ${f.span} — ${f.why}; fix: ${f.suggested_fix}`,
+		),
+	].join("\n");
 }
