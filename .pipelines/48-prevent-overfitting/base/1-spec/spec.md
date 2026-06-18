@@ -43,8 +43,9 @@ mock-driven and deterministic — no real model runs in the test suite.
   produced. This must not change.
 - **Validator** — the new optional read-only agent this spec introduces.
 - **Corpus** — the set of active scenarios the consuming project supplies (each
-  scenario's name + description + prompt + acceptance) plus the rubric text(s). Excludes any
-  `_candidates.yaml` (not enumerated).
+  scenario's name + description + prompt + acceptance) plus the rubric text(s). It is the
+  enumerated `*/scenario.yaml` set; a `_candidates.yaml` is never enumerated and is therefore
+  excluded by construction.
 - **Leakage** — the edit references something that identifies a *specific* scenario (its name,
   its scenario-unique value, or its verbatim wording).
 - **Domain** — the API surface that recurs across many scenarios and is what the skill exists to
@@ -281,26 +282,41 @@ roles-triple validation tests pass UNCHANGED.
 malformed → fail-open approve; an invalid `verdict` value → invalid; non-JSON → undefined →
 fail-open approve.
 
-**AC3 — Convergence E2E.** With a validator-loop fixture: the mock improver's first pass writes a
-passing MARKER plus a LEAK_TOKEN → the mock validator returns `revise` (findings name LEAK_TOKEN)
-→ the improver removes LEAK_TOKEN → the validator returns `approve` → the loop converges. Assert
-(a) the validator ran (a validation transcript exists), (b) at least one revise round occurred,
-(c) the final on-disk skill is leak-free (does not include LEAK_TOKEN).
+**AC3 — Convergence E2E.** With a validator-loop fixture (default `maxValidationRounds = 2`): the
+mock improver's first pass writes a passing MARKER plus a LEAK_TOKEN → the mock validator returns
+`revise` (findings name LEAK_TOKEN) → the improver removes LEAK_TOKEN → the validator returns
+`approve` → the loop converges. Traced against the same R6/R7 loop as AC5, this happy path yields
+**2 improver invocations** (first pass + 1 revise round) and **2 validation transcripts** (the
+round-1 `revise` and the round-2 `approve`). Assert (a) the validator ran (a validation transcript
+exists), (b) exactly one revise round occurred, (c) the final on-disk skill is leak-free (does not
+include LEAK_TOKEN). These counts share the loop shape and cap semantics AC5 pins, so the two E2E
+criteria encode one loop.
 
 **AC4 — Backward-compat E2E.** The EXISTING self-improvement-loop test (no validator role) stays
 UNTOUCHED and passing — the no-validator path is byte-identical to today. This is the strongest
 backward-compat proof.
 
 **AC5 — Cap behavior (validator-never-approves variant).** With a mock validator that never
-approves: the inner loop terminates at `maxValidationRounds` (no hang — exactly N validation
-transcripts / N+1 improver invocations), the LAST edit is KEPT on disk (not reverted), a stable
-WARNING log line is recorded (e.g. "validation cap reached without approval"), and the run still
-proceeds to an exit code.
+approves and `maxValidationRounds = N` (the loop in R6/R7: validate every on-disk edit, including
+the last; the terminal validation is what detects the cap and breaks): the inner loop terminates
+at the cap (no hang — exactly **N+1 improver invocations** and **N+1 validation transcripts**).
+For the default N=2 that is 3 improver invocations (the first pass plus 2 revise rounds) and 3
+validation transcripts (each edit, including the final un-revised one, is reviewed — its findings
+feed the warning). The LAST edit is KEPT on disk (not reverted), a stable WARNING log line is
+recorded (e.g. "validation cap reached without approval"), and the run still proceeds to an exit
+code. This pins the SAME loop shape as AC3's happy path; the two E2E criteria do not encode two
+different loops.
 
 **AC6 — False-positive guard.** A general, non-leaked edit (generic example values — the
 de-fingerprinted skill) is APPROVED, and domain vocabulary (breadth ≥ 2, e.g.
 `data-wp-on--click`) is never flagged. Pinned by a leakage-scan unit test (if a pre-scan is
-specced in design) and/or the must-approve negative fixture.
+specced in design) and/or the must-approve negative fixture. Honest scope of the deterministic
+portion: with a *mock* validator, the must-approve fixture verifies the loop accepts an `approve`
+verdict (converges without a revise round) — it does NOT exercise a model's breadth-rule judgment.
+The breadth-rule judgment itself (a real model declining to flag domain vocabulary) is covered by
+the design-reference real-model check, not this suite. If design elects the optional pre-scan, its
+`leakage-scan.test.ts` unit pins the breadth rule deterministically; absent that, AC6's
+unconditional, deterministic claim is the loop-approves-on-approve behavior.
 
 **AC7 — Fail-open behavior.** A validator provider error or an unparseable verdict does NOT block
 the improver or stall the loop — it exits the inner loop as approve, with the evidence trail
