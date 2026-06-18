@@ -51,6 +51,7 @@ export interface RolesInput {
 	test: TestRoleInput;
 	judge: SingleRoleInput;
 	improver: SingleRoleInput;
+	validator?: SingleRoleInput;
 }
 
 export interface TestRoleInput {
@@ -70,6 +71,7 @@ export interface NormalizedRoles {
 	test: { agents: AgentDefinition[]; prompt?: string };
 	judge: { agent: AgentDefinition; prompt?: string };
 	improver: { agent: AgentDefinition; prompt?: string };
+	validator?: { agent: AgentDefinition; prompt?: string };
 }
 
 /**
@@ -82,6 +84,7 @@ export interface SelfImprovementConfig {
 	maxIterations?: number;
 	scope?: EvaluationScope;
 	finalPass?: boolean;
+	maxValidationRounds?: number;
 }
 
 export interface Paths {
