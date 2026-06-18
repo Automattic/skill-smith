@@ -16,8 +16,8 @@ reuses `role:"judge"` (C5 — do NOT extend the `Role` union in `providers/types
 
 **Guardrails every task's commit must keep green** (project `check`): typecheck, lint (biome),
 tests (`node --test`), config-smoke, changeset-format. Most tasks are net-additive and keep all
-existing tests passing; the byte-identity tasks (T1, T8, T11) are where regressions would surface.
-A single changeset covers the whole feature — see **T14**.
+existing tests passing; the byte-identity tasks (T1, T8, T10) are where regressions would surface.
+A single changeset covers the whole feature — see **T13**.
 
 **Conventions used below.** "Files" lists exact paths. Line numbers are as verified at design time;
 treat them as anchors, re-confirm before editing. "Traces to" cites spec ACs (AC1–AC7), spec
@@ -37,18 +37,20 @@ T6  AC1 config tests (roles.validator + resolve case)       → T3, T4, T5
 T7  classifyValidatorVerdict + AC2 test                     → T1
 T8  readSkillsRoot reader                                   → no deps
 T9  runValidator agent (+ DEFAULT_VALIDATOR_PROMPT)         → T1, T7, T8, T2
-T10 improver.ts: invokeImprover extraction + inner loop     → T5, T8, T9, T2
-T11 pipeline.ts: enumerated corpus threading                → T2, T10, T5
-T12 mock.ts: validator branch + gated improver leak behavior → (independent of T9/T10 internals; needs sentinels)
-T13 fixtures + AC3/AC5/AC6 E2E loop tests                   → T10, T11, T12
-T14 CLI flag (--validation-rounds) + changeset              → T5
+T10 integration spine: improver.ts inner loop + pipeline.ts corpus threading → T5, T8, T9, T2
+T11 mock.ts: validator branch + gated improver leak behavior → (independent of T10 internals; needs sentinels)
+T12 fixtures + AC3/AC5/AC6 E2E loop tests                   → T10, T11
+T13 CLI flag (--validation-rounds) + changeset              → T5
 ```
 
 T1–T9 are leaf/near-leaf and may be implemented in any order consistent with their `Depends on`.
-T10 and T11 are the integration spine; T12 and T13 are the E2E proof; T14 is the surface + release
-bookkeeping. T12 can be written before or after T10/T11 (it only depends on the agreed sentinels and
-prompt identity strings), but its E2E payoff is only realized once T10/T11/T13 land — keep T13 after
-all three.
+T10 is the integration spine — it is a SINGLE task that adds the two required `RunImprovementParams`
+fields (`corpus`, `maxValidationRounds`) AND updates the sole `runImprovement` call site in
+`pipeline.ts` in the same commit, so no intermediate commit leaves `pipeline.ts` non-typechecking
+(the cross-file required-field-and-its-populator land atomically). T11 and T12 are the E2E proof; T13
+is the surface + release bookkeeping. T11 can be written before or after T10 (it only depends on the
+agreed sentinels and prompt identity strings), but its E2E payoff is only realized once T10/T12 land —
+keep T12 after both.
 
 ---
 
@@ -236,8 +238,10 @@ no-validator path is unchanged.
 
 **Acceptance.**
 - New cases pass; the pre-existing roles-triple and maxIterations cases pass UNCHANGED (re-run the
-  full file). `node --test src/__tests__/config-validate.test.ts` and
-  `node --test src/__tests__/self-improvement.test.ts` green.
+  full file). `node --import tsx --test src/__tests__/config-validate.test.ts` and
+  `node --import tsx --test src/__tests__/self-improvement.test.ts` green (the `--import tsx` loader is
+  REQUIRED — the test files are TypeScript; the project `test` script is
+  `node --import tsx --test src/__tests__/*.test.ts`).
 
 ---
 
@@ -289,7 +293,8 @@ it with a string-input unit test.
     `failedOpen:true`;
   - `verdict:"approved"` (typo) / missing verdict / wrong type → row 2 → `approve`, `failedOpen:true`;
   - non-JSON (`"not json"`) → row 1 → `approve`, `failedOpen:true`.
-- `node --test src/__tests__/validator-verdict.test.ts` green; typecheck + lint clean.
+- `node --import tsx --test src/__tests__/validator-verdict.test.ts` green (the `--import tsx` loader
+  is REQUIRED — TS test file); typecheck + lint clean.
 
 ---
 
@@ -378,11 +383,22 @@ provider-error fail-open, and write the `validation-round-{round}.md` transcript
   `improver.ts:130-132` / `judge-agent.ts:129-131`).
 - **User message** (data, separate from system prompt, §6.4): `# Post-edit skill` + `skillsBlob`;
   `# Active scenario corpus` + per-scenario `{name, description, prompt, acceptance}` from `corpus`;
-  `# Rubrics` + rubric bodies. **Rubric assembly (§4.3):** dedupe rubric ids across the corpus
-  (`new Set(corpus.flatMap(s => s.scenario.rubrics))`), read each as `paths.rubrics/<id>.md` with the
-  judge's `existsSync ? readFileSync : "TO BE FILLED"` fallback (`judge-agent.ts:95-100`). Do NOT read
-  all `*.md` under `paths.rubrics`. **INLINE the ~4-line rubric read in the validator — do NOT factor
-  a shared helper out of `judge-agent.ts`** (§4.3 — protects the AC1/C1 judge proof).
+  `# Rubrics` + rubric bodies.
+  - **Corpus field access — read EVERY scenario field via `s.scenario.<field>`, NOT `s.<field>`.**
+    `corpus` is `EnumeratedScenario[]` where each element is
+    `{ scenario: Scenario; dirName: string; error?: string }` (`src/scenarios/enumerate.ts:7-11`) — the
+    scenario fields live one level down. So name/description/prompt/acceptance are
+    `s.scenario.name` / `s.scenario.description` / `s.scenario.prompt` / `s.scenario.acceptance`, and the
+    rubric ids are `s.scenario.rubrics`. **This explicitly OVERRIDES the design §4.3 snippet, which has
+    a typo `new Set(corpus.flatMap(s => s.rubrics))` — that form does NOT typecheck (`EnumeratedScenario`
+    has no `rubrics` field). Use `s.scenario.rubrics`. Do NOT "fix" the plan back to the design's broken
+    `s.rubrics` form.** (Confirmed by the existing call patterns `s.scenario.X` at
+    `select-scenarios.ts:47`, `pipeline.ts:112`.)
+  - **Rubric assembly (§4.3):** dedupe rubric ids across the corpus
+    (`new Set(corpus.flatMap(s => s.scenario.rubrics))`), read each as `paths.rubrics/<id>.md` with the
+    judge's `existsSync ? readFileSync : "TO BE FILLED"` fallback (`judge-agent.ts:95-100`). Do NOT read
+    all `*.md` under `paths.rubrics`. **INLINE the ~4-line rubric read in the validator — do NOT factor
+    a shared helper out of `judge-agent.ts`** (§4.3 — protects the AC1/C1 judge proof).
 - **Corpus assembly (§4.3):** source is `EnumeratedScenario[]`. INCLUDE error'd-but-non-stub scenarios
   (an unresolved-ref error still carries a parsed prompt/acceptance); SKIP stubs (empty
   prompt/acceptance from `stubScenario`). `_candidates.yaml` is excluded by construction upstream.
@@ -398,7 +414,7 @@ output, so the type contract aligns here), T2 (`NormalizedRoles.validator` / con
 **Traces to.** R1, R2, R3, R3a, R4, R8, R9, C1, C5, §4.2, §4.3, §4.4, §6, §7.4, §9.3.
 
 **Acceptance.**
-- Typecheck + lint clean. `runValidator` is exercised E2E by T13 (no standalone unit required, but a
+- Typecheck + lint clean. `runValidator` is exercised E2E by T12 (no standalone unit required, but a
   thin unit asserting the provider-error path sets `failedOpen:true` and writes a transcript is welcome
   for AC7).
 - Reviewable invariants: `RunValidatorParams` has no `iterationReport`/`report`/judge-review field;
@@ -408,18 +424,31 @@ output, so the type contract aligns here), T2 (`NormalizedRoles.validator` / con
 
 ---
 
-## T10 — `improver.ts`: extract `invokeImprover` + add the inner validate/revise loop
+## T10 — Integration spine: `improver.ts` inner loop + `pipeline.ts` corpus threading (ONE atomic task)
 
 **Goal.** Extract the single improver invoke into a private `invokeImprover(findings)` and add the
 validator inner loop INSIDE `runImprovement`, gated by exactly one
-`if (config.roles.validator === undefined)` branch — keeping the no-validator path byte-identical.
+`if (config.roles.validator === undefined)` branch — keeping the no-validator path byte-identical — AND
+update the sole `runImprovement` call site in `pipeline.ts` to supply the two new fields, all in ONE
+commit.
+
+**Why one task (B1 / cross-file atomicity).** The two new `RunImprovementParams` fields (`corpus`,
+`maxValidationRounds`) are REQUIRED (non-optional, per design §3). `pipeline.ts:85-88` +
+`pipeline.ts:193-207` is the SOLE caller of `runImprovement` and it is an OBJECT LITERAL — TypeScript
+reports "missing required properties" the instant the fields exist but the literal does not set them.
+Splitting "add fields" (improver.ts) from "populate fields" (pipeline.ts) across two commits would
+leave the in-between commit failing typecheck, violating the per-task "typecheck green" guardrail.
+So both files are edited and committed TOGETHER here. (Do NOT make the fields optional to dodge this —
+the design wants them required; atomicity is the fix.)
 
 **Files.**
 - MODIFY `src/improvement/improver.ts`
+- MODIFY `src/pipeline/pipeline.ts`
 
-**Changes.**
-- Add two new `RunImprovementParams` fields (§3): `corpus: EnumeratedScenario[]` and
-  `maxValidationRounds: number`. (`pipeline.ts` supplies them in T11.)
+**Changes — Part A: `src/improvement/improver.ts`.**
+- Add two new `RunImprovementParams` fields (§3), both REQUIRED (non-optional): `corpus:
+  EnumeratedScenario[]` and `maxValidationRounds: number`. (Part B below populates them in the same
+  commit, so the literal never goes un-set.)
 - **Extract `invokeImprover` (§2.0).** Move the current single improver invoke
   (`:148-168`: `getProvider().invoke({role:"testing"})` + the `improvement.md` write + the two
   `log.info`s) into a private `async function invokeImprover(findings: ValidatorFinding[] | undefined): Promise<{ improvementPath: string }>`
@@ -470,58 +499,52 @@ validator inner loop INSIDE `runImprovement`, gated by exactly one
   `log.info` (RunLog has no `warn` level — `run-log.ts:29-55`; §9.1). AC5 greps this literal.
 - Do NOT let the validator touch `report.json`, the matrix, or the exit code (§2.4, §9.2 — advisory).
 
-**Depends on.** T5 (`maxValidationRounds` threaded by pipeline), T8 (`readSkillsRoot`),
-T9 (`runValidator`, `ValidatorFinding`), T2 (`config.roles.validator`).
-
-**Traces to.** R1, R5, R6, R7, R8, C3, C4, D2, AC3, AC4, AC5, AC7, §2.0, §2.1, §2.2, §2.3, §2.4, §9.1.
-
-**Acceptance.**
-- Typecheck + lint clean. The no-validator path is structurally byte-identical: round 0 runs the same
-  invoke + the same single `improvement.md` write + the same two `log.info`s, and the
-  `if (config.roles.validator === undefined)` branch does nothing else. `self-improvement-loop.test.ts`
-  (AC4) MUST stay UNTOUCHED and green (run it).
-- The cap-check sits after validate / before the next invoke (reviewable from the `while(true)`
-  structure). `renderFindings` renders `span` verbatim into the user message. `improvement.md` is
-  written under the `findings === undefined` guard only.
-- E2E behavior pinned by T13 (AC3/AC5).
-
----
-
-## T11 — `pipeline.ts`: thread the FULL enumerated corpus + `maxValidationRounds`
-
-**Goal.** Split the inline enumerate so the FULL (unfiltered) corpus is retained, and pass it plus
-`maxValidationRounds` into the `runImprovement` call.
-
-**Files.**
-- MODIFY `src/pipeline/pipeline.ts`
-
-**Changes.**
-- At `:85-88`, split the inline call (§4.3 option i):
+**Changes — Part B: `src/pipeline/pipeline.ts` (SAME commit as Part A).**
+- At `:85-88`, split the inline `allScenarios = filterScenarios(enumerateScenarios(...), ...)` into two
+  statements so the FULL (unfiltered) corpus is retained (§4.3 option i):
   ```ts
   const enumerated = enumerateScenarios(config.paths, projectRoot);   // FULL corpus
   const allScenarios = filterScenarios(enumerated, params.scenarios);  // run subset (improver path)
   ```
 - In the `runImprovement({...})` call (`:193-207`), add `corpus: enumerated` and
-  `maxValidationRounds: selfImprovement.maxValidationRounds`. Keep `allScenarios` as-is (the improver's
-  failing-scenario context still uses the FILTERED set — correct, it edits this run's failing skills,
-  §4.3). The corpus source is the FULL set, distinct from `allScenarios`.
+  `maxValidationRounds: selfImprovement.maxValidationRounds` to the object literal — these populate the
+  two REQUIRED fields added in Part A, so the literal typechecks the moment the fields exist. Keep
+  `allScenarios` as-is (the improver's failing-scenario context still uses the FILTERED set — correct,
+  it edits this run's failing skills, §4.3). The corpus source is the FULL set, distinct from
+  `allScenarios`.
 - Do NOT re-enumerate inside `runValidator` (§4.3 / §10 rejected alternative — wasteful, hides the
   decision).
 
-**Depends on.** T2 (types), T5 (`selfImprovement.maxValidationRounds` on `ResolvedSelfImprovement`),
-T10 (`RunImprovementParams.corpus` / `.maxValidationRounds` fields exist).
+**Depends on.** T5 (`selfImprovement.maxValidationRounds` on `ResolvedSelfImprovement`), T8
+(`readSkillsRoot`), T9 (`runValidator`, `ValidatorFinding`), T2 (`config.roles.validator` /
+config types). (No dependency on a separate pipeline task — the pipeline edit is Part B of THIS task.)
 
-**Traces to.** R3, R3a, C2, AC3, AC5, §4.1, §4.3.
+**Traces to.** R1, R3, R3a, R5, R6, R7, R8, C2, C3, C4, D2, AC3, AC4, AC5, AC7, §2.0, §2.1, §2.2,
+§2.3, §2.4, §4.1, §4.3, §9.1.
 
 **Acceptance.**
-- Typecheck + lint clean; all existing pipeline/E2E tests still pass (the split is behavior-preserving
-  for the no-validator path — `allScenarios` is computed identically).
-- `enumerated` (the FULL set, pre-filter) is what flows into `corpus`; `allScenarios` (filtered) still
-  drives the improver's failing-scenario context and the run roster.
+- **Typecheck + lint clean AS A SINGLE COMMIT** — because Part B populates the two REQUIRED fields in
+  the same commit Part A adds them, `pipeline.ts:193` never reports "missing properties". No
+  intermediate state is left non-typechecking (B1 fix). The split in Part B is behavior-preserving for
+  the no-validator path (`allScenarios` is computed identically); `enumerated` (the FULL set, pre-filter)
+  is what flows into `corpus`, and `allScenarios` (filtered) still drives the improver's failing-scenario
+  context and the run roster.
+- The no-validator path is structurally byte-identical: round 0 runs the same invoke + the same single
+  `improvement.md` write + the same two `log.info`s, and the
+  `if (config.roles.validator === undefined)` branch does nothing else. `self-improvement-loop.test.ts`
+  (AC4) MUST stay UNTOUCHED and green (run it); all existing pipeline/E2E tests still pass.
+- The cap-check sits after validate / before the next invoke (reviewable from the `while(true)`
+  structure). `renderFindings` renders `span` verbatim into the user message. `improvement.md` is
+  written under the `findings === undefined` guard only.
+- E2E behavior pinned by T12 (AC3/AC5).
 
 ---
 
-## T12 — `mock.ts`: validator branch + gated improver add-leak/remove-leak
+<!-- (Former T11 "pipeline.ts corpus threading" is now T10 Part B — merged to keep the cross-file
+required-field change atomic; see T10's "Why one task" note. Subsequent tasks renumbered: old
+T12→T11, T13→T12, T14→T13.) -->
+
+## T11 — `mock.ts`: validator branch + gated improver add-leak/remove-leak
 
 **Goal.** Make the mock provider drive the validator loop deterministically — a validator branch that
 returns `revise`/`approve` off sentinels, and gated improver behavior that adds then removes the leak
@@ -580,7 +603,7 @@ returns `revise`/`approve` off sentinels, and gated improver behavior that adds 
 
 **Depends on.** Agreement on the sentinels and on the prompt identity strings (`"validator agent"`,
 `"improver agent"`) and the user-message rendering of findings — all fixed by T9/T10's design. Can be
-implemented in parallel with T9/T10 against those fixed strings; its payoff is realized in T13.
+implemented in parallel with T9/T10 against those fixed strings; its payoff is realized in T12.
 
 **Traces to.** AC3, AC4, AC5, AC6, R6, §11.2, §11.3.
 
@@ -593,7 +616,7 @@ implemented in parallel with T9/T10 against those fixed strings; its payoff is r
 
 ---
 
-## T13 — Fixtures + AC3/AC5/AC6 E2E loop tests
+## T12 — Fixtures + AC3/AC5/AC6 E2E loop tests
 
 **Goal.** Two self-contained fixtures and the E2E test(s) that exercise the whole inner loop end to
 end: convergence (AC3), cap behavior (AC5), and the false-positive/approve-on-approve guard's
@@ -645,20 +668,22 @@ deterministic portion (AC6).
   or rely on the AC3 round-2 approve as the approve-acceptance evidence). Keep AC6 tied to "loop
   accepts an approve verdict," not to a model's breadth judgment.
 
-**Depends on.** T10 (inner loop), T11 (corpus threading), T12 (mock branches + helpers).
+**Depends on.** T10 (inner loop + corpus threading — both Parts A and B), T11 (mock branches +
+helpers).
 
 **Traces to.** AC3, AC5, AC6, R6, R7, D2, §9.1, §9.2, §11.4, §11.5.
 
 **Acceptance.**
-- `node --test src/__tests__/validator-loop.test.ts` green: AC3 converges (2 transcripts, leak-free,
-  exit 0); AC5 caps (3 transcripts, WARNING literal in `run.log`, last edit kept, returns a number);
-  AC6 deterministic approve-on-approve holds. Each test resets its fixture skill to pristine in
-  `finally` and leaves the working tree clean.
-- The full suite (`node --test`) passes, including `self-improvement-loop.test.ts` UNCHANGED (AC4).
+- `node --import tsx --test src/__tests__/validator-loop.test.ts` green (the `--import tsx` loader is
+  REQUIRED — TS test file): AC3 converges (2 transcripts, leak-free, exit 0); AC5 caps (3 transcripts,
+  WARNING literal in `run.log`, last edit kept, returns a number); AC6 deterministic approve-on-approve
+  holds. Each test resets its fixture skill to pristine in `finally` and leaves the working tree clean.
+- The full suite (`npm test`, i.e. `node --import tsx --test src/__tests__/*.test.ts`) passes,
+  including `self-improvement-loop.test.ts` UNCHANGED (AC4).
 
 ---
 
-## T14 — CLI `--validation-rounds` flag + changeset
+## T13 — CLI `--validation-rounds` flag + changeset
 
 **Goal.** Add the CLI flag mirroring `--iterations` (precedence CLI > config > default), and record
 the release changeset for the whole feature.
@@ -706,30 +731,30 @@ the release changeset for the whole feature.
 |---|---|
 | **R1** optional validator in loop, improver sole writer | T2, T4, T9, T10 |
 | **R2** mandate = edit quality, 4 leak types | T9 (`DEFAULT_VALIDATOR_PROMPT` §6.4), T7 (enum) |
-| **R3** leakage-vs-domain two-prong AND | T9 (prompt §6.4), T11 (full corpus) |
-| **R3a** precision bias, 0/≥2 scenarios pass clean | T9 (prompt §6.4), T11 (full corpus monotonicity) |
+| **R3** leakage-vs-domain two-prong AND | T9 (prompt §6.4), T10 (Part B full corpus) |
+| **R3a** precision bias, 0/≥2 scenarios pass clean | T9 (prompt §6.4), T10 (Part B full corpus monotonicity) |
 | **R4** what the validator sees (no judge reviews) | T8, T9 (§4.2/§4.4 exclusion) |
 | **R5** edit-capture in-process/ephemeral/no-git, whole root | T8, T10 |
-| **R6** approve/revise mechanics, in-place, no revert | T10 (inner loop), T12 (mock revise) |
-| **R7** `maxValidationRounds` config + cap keep+warn | T2, T3, T5, T10 (warn), T14 (CLI) |
+| **R6** approve/revise mechanics, in-place, no revert | T10 (inner loop), T11 (mock revise) |
+| **R7** `maxValidationRounds` config + cap keep+warn | T2, T3, T5, T10 (warn), T13 (CLI) |
 | **R8** fail-open (provider error / unparseable / malformed) | T7 (rows 1/2/5), T9 (provider-error path) |
-| **R9** verdict JSON format | T7 (parse/shape), T9 (prompt), T12 (mock emits R9 shape) |
+| **R9** verdict JSON format | T7 (parse/shape), T9 (prompt), T11 (mock emits R9 shape) |
 | **C1** judge stays skill-blind | T1 (judge unchanged except import), T9 (rubric read inline) |
-| **C2** no held-out gate, small-corpus breadth | T11 (full corpus) |
+| **C2** no held-out gate, small-corpus breadth | T10 (Part B full corpus) |
 | **C3** no git dependency | T8 (pure fs) |
-| **C4** backward compatible (forced) | T3/T4/T5 (`!== undefined` guards), T10 (round-0-only path), T12 (`VALIDATOR_LOOP_FIXTURE` gate), AC4 untouched |
+| **C4** backward compatible (forced) | T3/T4/T5 (`!== undefined` guards), T10 (round-0-only path), T11 (`VALIDATOR_LOOP_FIXTURE` gate), AC4 untouched |
 | **C5** validator read-only, `role:"judge"`, no new `Role` | T2/T9 (no `Role` union edit) |
 | **C6** honest scope, advisory | T9 (prompt), T10 (§2.4 advisory) |
 | **AC1** config validation | T3, T4, T5, T6 |
 | **AC2** verdict parse/shape table | T7 |
-| **AC3** convergence E2E | T10, T11, T12, T13 |
-| **AC4** backward-compat E2E (untouched) | T1, T10, T12 (gate) — `self-improvement-loop.test.ts` stays untouched |
-| **AC5** cap behavior | T10, T11, T12, T13 |
-| **AC6** false-positive guard (deterministic portion) | T12, T13 |
-| **AC7** fail-open behavior | T7 (row 1), T9 (provider-error + `failedOpen` transcript), T13 (optional mock-error path) |
+| **AC3** convergence E2E | T10, T11, T12 |
+| **AC4** backward-compat E2E (untouched) | T1, T10, T11 (gate) — `self-improvement-loop.test.ts` stays untouched |
+| **AC5** cap behavior | T10, T11, T12 |
+| **AC6** false-positive guard (deterministic portion) | T11, T12 |
+| **AC7** fail-open behavior | T7 (row 1), T9 (provider-error + `failedOpen` transcript), T12 (optional mock-error path) |
 
 **Guardrails:** typecheck/lint/tests green on every task; config-smoke unaffected (additive optional
-fields); changeset recorded in T14 (minor).
+fields); changeset recorded in T13 (minor).
 
 **Deferred per D5/§8.4 (NOT in this plan, by design):** the deterministic pre-scan
 (`leakage-scan.ts` / `leakage-scan.test.ts`, RULES 1–3 over forms a–c, surfaced-evidence-only,
