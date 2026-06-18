@@ -200,9 +200,15 @@ export default defineConfig({
     judge: "opus",
     // Replace the built-in improver instructions with a project-specific strategy.
     improver: { agent: "opus", prompt: "..." },
+    // Optional anti-leakage reviewer. Its mere presence is the on/off gate:
+    // omit `validator` and the loop runs exactly as before (validator off).
+    // Accepts a string shorthand (`validator: "opus"`) or the object form;
+    // `prompt` replaces the built-in validator instructions (see below).
+    validator: { agent: "opus", prompt: "..." },
   },
   selfImprovement: {
     maxIterations: 3,                   // default 3
+    maxValidationRounds: 2,             // integer ≥ 1, default 2: the improver's first pass plus up to 2 revise rounds; a configured 0 clamps to 1 (it does not disable the validator — on/off is governed solely by roles.validator)
     scope: "failed-scenarios",          // "failed-pairs" | "failed-scenarios" | "all"
     finalPass: false,
   },
@@ -215,7 +221,7 @@ export default defineConfig({
 });
 ```
 
-`roles.test.prompt` and `roles.judge.prompt` are appended to the respective system prompts as a `# Role instructions` section, augmenting the harness-owned structural blocks. `roles.improver.prompt` replaces the built-in improver instructions entirely. When `roles.improver.prompt` is not set, the harness uses a minimal built-in instruction ("edit the failing skills in place, minimally, no git").
+`roles.test.prompt` and `roles.judge.prompt` are appended to the respective system prompts as a `# Role instructions` section, augmenting the harness-owned structural blocks. `roles.improver.prompt` and `roles.validator.prompt`, by contrast, **replace** their built-in instructions entirely. When `roles.improver.prompt` is not set, the harness uses a minimal built-in instruction ("edit the failing skills in place, minimally, no git"). Overriding `roles.validator.prompt` is a footgun: the replacement is the validator's whole contract, so it must preserve the verdict JSON schema (the `approve`/`revise` object with typed `findings`) and the validator's identity, or the harness cannot parse the verdict — and on an unparseable verdict the validator fails open (treats it as `approve`).
 
 See [`examples/skillsmith.config.ts`](./examples/skillsmith.config.ts) for a reference config showing every provider (`claude-code`, `anthropic-api`, `openai-api`, `codex`, `gemini-api`), provider-specific options like `effort`, and the full set of hooks and `selfImprovement` knobs.
 
