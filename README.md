@@ -230,8 +230,10 @@ See [`examples/skillsmith.config.ts`](./examples/skillsmith.config.ts) for a ref
 Flags override the config block for a single invocation:
 
 ```
-skillsmith --mode self-improvement --iterations 5 --scope failed-pairs --final-pass
+skillsmith --mode self-improvement --iterations 5 --validation-rounds 3 --scope failed-pairs --final-pass
 ```
+
+`--iterations N` overrides `selfImprovement.maxIterations` and `--validation-rounds N` overrides `selfImprovement.maxValidationRounds` — each for that one run only (CLI flag > config block > default). Both take an integer ≥ 1; a value `< 1` is rejected and the run exits before any work starts. `--validation-rounds` governs only the validator's round cap — it does not turn the validator on or off (that is `roles.validator` presence alone).
 
 ### Hooks
 
