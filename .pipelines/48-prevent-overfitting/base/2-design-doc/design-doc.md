@@ -69,6 +69,73 @@ This placement makes the no-validator byte-identity (C4/AC4) visually obvious �
 polices hardest — while keeping the validate/revise loop inside the one function that owns the
 improver.
 
+### 2.0 The `invokeImprover` contract (settled — load-bearing for AC3/AC4/AC5)
+
+`invokeImprover` is the extraction of `runImprovement`'s current single improver invoke
+(`improver.ts:148-168`, the `provider.invoke({role:"testing"})` plus the `improvement.md` write plus
+the two `log.info` lines). Both the round-0 call and every revise-round call go through it. Its exact
+contract:
+
+```ts
+// private to improver.ts; closes over baseCtx-derived locals (agent, systemPrompt base,
+// skillsDir, iterationDirectory, log, instructions, context). Round 0 passes findings=undefined.
+async function invokeImprover(
+  findings: ValidatorFinding[] | undefined,   // undefined on round 0; verdict.findings on revise
+): Promise<{ improvementPath: string }>;
+```
+
+Two rules this contract pins — both are load-bearing and were under-specified before:
+
+1. **Findings render into the improver's USER MESSAGE, with `span` verbatim (B1 / R6 / R9).** On a
+   revise round, `invokeImprover` appends a `# Validator findings` section to the **user message**
+   (`prompt`), NOT the system prompt. The section is built by `renderFindings(findings)` and lists
+   each finding as `[<leak_type>] <span> — <why>; fix: <suggested_fix>`, rendering the **`span`
+   verbatim** (R9's stated purpose: the improver must be able to locate the offending substring). On
+   round 0 (`findings === undefined`), **no** `# Validator findings` section is emitted, so the user
+   message is byte-identical to today's (improver.ts:134-142). This placement is mandatory, not
+   stylistic, for three reasons:
+   - **R6** requires the revise round see "the same original report and skill context the first round
+     had, **plus** the validator's findings" — so findings are *additive* to the existing user
+     message (which already carries the report + skill context), not a replacement and not in the
+     system prompt (which carries instructions, identity, recursion guard — unchanged between rounds).
+   - **The mock's revise-detection depends on it.** The mock improver keys revise-vs-round-0 on
+     `params.prompt.includes("LEAK_TOKEN")` (§11.3), where `params.prompt` is the **user message**
+     (`runImprovement` passes the user message as `prompt`, improver.ts:152). The only source of the
+     literal `LEAK_TOKEN` on a revise round is the rendered finding's `span` (the stale
+     `context.skillsBlob` is the *pre-edit* skill and the §11.3 fixture constraint forbids the token
+     in the corpus/report). If findings rendered into the **system prompt** instead — or dropped the
+     `span` — `params.prompt.includes("LEAK_TOKEN")` would be false on every round, the mock improver
+     would never strip the leak, the validator would never approve, and AC3 would not converge / AC5's
+     counts would shift. Rendering into the user message with `span` verbatim is what makes the
+     design's own happy path hold.
+   - **Round 0 emits no findings section** → `params.prompt.includes("LEAK_TOKEN")` is false on round
+     0 (given the §11.3 fixture constraint that the token is absent from the corpus/report), so the
+     mock takes its round-0 (add-leak) branch.
+
+2. **`improvement.md` is written ONLY on round 0 (B2 / §9.3 / AC4).** `invokeImprover` writes
+   `iteration-N/improvement.md` **only when `findings === undefined`** (the round-0 call). Revise-round
+   calls (`findings !== undefined`) re-edit the skills in place and log, but do **not** write or
+   clobber `improvement.md`. The guard is literally `if (findings === undefined)
+   writeFileSync(improvementPath, body)`. Consequences:
+   - `improvement.md` stays the **round-0** improver transcript on every path, satisfying §9.3 and
+     AC4's byte-identity assertion (`self-improvement-loop.test.ts:81-84`). On the no-validator path
+     only the round-0 call ever runs, so the write happens exactly once, byte-identical to today.
+   - The per-revise improver transcripts are **intentionally not persisted** — R5 mandates only that
+     the **validator's** prose verdict be persisted (`validation-round-{K}.md`, §9.3), not the
+     improver's per-round output. This is a deliberate scope choice, stated so the code-writer does
+     not add `improvement-round-K.md` files.
+   - `invokeImprover` always returns the same `improvementPath` (the round-0
+     `iteration-N/improvement.md` path), computed once; `runImprovement` returns that path to the hook
+     (`afterImprove`'s `improvementPath`, §2.3), unchanged on every path. The path is stable because it
+     is derived from `iterationDirectory`, not from the round.
+
+   Re-trace against the ACs: **AC3** — round-0 call writes `improvement.md`; the single revise-round
+   call (`findings` naming LEAK_TOKEN) does NOT rewrite it; final `improvement.md` is the round-0
+   transcript. **AC4** — no-validator path runs only the round-0 call → exactly one write →
+   byte-identical. **AC5** — round-0 call writes; the two revise-round calls do NOT → `improvement.md`
+   is still the round-0 transcript after the cap. In all three, `improvement.md` is the round-0
+   transcript and there are no `improvement-round-K.md` files, consistent with §9.3.
+
 ### 2.1 Control flow (settled)
 
 ```
@@ -77,12 +144,13 @@ runImprovement(params):
   // fire beforeImprove ONCE.
   validatorRole = config.roles.validator          // undefined => today's path
 
-  result = invokeImprover(ctx, findings=undefined) // ROUND 0 = first improver pass
+  result = invokeImprover(findings=undefined)      // ROUND 0 = first improver pass
                                                    //   (== today's single provider.invoke)
+                                                   //   WRITES improvement.md (round-0 only, §2.0 rule 2)
 
   if validatorRole === undefined:
     // ---- BYTE-IDENTICAL no-validator path (C4/AC4) ----
-    // invokeImprover already wrote improvement.md and logged; nothing else.
+    // The round-0 invokeImprover already wrote improvement.md and logged; nothing else.
   else:
     // ---- validator inner loop (R6/R7/R8) ----
     round = 0                                       // counts REVISE rounds TAKEN
@@ -95,7 +163,9 @@ runImprovement(params):
         log.info("WARNING: validation cap reached without approval")  // R7/D2: keep + warn, NO revert
         break
       round++
-      result = invokeImprover(ctx, findings=verdict.findings)  // re-edit IN PLACE
+      result = invokeImprover(findings=verdict.findings)  // re-edit IN PLACE; findings → USER
+                                                   //   message with span verbatim (§2.0 rule 1);
+                                                   //   does NOT rewrite improvement.md (§2.0 rule 2)
 
   // fire afterImprove ONCE here, after the loop settles, in BOTH paths.
   return { improvementPath }   // improvementPath == iteration-N/improvement.md (round 0)
@@ -162,7 +232,7 @@ means concretely.
 
 | File | Change |
 |---|---|
-| `src/improvement/improver.ts` | Extract the single improver invoke into a private `invokeImprover(...)`; add the inner validate/revise loop gated by `config.roles.validator`; add two new `RunImprovementParams` fields `corpus: EnumeratedScenario[]` and `maxValidationRounds: number`. |
+| `src/improvement/improver.ts` | Extract the single improver invoke into a private `invokeImprover(findings: ValidatorFinding[] \| undefined)` (contract in §2.0: findings render into the USER message with `span` verbatim; `improvement.md` written round-0-only); add a `renderFindings(findings)` helper for the `# Validator findings` section; add the inner validate/revise loop gated by `config.roles.validator`; add two new `RunImprovementParams` fields `corpus: EnumeratedScenario[]` and `maxValidationRounds: number`. |
 | `src/pipeline/pipeline.ts` | Split the inline enumerate (`:85-88`) into `const enumerated = enumerateScenarios(...)` + `const allScenarios = filterScenarios(enumerated, ...)`; pass `corpus: enumerated` and `maxValidationRounds: selfImprovement.maxValidationRounds` into the `runImprovement(...)` call at `:193`. |
 | `src/pipeline/judge-agent.ts` | Replace the private `parseJudgeJson` (`:141-153`) with an `import { parseAgentJson }` and delete the local copy. **Behavior-identical; this is the only change to this file.** |
 | `src/config/types.ts` | `RolesInput` + `validator?: SingleRoleInput`; `NormalizedRoles` + `validator?: { agent: AgentDefinition; prompt?: string }`; `SelfImprovementConfig` + `maxValidationRounds?: number`. |
@@ -193,7 +263,7 @@ pipeline.ts
   → runImprovement({ ..., allScenarios, corpus: enumerated, maxValidationRounds })
 
 runImprovement
-  → invokeImprover(ctx, findings=undefined)   // round 0, role:"testing", writes improvement.md
+  → invokeImprover(findings=undefined)   // round 0, role:"testing", WRITES improvement.md (round-0 only)
   → loop:
        after   = readSkillsRoot(skillsDir)                         // post-edit WHOLE skills root
        outcome = runValidator({ after (as skillsBlob), corpus, rubrics, ... })
@@ -202,9 +272,11 @@ runImprovement
                  → write validation-round-{round}.md
        approve / fail-open → break
        cap reached         → log WARNING + break
-       revise              → invokeImprover(ctx, findings)         // re-edit in place
+       revise              → invokeImprover(findings)              // re-edit in place; findings → USER
+                                                                   //   message (span verbatim, §2.0);
+                                                                   //   does NOT rewrite improvement.md
   → afterImprove (once)
-  → return { improvementPath }   // == improvement.md (round 0)
+  → return { improvementPath }   // == improvement.md (round 0, written once by the round-0 call)
 ```
 
 ### 4.2 Exactly what the validator sees (R4) and what is structurally excluded
@@ -217,7 +289,10 @@ The validator's input is built **ONLY** from three sources:
    iterations that a delta-only review would wave through. See §5 for the reader.
 2. **The FULL enumerated scenario corpus** — each scenario's `{name, description, prompt, acceptance}`,
    threaded as a new `corpus` field **separate from** the improver's filtered `allScenarios` (see §4.3
-   for why FULL, and the precision argument).
+   for why FULL, and the precision argument). `Scenario.description` (`types.ts:128`) is populated and
+   currently used only as the judge's user-message tail (`judge-agent.ts:173`); surfacing it to the
+   validator is a **new, intentional use** (more breadth evidence for the leak/domain call), not a
+   copy-paste of the judge's field set.
 3. **The rubric bodies** — the union of rubric ids referenced across the corpus, deduped, each read as
    `paths.rubrics/<id>.md`.
 
@@ -622,11 +697,15 @@ ceiling-lowerer — it leaves the system no worse than the pre-validator baselin
   before (the same optional-by-guard idiom `validateSelfImprovement` uses at `:182`). Leave the
   top-level "roles must be an object with `test`, `judge`, `improver`" message (`validate.ts:94`) as-is
   — it lists the REQUIRED roles; validator is optional.
-- **`normalize.ts`:** in the roles block (after `:38`):
+- **`normalize.ts`:** **inside** the `roles` object literal (`:28-39`), before its closing brace
+  (`:39`), add:
   `...(input.roles.validator !== undefined ? { validator: normalizeSingleRole(input.roles.validator,
-  agents) } : {})` — the EXACT spread-when-present idiom already used for `selfImprovement`/`hooks`
-  (`:47-50`). Absent → no `validator` key on `NormalizedRoles` → `config.roles.validator === undefined`
-  is the §2 runtime gate.
+  agents) } : {})` — the EXACT spread-when-present idiom already used for the `test` role's `prompt`
+  **inside the same roles literal** (`normalize.ts:33-35`,
+  `...(input.roles.test.prompt !== undefined ? { prompt: … } : {})`). (Do NOT mirror the
+  `if (input.x !== undefined) out.x = …` statement pattern at `:47-50` — that is the imperative
+  `out`-object-level pattern, not a spread, and not in the roles literal.) Absent → no `validator` key
+  on `NormalizedRoles` → `config.roles.validator === undefined` is the §2 runtime gate.
 - **AC1 tests** (new, mirroring the improver cases): (a) string-shorthand validator validates; (a')
   object-form `{agent, prompt}` valid case (the spec lists both forms); (b) unknown-agent rejected —
   `validateSingleRole` already emits `roles.validator references unknown agent "<id>"`; (c)
@@ -733,7 +812,9 @@ deliberately designed to stay failing, in which case `1` is assertable.
   `improver.ts:157-162`. The body leads with the `failedOpen`-prominent header (§7.4):
   `VALIDATOR round K: approve|revise (clean | FAILED-OPEN: <reason>)`, then findings/raw.
 - **`improvement.md` stays the ROUND-0 improver transcript on every path.** There is **no**
-  `improvement-round-K.md`. The spec (R5) only requires the validator's PROSE verdict be persisted;
+  `improvement-round-K.md`. This is enforced mechanically by §2.0 rule 2: `invokeImprover` writes
+  `improvement.md` **only when `findings === undefined`** (the round-0 call), and revise-round calls do
+  not write or clobber it. The spec (R5) only requires the validator's PROSE verdict be persisted;
   per-revise improver transcripts are not required, and the AC counts drive off `validation-round-*.md`
   alone. This keeps the new-artifact surface minimal and AC4's byte-identical no-validator path
   trivially clean. On the no-validator path, `improvement.md` is byte-identical to today, so AC4's
@@ -824,10 +905,21 @@ if (systemPrompt.includes("improver agent")) {
 }
 ```
 
+- **Helper behavior (mirror `applyMarkerToSkills`, `mock.ts:111-129`):** both new helpers walk the
+  immediate `<dir>/SKILL.md` entries under `cwd` exactly like `applyMarkerToSkills` (same
+  `readdirSync(..., {withFileTypes:true})` + `existsSync(SKILL.md)` guard), and both return the count of
+  files edited (so the `toolUseCount` stays meaningful).
+  - `applyMarkerAndLeakToSkills(cwd)` (round 0) — for each gated SKILL.md, append BOTH the `MARKER`
+    line (so the gated judge flips `GATE_FAIL`→`GATE_PASS` and the scenario passes the next sweep) AND
+    a `LEAK_TOKEN` line (the leak the validator will flag). Same idempotent "skip if already present"
+    shape as `applyMarkerToSkills`.
+  - `removeLeakTokenFromSkills(cwd)` (revise) — for each SKILL.md that contains the `LEAK_TOKEN` line,
+    rewrite the file with that line removed (leaving the `MARKER` intact so the scenario still passes).
+    This is what makes the post-edit skill leak-free, so validate#2 returns `approve` and AC3 converges.
 - **Revise-vs-round-0 detection = `prompt.includes("LEAK_TOKEN")`:** on a revise round the validator's
-  findings (appended to the improver's user prompt by `invokeImprover`) name `LEAK_TOKEN`; on round 0
-  there are no findings and the failing skill does not yet contain `LEAK_TOKEN` (the improver is about to
-  ADD it).
+  findings — rendered into the improver's **user message** by `invokeImprover` with the `span` verbatim
+  (§2.0 rule 1) — name `LEAK_TOKEN`; on round 0 there are no findings and the failing skill does not yet
+  contain `LEAK_TOKEN` (the improver is about to ADD it via `applyMarkerAndLeakToSkills`).
 - **Fixture constraint:** no scenario prompt/acceptance or rubric in the validator-loop fixtures may
   contain the literal `LEAK_TOKEN` — otherwise it would appear in the round-0 improver prompt (via the
   report/corpus) and falsely trip the revise branch. Keep the token out of the corpus text.
