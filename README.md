@@ -34,16 +34,26 @@ Run all scenarios:
 skillsmith
 ```
 
-Run one or more targeted scenarios by directory ID under `config.paths.scenarios`:
+Run one or more targeted scenarios by scenario ID or parent folder under `config.paths.scenarios`:
 
 ```sh
 skillsmith counter
-skillsmith counter config-fetch
+skillsmith blocks/counter
+skillsmith blocks config-fetch
 ```
 
-Scenario selection trims each positional/API scenario value, then matches it exactly against scenario directory names under `config.paths.scenarios`, not `scenario.name` inside `scenario.yaml`. Empty selections run all scenarios. Unknown IDs fail before any hooks or agent work runs, and the error lists the available directory IDs.
+Scenario IDs are the scenario directory path relative to `config.paths.scenarios`, normalized with `/` separators. A flat scenario at `scenarios/counter/scenario.yaml` is still `counter`; a nested scenario at `scenarios/blocks/counter/scenario.yaml` is `blocks/counter`.
 
-No CLI flags are supported yet; option-like arguments such as `--scenario` fail before a run starts.
+CLI positionals and API `run({ scenarios })` use the same scenario-or-folder filters. An exact filter such as `blocks/counter` selects that scenario. A parent folder filter such as `blocks` selects every discovered scenario below `blocks/` in deterministic scenario ID order. Pass `.` or `./` to select the scenarios root, equivalent to running all discovered scenarios.
+
+```ts
+await run({ scenarios: ["blocks/counter"] });
+await run({ scenarios: ["blocks", "config-fetch"] });
+```
+
+Scenario selection trims each positional/API value and normalizes harmless spelling variations: `./counter`, `counter/`, repeated separators such as `foo//bar`, and Windows separators such as `foo\bar`. Duplicate and overlapping filters are de-duped, so `counter`, `./counter`, and `counter/` run `counter` once, and `blocks blocks/counter` does not run `blocks/counter` twice. Empty selections run all scenarios. Empty, unsafe, or unknown filters fail before any hooks or agent work runs; unknown-filter errors list the available scenario IDs and explain that parent folders are accepted. Filters match only scenario IDs and parent folders, not `scenario.name` inside `scenario.yaml`.
+
+Unsupported option-like arguments such as `--scenario` fail before a run starts.
 
 Project-specific behaviour is exposed through **hooks**. Each fork implements only the hooks it needs against the harness's runtime contract.
 
