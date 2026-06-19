@@ -37,7 +37,10 @@ import {
 	type EnumeratedScenario,
 	enumerateScenarios,
 } from "../scenarios/enumerate";
-import { UserFacingError } from "../util/errors";
+import {
+	selectScenariosByFilters,
+	validateConfiguredScenarioNamesAreUnique,
+} from "../scenarios/selection";
 import { tryHook } from "../util/hooks";
 import { RunLog } from "../util/run-log";
 import { runAgents } from "./agent-loop";
@@ -82,8 +85,10 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	const config = await loadConfig(projectRoot);
 	checkPaths(config, projectRoot);
 	const selfImprovement = resolveSelfImprovement(config, params.overrides);
-	const allScenarios = filterScenarios(
-		enumerateScenarios(config.paths, projectRoot),
+	const enumeratedScenarios = enumerateScenarios(config.paths, projectRoot);
+	validateConfiguredScenarioNamesAreUnique(enumeratedScenarios);
+	const allScenarios = selectScenariosByFilters(
+		enumeratedScenarios,
 		params.scenarios,
 	);
 
@@ -444,41 +449,6 @@ async function fireAfterIteration(
 		outcome.log,
 	);
 	outcome.log.dump(outcome.iterationDirectory);
-}
-
-function filterScenarios(
-	scenarios: EnumeratedScenario[],
-	rawFilters: string[] | undefined,
-): EnumeratedScenario[] {
-	if (rawFilters === undefined || rawFilters.length === 0) {
-		return scenarios;
-	}
-
-	const filters: string[] = [];
-	const seen = new Set<string>();
-	for (const raw of rawFilters) {
-		const filter = raw.trim();
-		if (filter.length === 0) {
-			throw new UserFacingError("Scenario IDs must not be empty.");
-		}
-		if (!seen.has(filter)) {
-			seen.add(filter);
-			filters.push(filter);
-		}
-	}
-
-	const byDirName = new Map(scenarios.map((s) => [s.dirName, s]));
-	const unknown = filters.filter((filter) => !byDirName.has(filter));
-	if (unknown.length > 0) {
-		const label =
-			unknown.length === 1
-				? `Unknown scenario: ${unknown[0]}`
-				: `Unknown scenarios: ${unknown.join(", ")}`;
-		const available = scenarios.map((s) => `- ${s.dirName}`).join("\n");
-		throw new UserFacingError(`${label}\n\nAvailable scenarios:\n${available}`);
-	}
-
-	return filters.map((filter) => byDirName.get(filter) as EnumeratedScenario);
 }
 
 interface ScenarioRunArgs {

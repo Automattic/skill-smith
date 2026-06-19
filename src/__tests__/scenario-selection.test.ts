@@ -155,6 +155,17 @@ test("API run trims scenario IDs before exact matching", async () => {
 	);
 });
 
+test("API run normalizes harmless scenario ID spelling", async () => {
+	const result = await runApi([" ./counter/ ", "counter"]);
+
+	assert.equal(result.exitCode, 0);
+	assert.deepEqual(reportScenarioNames(), ["counter-scenario"]);
+	assert.deepEqual(
+		hookEvents().filter((event) => event === "beforeScenario:counter-scenario"),
+		["beforeScenario:counter-scenario"],
+	);
+});
+
 test("API run targets multiple scenario directory IDs", async () => {
 	const result = await runApi(["counter", "config-fetch"]);
 
@@ -240,6 +251,13 @@ test("CLI parser preserves duplicate positional args for shared de-duping", asyn
 		),
 		["beforeScenario:counter-scenario"],
 	);
+});
+
+test("CLI parser uses shared harmless scenario ID normalization", async () => {
+	const result = await runCli(["./counter/"]);
+
+	assert.equal(result.exitCode, 0);
+	assert.deepEqual(reportScenarioNames(), ["counter-scenario"]);
 });
 
 test("CLI parser returns user-facing errors for unknown positional scenarios", async () => {
