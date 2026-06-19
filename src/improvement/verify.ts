@@ -2,11 +2,11 @@ import type {
 	AfterAllScenariosHookFn,
 	IterationCompleteHookContext,
 	VerificationFailure,
-} from "../config/types";
-import type { IterationReport } from "../reports/iteration-report";
-import type { RunLog } from "../util/run-log";
+} from '../config/types';
+import type { IterationReport } from '../reports/iteration-report';
+import type { RunLog } from '../util/run-log';
 
-const DEFAULT_NOTE = "verification gate reported failure";
+const DEFAULT_NOTE = 'verification gate reported failure';
 
 /** A verification hook's return value, normalized for the harness. */
 export interface NormalizedVerification {
@@ -24,9 +24,9 @@ export interface NormalizedVerification {
  *   - object → `failures` as given; `pass` defaults to `false` when any
  *     failures were named, `true` otherwise.
  */
-export function normalizeVerification(ret: unknown): NormalizedVerification {
-	if (ret === false) return { pass: false, failures: [] };
-	if (ret === null || typeof ret !== "object") {
+export function normalizeVerification( ret: unknown ): NormalizedVerification {
+	if ( ret === false ) return { pass: false, failures: [] };
+	if ( ret === null || typeof ret !== 'object' ) {
 		return { pass: true, failures: [] };
 	}
 
@@ -35,15 +35,18 @@ export function normalizeVerification(ret: unknown): NormalizedVerification {
 		failures?: unknown;
 		details?: unknown;
 	};
-	const failures = Array.isArray(obj.failures)
+	const failures = Array.isArray( obj.failures )
 		? obj.failures.filter(
-				(f): f is VerificationFailure =>
-					f !== null && typeof f === "object" && typeof f.scenario === "string",
+				( f ): f is VerificationFailure =>
+					f !== null &&
+					typeof f === 'object' &&
+					typeof f.scenario === 'string'
 			)
 		: [];
-	const pass = typeof obj.pass === "boolean" ? obj.pass : failures.length === 0;
+	const pass =
+		typeof obj.pass === 'boolean' ? obj.pass : failures.length === 0;
 	const out: NormalizedVerification = { pass, failures };
-	if (typeof obj.details === "string") out.details = obj.details;
+	if ( typeof obj.details === 'string' ) out.details = obj.details;
 	return out;
 }
 
@@ -57,28 +60,28 @@ export async function runAfterAllScenarios(
 	fn: AfterAllScenariosHookFn | undefined,
 	ctx: IterationCompleteHookContext,
 	scope: string,
-	log: RunLog,
-): Promise<NormalizedVerification> {
-	if (fn === undefined) {
-		log.hook("afterAllScenarios", scope, "noop");
+	log: RunLog
+): Promise< NormalizedVerification > {
+	if ( fn === undefined ) {
+		log.hook( 'afterAllScenarios', scope, 'noop' );
 		return { pass: true, failures: [] };
 	}
 	try {
-		const norm = normalizeVerification(await fn(ctx));
+		const norm = normalizeVerification( await fn( ctx ) );
 		log.hook(
-			"afterAllScenarios",
+			'afterAllScenarios',
 			scope,
-			"invoked",
-			`pass=${norm.pass} failures=${norm.failures.length}`,
+			'invoked',
+			`pass=${ norm.pass } failures=${ norm.failures.length }`
 		);
 		return norm;
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
-		log.hook("afterAllScenarios", scope, "error", msg);
+	} catch ( err ) {
+		const msg = err instanceof Error ? err.message : String( err );
+		log.hook( 'afterAllScenarios', scope, 'error', msg );
 		return {
 			pass: false,
 			failures: [],
-			details: `verification hook threw: ${msg}`,
+			details: `verification hook threw: ${ msg }`,
 		};
 	}
 }
@@ -95,31 +98,31 @@ export function applyVerification(
 	report: IterationReport,
 	verification: NormalizedVerification,
 	ranScenarioNames: string[],
-	log: RunLog,
+	log: RunLog
 ): boolean {
-	if (verification.pass) return false;
+	if ( verification.pass ) return false;
 
 	report.pass = false;
 	let changed = false;
 
-	if (verification.failures.length > 0) {
-		for (const failure of verification.failures) {
-			const body = report.scenarios[failure.scenario];
-			if (body === undefined || !("agents" in body)) {
+	if ( verification.failures.length > 0 ) {
+		for ( const failure of verification.failures ) {
+			const body = report.scenarios[ failure.scenario ];
+			if ( body === undefined || ! ( 'agents' in body ) ) {
 				log.info(
-					`afterAllScenarios: failure for unknown/errored scenario "${failure.scenario}" — ignored`,
+					`afterAllScenarios: failure for unknown/errored scenario "${ failure.scenario }" — ignored`
 				);
 				continue;
 			}
 			const note = failure.details ?? DEFAULT_NOTE;
-			if (failure.agent !== undefined) {
-				const existing = body.agents[failure.agent] ?? {};
-				body.agents[failure.agent] = {
+			if ( failure.agent !== undefined ) {
+				const existing = body.agents[ failure.agent ] ?? {};
+				body.agents[ failure.agent ] = {
 					...existing,
-					error: combine(existing.error, note),
+					error: combine( existing.error, note ),
 				};
 			} else {
-				body.error = combine(body.error, note);
+				body.error = combine( body.error, note );
 			}
 			body.pass = false;
 			changed = true;
@@ -129,18 +132,18 @@ export function applyVerification(
 
 	// Coarse failure: no scenarios named, so fail everything that ran.
 	const note = verification.details ?? DEFAULT_NOTE;
-	for (const name of ranScenarioNames) {
-		const body = report.scenarios[name];
-		if (body === undefined || !("agents" in body)) continue;
-		body.error = combine(body.error, note);
+	for ( const name of ranScenarioNames ) {
+		const body = report.scenarios[ name ];
+		if ( body === undefined || ! ( 'agents' in body ) ) continue;
+		body.error = combine( body.error, note );
 		body.pass = false;
 		changed = true;
 	}
 	return changed;
 }
 
-function combine(existing: string | undefined, note: string): string {
+function combine( existing: string | undefined, note: string ): string {
 	return existing !== undefined && existing.length > 0
-		? `${existing}; ${note}`
+		? `${ existing }; ${ note }`
 		: note;
 }

@@ -1,19 +1,19 @@
-import type { AgentDefinition } from "../config/types";
+import type { AgentDefinition } from '../config/types';
 
 export type ProviderId =
-	| "claude-code"
-	| "openai-api"
-	| "anthropic-api"
-	| "gemini-api"
-	| "codex"
-	| "mock";
+	| 'claude-code'
+	| 'openai-api'
+	| 'anthropic-api'
+	| 'gemini-api'
+	| 'codex'
+	| 'mock';
 
 /**
  * The two sub-agent roles the harness dispatches. `testing` writes to
  * the workspace and may run shell commands; `judge` is read-only.
  * Providers translate this to whatever native tool surface they expose.
  */
-export type Role = "testing" | "judge";
+export type Role = 'testing' | 'judge';
 
 export interface InvokeParams {
 	agent: AgentDefinition;
@@ -49,5 +49,5 @@ export interface InvokeResult {
 
 export interface Provider {
 	readonly id: ProviderId;
-	invoke(params: InvokeParams): Promise<InvokeResult>;
+	invoke( params: InvokeParams ): Promise< InvokeResult >;
 }

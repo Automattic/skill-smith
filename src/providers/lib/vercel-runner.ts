@@ -15,38 +15,38 @@
  * internally. Any unrecovered error returns with `error` populated; the
  * pipeline knows how to handle that.
  */
-import type { ProviderOptions } from "@ai-sdk/provider-utils";
-import { generateText, type LanguageModel, stepCountIs } from "ai";
-import type { InvokeParams, InvokeResult, TokenUsage } from "../types";
-import { fsTools } from "./fs-tools";
+import type { ProviderOptions } from '@ai-sdk/provider-utils';
+import { generateText, type LanguageModel, stepCountIs } from 'ai';
+import type { InvokeParams, InvokeResult, TokenUsage } from '../types';
+import { fsTools } from './fs-tools';
 
 const MAX_STEPS = 25;
 
 export async function runVercel(
 	params: InvokeParams,
-	model: LanguageModel,
-): Promise<InvokeResult> {
-	const tools = fsTools(params.cwd, params.role);
+	model: LanguageModel
+): Promise< InvokeResult > {
+	const tools = fsTools( params.cwd, params.role );
 
-	let finalText = "";
+	let finalText = '';
 	let toolUseCount = 0;
 	let error: string | undefined;
 	let usage: TokenUsage | undefined;
 
 	try {
-		const result = await generateText({
+		const result = await generateText( {
 			model,
 			system: params.systemPrompt,
 			prompt: params.prompt,
 			tools,
-			stopWhen: stepCountIs(MAX_STEPS),
-			providerOptions: extractProviderOptions(params.agent),
-		});
+			stopWhen: stepCountIs( MAX_STEPS ),
+			providerOptions: extractProviderOptions( params.agent ),
+		} );
 
 		finalText = result.text;
 		toolUseCount = result.steps.reduce(
-			(n, step) => n + step.toolCalls.length,
-			0,
+			( n, step ) => n + step.toolCalls.length,
+			0
 		);
 		// `totalUsage` is already aggregated across steps; every field is
 		// `number | undefined`, so coalesce to 0. Vercel's `inputTokens` is
@@ -61,20 +61,20 @@ export async function runVercel(
 			outputTokens,
 			totalTokens: inputTokens + outputTokens,
 		};
-	} catch (err) {
-		error = err instanceof Error ? err.message : String(err);
+	} catch ( err ) {
+		error = err instanceof Error ? err.message : String( err );
 	}
 
 	const out: InvokeResult = { finalText, toolUseCount };
-	if (error !== undefined) out.error = error;
-	if (usage !== undefined) out.usage = usage;
+	if ( error !== undefined ) out.error = error;
+	if ( usage !== undefined ) out.usage = usage;
 	return out;
 }
 
 function extractProviderOptions(
-	agent: InvokeParams["agent"],
+	agent: InvokeParams[ 'agent' ]
 ): ProviderOptions | undefined {
 	const raw = agent.providerOptions;
-	if (raw && typeof raw === "object") return raw as ProviderOptions;
+	if ( raw && typeof raw === 'object' ) return raw as ProviderOptions;
 	return undefined;
 }

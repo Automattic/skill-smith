@@ -1,11 +1,11 @@
-import { renderSnapshot } from "./render";
+import { renderSnapshot } from './render';
 import type {
 	Failure,
 	PhaseName,
 	RunCounters,
 	RunSnapshot,
 	TerminalStatus,
-} from "./types";
+} from './types';
 
 export interface TrackerInit {
 	runId: string;
@@ -54,10 +54,10 @@ interface ScenarioState {
 	/** False when this scenario is not part of the current iteration's
 	 * selection; inactive scenarios are excluded from the counters. */
 	active: boolean;
-	phases: Map<string, { testing: PhaseSlot; judge: PhaseSlot }>;
+	phases: Map< string, { testing: PhaseSlot; judge: PhaseSlot } >;
 }
 
-type PhaseSlot = "pending" | "running" | "passed" | "failed" | "skipped";
+type PhaseSlot = 'pending' | 'running' | 'passed' | 'failed' | 'skipped';
 
 /**
  * Owns the run's aggregate counters and failures list. Repaints a
@@ -73,7 +73,7 @@ export class ProgressTracker {
 	private readonly nowFn: () => number;
 	private readonly runId: string;
 	private readonly startedAt: number;
-	private readonly scenarios: Map<string, ScenarioState>;
+	private readonly scenarios: Map< string, ScenarioState >;
 	private failures: Failure[] = [];
 	private finished = false;
 	private iteration: { current: number; total: number } | undefined;
@@ -83,17 +83,17 @@ export class ProgressTracker {
 	private pendingTimer: NodeJS.Timeout | null = null;
 	private tickTimer: NodeJS.Timeout | null = null;
 
-	constructor(init: TrackerInit, opts: TrackerOptions = {}) {
+	constructor( init: TrackerInit, opts: TrackerOptions = {} ) {
 		this.stream = opts.stream ?? process.stderr;
-		this.color = opts.color ?? defaultColor(this.stream);
-		this.interactive = opts.interactive ?? isTty(this.stream);
+		this.color = opts.color ?? defaultColor( this.stream );
+		this.interactive = opts.interactive ?? isTty( this.stream );
 		this.throttleMs = opts.throttleMs ?? 200;
 		this.tickMs = opts.tickMs ?? 1000;
-		this.nowFn = opts.now ?? (() => Date.now());
+		this.nowFn = opts.now ?? ( () => Date.now() );
 		this.runId = init.runId;
 		this.startedAt = this.nowFn();
 		this.scenarios = new Map(
-			init.scenarios.map((s) => [
+			init.scenarios.map( ( s ) => [
 				s.name,
 				{
 					name: s.name,
@@ -101,18 +101,18 @@ export class ProgressTracker {
 					skipped: false,
 					active: true,
 					phases: new Map(
-						s.agentIds.map((id) => [
+						s.agentIds.map( ( id ) => [
 							id,
-							{ testing: "pending", judge: "pending" },
-						]),
+							{ testing: 'pending', judge: 'pending' },
+						] )
 					),
 				},
-			]),
+			] )
 		);
 
-		if (this.interactive && this.tickMs > 0) {
-			this.tickTimer = setInterval(() => this.onTick(), this.tickMs);
-			if (typeof this.tickTimer.unref === "function") {
+		if ( this.interactive && this.tickMs > 0 ) {
+			this.tickTimer = setInterval( () => this.onTick(), this.tickMs );
+			if ( typeof this.tickTimer.unref === 'function' ) {
 				this.tickTimer.unref();
 			}
 		}
@@ -129,51 +129,57 @@ export class ProgressTracker {
 	beginIteration(
 		current: number,
 		total: number,
-		activeScenarios?: string[],
+		activeScenarios?: string[]
 	): void {
 		this.iteration = { current, total };
 		const activeSet =
-			activeScenarios === undefined ? undefined : new Set(activeScenarios);
+			activeScenarios === undefined
+				? undefined
+				: new Set( activeScenarios );
 		this.failures = [];
-		for (const s of this.scenarios.values()) {
-			s.active = activeSet === undefined || activeSet.has(s.name);
+		for ( const s of this.scenarios.values() ) {
+			s.active = activeSet === undefined || activeSet.has( s.name );
 			s.skipped = false;
 			s.skipReason = undefined;
-			for (const slots of s.phases.values()) {
-				slots.testing = "pending";
-				slots.judge = "pending";
+			for ( const slots of s.phases.values() ) {
+				slots.testing = 'pending';
+				slots.judge = 'pending';
 			}
 		}
 		this.requestPaint();
 	}
 
 	private onTick(): void {
-		if (this.finished) return;
+		if ( this.finished ) return;
 		// Skip until first event-driven paint so we don't display an
 		// empty block before anything has happened.
-		if (this.lastPaintAt === 0) return;
+		if ( this.lastPaintAt === 0 ) return;
 		this.flush();
 	}
 
-	scenarioSkipped(name: string, reason: string): void {
-		const s = this.scenario(name);
-		if (s.skipped) return;
+	scenarioSkipped( name: string, reason: string ): void {
+		const s = this.scenario( name );
+		if ( s.skipped ) return;
 		s.skipped = true;
 		s.skipReason = reason;
-		this.failures.push({
+		this.failures.push( {
 			scenario: name,
-			agentId: "—",
+			agentId: '—',
 			phase: undefined,
 			detail: reason,
-		});
+		} );
 		this.requestPaint();
 	}
 
-	phaseStarted(scenarioName: string, agentId: string, phase: PhaseName): void {
-		const s = this.scenario(scenarioName);
-		if (s.skipped) return;
-		const slots = this.slots(s, agentId);
-		slots[phase] = "running";
+	phaseStarted(
+		scenarioName: string,
+		agentId: string,
+		phase: PhaseName
+	): void {
+		const s = this.scenario( scenarioName );
+		if ( s.skipped ) return;
+		const slots = this.slots( s, agentId );
+		slots[ phase ] = 'running';
 		this.requestPaint();
 	}
 
@@ -181,51 +187,51 @@ export class ProgressTracker {
 		scenarioName: string,
 		agentId: string,
 		phase: PhaseName,
-		result: PhaseResult,
+		result: PhaseResult
 	): void {
-		const s = this.scenario(scenarioName);
-		if (s.skipped) return;
-		const slots = this.slots(s, agentId);
-		slots[phase] = result.status;
-		if (result.status === "failed") {
-			this.failures.push({
+		const s = this.scenario( scenarioName );
+		if ( s.skipped ) return;
+		const slots = this.slots( s, agentId );
+		slots[ phase ] = result.status;
+		if ( result.status === 'failed' ) {
+			this.failures.push( {
 				scenario: scenarioName,
 				agentId,
 				phase,
-				detail: result.detail ?? "(no detail)",
-			});
+				detail: result.detail ?? '(no detail)',
+			} );
 		}
 		this.requestPaint();
 	}
 
 	finish(): void {
 		this.finished = true;
-		if (this.pendingTimer) {
-			clearTimeout(this.pendingTimer);
+		if ( this.pendingTimer ) {
+			clearTimeout( this.pendingTimer );
 			this.pendingTimer = null;
 		}
-		if (this.tickTimer) {
-			clearInterval(this.tickTimer);
+		if ( this.tickTimer ) {
+			clearInterval( this.tickTimer );
 			this.tickTimer = null;
 		}
 		this.flush();
 	}
 
 	private requestPaint(): void {
-		if (this.finished) return;
+		if ( this.finished ) return;
 		const now = this.nowFn();
 		const sinceLast = now - this.lastPaintAt;
-		if (this.lastPaintAt === 0 || sinceLast >= this.throttleMs) {
+		if ( this.lastPaintAt === 0 || sinceLast >= this.throttleMs ) {
 			this.flush();
 			return;
 		}
-		if (this.pendingTimer) return;
+		if ( this.pendingTimer ) return;
 		this.pendingTimer = setTimeout(
 			() => {
 				this.pendingTimer = null;
 				this.flush();
 			},
-			Math.max(0, this.throttleMs - sinceLast),
+			Math.max( 0, this.throttleMs - sinceLast )
 		);
 	}
 
@@ -240,28 +246,28 @@ export class ProgressTracker {
 			failures: this.failures.slice(),
 			finished: this.finished,
 		};
-		const block = renderSnapshot(snapshot, { color: this.color });
-		if (this.interactive) {
+		const block = renderSnapshot( snapshot, { color: this.color } );
+		if ( this.interactive ) {
 			const erase =
 				this.lastPaintedLines > 0
-					? `\x1b[${this.lastPaintedLines}A\x1b[0J`
-					: "";
-			this.stream.write(`${erase}${block}\n`);
-			this.lastPaintedLines = terminalRows(block, this.streamColumns());
-		} else if (this.finished) {
-			this.stream.write(`${block}\n`);
+					? `\x1b[${ this.lastPaintedLines }A\x1b[0J`
+					: '';
+			this.stream.write( `${ erase }${ block }\n` );
+			this.lastPaintedLines = terminalRows( block, this.streamColumns() );
+		} else if ( this.finished ) {
+			this.stream.write( `${ block }\n` );
 		}
 	}
 
 	private streamColumns(): number {
-		const cols = (this.stream as { columns?: unknown }).columns;
-		return typeof cols === "number" && cols > 0 ? cols : 80;
+		const cols = ( this.stream as { columns?: unknown } ).columns;
+		return typeof cols === 'number' && cols > 0 ? cols : 80;
 	}
 
 	private counters(): RunCounters {
 		let activeScenarios = 0;
-		for (const s of this.scenarios.values()) {
-			if (s.active) activeScenarios++;
+		for ( const s of this.scenarios.values() ) {
+			if ( s.active ) activeScenarios++;
 		}
 		const sc = {
 			total: activeScenarios,
@@ -279,9 +285,9 @@ export class ProgressTracker {
 			running: 0,
 			pending: 0,
 		};
-		for (const s of this.scenarios.values()) {
-			if (!s.active) continue;
-			if (s.skipped) {
+		for ( const s of this.scenarios.values() ) {
+			if ( ! s.active ) continue;
+			if ( s.skipped ) {
 				sc.skipped++;
 				ph.total += s.agentIds.length * 2;
 				ph.skipped += s.agentIds.length * 2;
@@ -291,20 +297,20 @@ export class ProgressTracker {
 			let anyTerminal = false;
 			let anyFailed = false;
 			let allTerminal = true;
-			for (const slots of s.phases.values()) {
+			for ( const slots of s.phases.values() ) {
 				ph.total += 2;
-				for (const slot of [slots.testing, slots.judge]) {
-					if (slot === "passed") {
+				for ( const slot of [ slots.testing, slots.judge ] ) {
+					if ( slot === 'passed' ) {
 						ph.passed++;
 						anyTerminal = true;
-					} else if (slot === "failed") {
+					} else if ( slot === 'failed' ) {
 						ph.failed++;
 						anyTerminal = true;
 						anyFailed = true;
-					} else if (slot === "skipped") {
+					} else if ( slot === 'skipped' ) {
 						ph.skipped++;
 						anyTerminal = true;
-					} else if (slot === "running") {
+					} else if ( slot === 'running' ) {
 						ph.running++;
 						anyRunning = true;
 						allTerminal = false;
@@ -314,10 +320,10 @@ export class ProgressTracker {
 					}
 				}
 			}
-			if (allTerminal) {
-				if (anyFailed) sc.failed++;
+			if ( allTerminal ) {
+				if ( anyFailed ) sc.failed++;
 				else sc.passed++;
-			} else if (anyRunning || anyTerminal) {
+			} else if ( anyRunning || anyTerminal ) {
 				sc.running++;
 			} else {
 				sc.pending++;
@@ -326,40 +332,42 @@ export class ProgressTracker {
 		return { scenarios: sc, phases: ph };
 	}
 
-	private scenario(name: string): ScenarioState {
-		const s = this.scenarios.get(name);
-		if (!s) throw new Error(`progress: unknown scenario "${name}"`);
+	private scenario( name: string ): ScenarioState {
+		const s = this.scenarios.get( name );
+		if ( ! s ) throw new Error( `progress: unknown scenario "${ name }"` );
 		return s;
 	}
 
 	private slots(
 		s: ScenarioState,
-		agentId: string,
+		agentId: string
 	): { testing: PhaseSlot; judge: PhaseSlot } {
-		const slots = s.phases.get(agentId);
-		if (!slots) {
+		const slots = s.phases.get( agentId );
+		if ( ! slots ) {
 			throw new Error(
-				`progress: unknown agent "${agentId}" in scenario "${s.name}"`,
+				`progress: unknown agent "${ agentId }" in scenario "${ s.name }"`
 			);
 		}
 		return slots;
 	}
 }
 
-function isTty(stream: NodeJS.WritableStream): boolean {
-	return "isTTY" in stream && (stream as { isTTY?: boolean }).isTTY === true;
+function isTty( stream: NodeJS.WritableStream ): boolean {
+	return (
+		'isTTY' in stream && ( stream as { isTTY?: boolean } ).isTTY === true
+	);
 }
 
-function defaultColor(stream: NodeJS.WritableStream): boolean {
+function defaultColor( stream: NodeJS.WritableStream ): boolean {
 	const noColor = process.env.NO_COLOR !== undefined;
-	return isTty(stream) && !noColor;
+	return isTty( stream ) && ! noColor;
 }
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matches real ANSI SGR escape sequences; the ESC byte (0x1b) is the intended content used to strip colour codes when measuring printed width.
 const ANSI_SGR = /\x1b\[[0-9;]*m/g;
 
-function visibleWidth(line: string): number {
-	return line.replace(ANSI_SGR, "").length;
+function visibleWidth( line: string ): number {
+	return line.replace( ANSI_SGR, '' ).length;
 }
 
 /**
@@ -368,11 +376,11 @@ function visibleWidth(line: string): number {
  * undercounts when a failure detail wraps, so the next paint's `\x1b[NA`
  * walks up too few rows and leaves the top of the previous dashboard intact.
  */
-function terminalRows(block: string, columns: number): number {
+function terminalRows( block: string, columns: number ): number {
 	let rows = 0;
-	for (const line of block.split("\n")) {
-		const w = visibleWidth(line);
-		rows += w === 0 ? 1 : Math.ceil(w / columns);
+	for ( const line of block.split( '\n' ) ) {
+		const w = visibleWidth( line );
+		rows += w === 0 ? 1 : Math.ceil( w / columns );
 	}
 	return rows;
 }
