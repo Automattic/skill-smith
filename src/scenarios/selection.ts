@@ -26,7 +26,7 @@ export function normalizeScenarioFilter(rawFilter: string): string {
 
 	if (isUnsafeScenarioFilter(trimmed)) {
 		throw new UserFacingError(
-			`Invalid scenario filter: ${trimmed}\n\nPass a relative scenario ID or parent folder under config.paths.scenarios.`,
+			`Invalid scenario filter: ${trimmed}\n\nScenario filters must be relative to config.paths.scenarios and must not be absolute paths, UNC paths, or contain '..' segments.`,
 		);
 	}
 

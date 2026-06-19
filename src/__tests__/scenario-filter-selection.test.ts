@@ -60,9 +60,13 @@ test("rejects empty and unsafe filters before matching", () => {
 			() => normalizeScenarioFilters([unsafe]),
 			(error: unknown) =>
 				error instanceof UserFacingError &&
-				/Invalid scenario filter:[\s\S]*relative scenario ID/i.test(
-					error.message,
-				),
+				error.message.includes(`Invalid scenario filter: ${unsafe}`) &&
+				error.message.includes(
+					"relative to config.paths.scenarios",
+				) &&
+				error.message.includes("absolute paths") &&
+				error.message.includes("UNC paths") &&
+				error.message.includes("'..' segments"),
 			unsafe,
 		);
 	}
