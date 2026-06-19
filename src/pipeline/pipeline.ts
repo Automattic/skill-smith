@@ -92,7 +92,8 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 
 	const iterations: IterationInfo[] = [];
 	const runScenarios: RunScenario[] = allScenarios.map(
-		({ dirName, scenario }) => ({
+		({ id, dirName, scenario }) => ({
+			id,
 			dirName,
 			scenario,
 		}),

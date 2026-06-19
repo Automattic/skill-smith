@@ -16,10 +16,16 @@ test("scenarios with unresolved refs are flagged but others continue", () => {
 
 	const good = byName.get("good-scenario");
 	assert.ok(good, "good scenario present");
+	assert.equal(good?.id, "good");
+	assert.equal(good?.dirName, "good");
+	assert.equal(good?.nameSource, "configured");
 	assert.equal(good?.error, undefined, "good scenario has no error");
 
 	const bad = byName.get("bad-scenario");
 	assert.ok(bad, "bad scenario present");
+	assert.equal(bad?.id, "bad");
+	assert.equal(bad?.dirName, "bad");
+	assert.equal(bad?.nameSource, "configured");
 	assert.match(bad?.error ?? "", /unresolved reference/);
 	assert.match(bad?.error ?? "", /missing-skill/);
 	assert.match(bad?.error ?? "", /missing-rubric/);

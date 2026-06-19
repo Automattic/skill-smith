@@ -149,8 +149,26 @@ export interface RunContext {
 	scenarios: RunScenario[];
 }
 
+/**
+ * One scenario selected for a run and exposed to hooks and downstream
+ * consumers. The scenario `name` remains the display/reporting key, while
+ * `id` identifies the scenario directory relative to `paths.scenarios`.
+ */
 export interface RunScenario {
+	/**
+	 * Stable scenario directory identifier, relative to `config.paths.scenarios`
+	 * and normalized to use `/` separators.
+	 *
+	 * @example "counter"
+	 */
+	id: string;
+	/**
+	 * Compatibility alias for `id`. This value must always equal `id`.
+	 *
+	 * @example "counter"
+	 */
 	dirName: string;
+	/** Parsed scenario definition loaded from `scenario.yaml`. */
 	scenario: Scenario;
 }
 

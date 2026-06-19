@@ -4,9 +4,31 @@ import { parse as parseYaml } from "yaml";
 import type { Paths, Scenario } from "../config/types";
 import { isDirectorySafe } from "../util/fs";
 
+/**
+ * Provenance for an enumerated scenario's `scenario.name` value.
+ * Configured names come from a valid `scenario.yaml`; synthetic names are
+ * generated from the scenario id when the file cannot provide a valid name.
+ */
+export type EnumeratedScenarioNameSource = "configured" | "synthetic";
+
+/**
+ * Scenario record produced by filesystem enumeration before run selection.
+ */
 export interface EnumeratedScenario {
+	/** Parsed scenario definition, or a minimal placeholder for invalid YAML. */
 	scenario: Scenario;
+	/**
+	 * Stable scenario directory identifier, relative to `paths.scenarios` and
+	 * normalized to use `/` separators.
+	 *
+	 * @example "counter"
+	 */
+	id: string;
+	/** Compatibility alias for `id`. This value must always equal `id`. */
 	dirName: string;
+	/** Indicates whether `scenario.name` came from YAML or from the scenario id. */
+	nameSource: EnumeratedScenarioNameSource;
+	/** Enumeration-time validation error, if the scenario cannot run as-is. */
 	error?: string;
 }
 
@@ -43,7 +65,9 @@ export function enumerateScenarios(
 			const msg = err instanceof Error ? err.message : String(err);
 			out.push({
 				scenario: stubScenario(entry),
+				id: entry,
 				dirName: entry,
+				nameSource: "synthetic",
 				error: `scenario.yaml parse error: ${msg}`,
 			});
 			continue;
@@ -52,7 +76,9 @@ export function enumerateScenarios(
 		if (!isScenarioShape(parsed)) {
 			out.push({
 				scenario: stubScenario(entry),
+				id: entry,
 				dirName: entry,
+				nameSource: "synthetic",
 				error:
 					"scenario.yaml malformed: expected name/description/skills/prompt/acceptance/rubrics",
 			});
@@ -75,11 +101,13 @@ export function enumerateScenarios(
 		if (missing.length > 0) {
 			out.push({
 				scenario,
+				id: entry,
 				dirName: entry,
+				nameSource: "configured",
 				error: `unresolved reference: ${missing.join(", ")}`,
 			});
 		} else {
-			out.push({ scenario, dirName: entry });
+			out.push({ scenario, id: entry, dirName: entry, nameSource: "configured" });
 		}
 	}
 

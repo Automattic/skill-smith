@@ -6,7 +6,9 @@ import type { EnumeratedScenario } from "../scenarios/enumerate";
 
 function scenario(name: string): EnumeratedScenario {
 	return {
+		id: name,
 		dirName: name,
+		nameSource: "configured",
 		scenario: {
 			name,
 			description: "",
