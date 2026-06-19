@@ -1,40 +1,38 @@
-# Code Review 2: Approved
+# Code Review
 
-## Verdict
+## Verdict: approved
 
-Approved.
+## Batch scope
 
-## Findings
+Tasks reviewed: T1 Add canonical scenario IDs to discovered and run scenario types; T2 Make scenario enumeration recursive and deterministic; T3 Add shared filter normalization, matching, and duplicate-name validation; T4 Wire shared selection and duplicate-name validation into the pipeline before side effects; T5 Update CLI usage wording for scenario-or-folder filters; T6 Add the release changeset; T7 Run final guardrails and fix integration regressions; post-approval e2e helper fix in `testing-project/eval/utils/verify-e2e.ts`.
 
-No blocking findings.
+## Summary
 
-## Prior Rejection Verification
+The implementation remains aligned with the approved spec, design, and code plan: recursive discovery, normalized scenario IDs, shared folder-aware selection, pre-side-effect validation, CLI wording, and the minor changeset are present with tests, while public reports/progress/artifacts remain keyed by `scenario.name`. The iteration-3 e2e helper fix correctly maps flat and nested Playwright report file paths back to normalized scenario IDs such as `counter` and `blocks/counter`; I found no blocking regression.
 
-- The invalid-filter error now identifies the rejected filter and states that scenario filters must be relative to `config.paths.scenarios`.
-- The invalid-filter error now explicitly mentions absolute paths, UNC paths, and `..` traversal segments.
-- `src/__tests__/scenario-filter-selection.test.ts` now enforces the bad-filter identity and all required invalid-filter guidance for POSIX absolute paths, Windows absolute/root-relative paths, UNC paths, and `..` traversal filters.
+## Checks
 
-## Scope Verification
+| Check | Command | Result |
+| ----- | ------- | ------ |
+| typecheck | `npm run typecheck` | pass |
+| lint | `npm run lint` | pass |
+| tests | `npm test` | pass |
+| config-smoke | `npm --prefix testing-project run check:config` | pass |
+| changeset-format | `npx tsx scripts/validate-changesets.ts` | pass |
 
-- Recursive scenario discovery emits normalized scenario IDs for flat, nested, parent/child, malformed, unresolved-reference, and grouping-directory cases while ignoring non-directories and symlinked directories.
-- Shared scenario selection handles trimming, syntax validation, normalization, duplicate filter de-duping, root filters, exact matches, folder matches, segment-aware non-matches, overlap de-duping, unknown-filter errors, and `scenario.name` non-matching.
-- Duplicate configured `scenario.name` validation uses the internal configured/synthetic provenance marker, includes unresolved-reference records, and excludes malformed/shape-invalid synthetic stubs.
-- Pipeline selection and duplicate-name validation occur before run directory creation, hooks, progress, or agent work for empty, invalid, unknown, and duplicate-name failures.
-- CLI usage was updated for scenario-or-folder filters without changing positional forwarding.
-- A minor changeset records recursive discovery, scenario-or-folder filters, and hook-visible `RunScenario.id` while preserving `dirName`.
+## Behavior verification
 
-## Commands Run
+- Inspected `testing-project/eval/utils/verify-e2e.ts`; `scenarioDirOf()` now splits Playwright report file paths on POSIX or Windows separators, finds `e2e.spec.mjs`, anchors after a preceding `scenarios` segment when present, and joins all path segments before the spec file as the scenario ID.
+- Exercised the new mapping cases with the helper logic:
 
-- `git diff --stat 3af90255b1ec137691a227393cf283dbfea2fff7..HEAD`
-- `git diff --name-only 3af90255b1ec137691a227393cf283dbfea2fff7..HEAD`
-- `git diff 3af90255b1ec137691a227393cf283dbfea2fff7..HEAD -- src/scenarios/selection.ts src/__tests__/scenario-filter-selection.test.ts`
-- `node --import tsx --test src/__tests__/scenario-selection.test.ts src/__tests__/scenario-filter-selection.test.ts`
-- `npm run typecheck`
-- `npm run lint`
-- `npm test`
-- `npm --prefix testing-project run check:config`
-- `npx tsx scripts/validate-changesets.ts`
+```text
+counter/e2e.spec.mjs -> counter
+blocks/counter/e2e.spec.mjs -> blocks/counter
+/tmp/project/eval/scenarios/blocks/counter/e2e.spec.mjs -> blocks/counter
+```
 
-## Guardrail Result
+- Ran focused scenario tests: `node --import tsx --test src/__tests__/scenario-selection.test.ts src/__tests__/scenario-filter-selection.test.ts src/__tests__/scenarios.test.ts` — 29/29 passed, including nested folder filter hook-visible IDs and flat scenario compatibility.
 
-All required guardrails passed.
+## Issues
+
+None.
