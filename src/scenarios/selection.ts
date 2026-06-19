@@ -63,6 +63,53 @@ export function normalizeScenarioFilters(rawFilters: string[]): string[] {
 }
 
 /**
+ * Select enumerated scenarios using already-normalized scenario ID and folder
+ * filters.
+ *
+ * This helper performs matching and unknown-filter detection only. Callers that
+ * need to validate other run-wide invariants before matching can normalize raw
+ * user filters with `normalizeScenarioFilters`, perform those validations, then
+ * call this helper. Scenarios are considered in deterministic ID order for each
+ * filter. Filters are processed in user order, and each scenario is emitted only
+ * for the first filter that matches it. Unknown filters fail before any
+ * selection is returned. If no filters are supplied, all scenarios are returned
+ * in deterministic ID order.
+ *
+ * @param scenarios - Enumerated scenarios available for a run.
+ * @param filters - Canonical filters produced by `normalizeScenarioFilters`.
+ * @returns Selected scenarios in shared deterministic order.
+ */
+export function selectScenariosByNormalizedFilters(
+	scenarios: EnumeratedScenario[],
+	filters: string[],
+): EnumeratedScenario[] {
+	const sortedScenarios = [...scenarios].sort(compareScenarioIds);
+	if (filters.length === 0) return sortedScenarios;
+
+	const availableIds = sortedScenarios.map((scenario) => scenario.id);
+	const unknown = filters.filter(
+		(filter) => !availableIds.some((id) => matchesScenarioFilter(filter, id)),
+	);
+
+	if (unknown.length > 0) {
+		throw new UserFacingError(formatUnknownFiltersMessage(unknown, availableIds));
+	}
+
+	const selected: EnumeratedScenario[] = [];
+	const emitted = new Set<string>();
+	for (const filter of filters) {
+		for (const scenario of sortedScenarios) {
+			if (emitted.has(scenario.id)) continue;
+			if (!matchesScenarioFilter(filter, scenario.id)) continue;
+			emitted.add(scenario.id);
+			selected.push(scenario);
+		}
+	}
+
+	return selected;
+}
+
+/**
  * Determine whether a normalized scenario filter matches a normalized scenario
  * ID by exact ID, root, or segment-aware parent folder.
  *
@@ -85,7 +132,8 @@ export function matchesScenarioFilter(filter: string, id: string): boolean {
  * Scenarios are considered in deterministic ID order for each filter. Filters
  * are processed in user order, and each scenario is emitted only for the first
  * filter that matches it. Unknown filters fail before any selection is returned.
- * If no filters are supplied, the original scenario list is returned unchanged.
+ * If no filters are supplied, all scenarios are returned in deterministic ID
+ * order.
  *
  * @param scenarios - Enumerated scenarios available for a run.
  * @param rawFilters - Optional user-provided scenario ID or parent folder filters.
@@ -95,31 +143,10 @@ export function selectScenariosByFilters(
 	scenarios: EnumeratedScenario[],
 	rawFilters: string[] | undefined,
 ): EnumeratedScenario[] {
-	if (rawFilters === undefined || rawFilters.length === 0) return scenarios;
-
-	const filters = normalizeScenarioFilters(rawFilters);
-	const sortedScenarios = [...scenarios].sort(compareScenarioIds);
-	const availableIds = sortedScenarios.map((scenario) => scenario.id);
-	const unknown = filters.filter(
-		(filter) => !availableIds.some((id) => matchesScenarioFilter(filter, id)),
+	return selectScenariosByNormalizedFilters(
+		scenarios,
+		normalizeScenarioFilters(rawFilters ?? []),
 	);
-
-	if (unknown.length > 0) {
-		throw new UserFacingError(formatUnknownFiltersMessage(unknown, availableIds));
-	}
-
-	const selected: EnumeratedScenario[] = [];
-	const emitted = new Set<string>();
-	for (const filter of filters) {
-		for (const scenario of sortedScenarios) {
-			if (emitted.has(scenario.id)) continue;
-			if (!matchesScenarioFilter(filter, scenario.id)) continue;
-			emitted.add(scenario.id);
-			selected.push(scenario);
-		}
-	}
-
-	return selected;
 }
 
 /**

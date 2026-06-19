@@ -38,7 +38,8 @@ import {
 	enumerateScenarios,
 } from "../scenarios/enumerate";
 import {
-	selectScenariosByFilters,
+	normalizeScenarioFilters,
+	selectScenariosByNormalizedFilters,
 	validateConfiguredScenarioNamesAreUnique,
 } from "../scenarios/selection";
 import { tryHook } from "../util/hooks";
@@ -86,10 +87,11 @@ export async function runPipeline(params: PipelineParams): Promise<number> {
 	checkPaths(config, projectRoot);
 	const selfImprovement = resolveSelfImprovement(config, params.overrides);
 	const enumeratedScenarios = enumerateScenarios(config.paths, projectRoot);
+	const normalizedScenarioFilters = normalizeScenarioFilters(params.scenarios ?? []);
 	validateConfiguredScenarioNamesAreUnique(enumeratedScenarios);
-	const allScenarios = selectScenariosByFilters(
+	const allScenarios = selectScenariosByNormalizedFilters(
 		enumeratedScenarios,
-		params.scenarios,
+		normalizedScenarioFilters,
 	);
 
 	const runDirectory = resolve(projectRoot, config.paths.base, runId);

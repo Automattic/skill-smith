@@ -42,6 +42,14 @@ export default defineConfig({
 			record(
 				`afterAllScenarios:${scenarios.map(({ dirName }) => dirName).join(",")}`,
 			);
+			record(
+				`afterAllScenarioIds:${scenarios.map(({ id }) => id).join(",")}`,
+			);
+			record(
+				`afterAllScenarioKeys:${scenarios
+					.map((scenario) => Object.keys(scenario).sort().join("+"))
+					.join(",")}`,
+			);
 			record("afterAll");
 		},
 	},

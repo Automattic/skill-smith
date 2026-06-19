@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
@@ -11,6 +18,7 @@ const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(here, "fixtures", "target-project");
 const binPath = resolve(here, "..", "..", "bin", "skillsmith.mjs");
+const scenariosRoot = join(projectRoot, "eval", "scenarios");
 
 declare global {
 	var __skillsmithTargetProjectHooks: string[] | undefined;
@@ -82,6 +90,28 @@ function cleanProject(): void {
 	rmSync(join(projectRoot, "hooks.log"), { force: true });
 }
 
+function writeScenario(id: string, name: string): void {
+	const scenarioDir = join(scenariosRoot, ...id.split("/"));
+	mkdirSync(scenarioDir, { recursive: true });
+	writeFileSync(
+		join(scenarioDir, "scenario.yaml"),
+		`name: ${name}
+description: ${name}
+skills:
+  - foo
+prompt: ${name}
+acceptance:
+  - passes
+rubrics:
+  - r1
+`,
+	);
+}
+
+function removeScenario(id: string): void {
+	rmSync(join(scenariosRoot, ...id.split("/")), { recursive: true, force: true });
+}
+
 function latestRunDir(): string {
 	const baseDir = join(projectRoot, ".skillsmith");
 	const runIds = readdirSync(baseDir).filter((n) => /^\d{8}-\d{6}$/.test(n));
@@ -130,6 +160,22 @@ test("API run with an empty scenario list runs all scenarios", async () => {
 		"config-fetch-scenario",
 		"counter-scenario",
 	]);
+});
+
+test("API run with an empty scenario list uses deterministic scenario ID order", async () => {
+	writeScenario("z-group/nested", "nested-scenario");
+	try {
+		const result = await runApi([]);
+
+		assert.equal(result.exitCode, 0);
+		assert.ok(
+			hookEvents().includes(
+				"afterAllScenarios:config-fetch,counter,z-group/nested",
+			),
+		);
+	} finally {
+		removeScenario("z-group/nested");
+	}
 });
 
 test("API run targets one scenario directory ID", async () => {
@@ -211,6 +257,50 @@ test("API run rejects unknown scenario IDs before hooks and lists available IDs"
 	);
 	assert.deepEqual(hookEvents(), []);
 	assert.equal(existsSync(join(projectRoot, ".skillsmith")), false);
+});
+
+test("API run rejects invalid filters before duplicate-name validation or side effects", async () => {
+	writeScenario("duplicates/counter", "counter-scenario");
+	try {
+		const result = await runApi(["../counter"]);
+
+		assert.equal(result.exitCode, 1);
+		assert.match(result.stderr, /Invalid scenario filter: \.\.\/counter/);
+		assert.doesNotMatch(result.stderr, /Duplicate scenario\.name/);
+		assert.deepEqual(hookEvents(), []);
+		assert.equal(existsSync(join(projectRoot, ".skillsmith")), false);
+	} finally {
+		removeScenario("duplicates/counter");
+	}
+});
+
+test("API run rejects duplicate configured names before hooks and agents", async () => {
+	writeScenario("duplicates/counter", "counter-scenario");
+	try {
+		const result = await runApi(["counter"]);
+
+		assert.equal(result.exitCode, 1);
+		assert.match(result.stderr, /Duplicate scenario\.name "counter-scenario"/);
+		assert.deepEqual(hookEvents(), []);
+		assert.equal(existsSync(join(projectRoot, ".skillsmith")), false);
+	} finally {
+		removeScenario("duplicates/counter");
+	}
+});
+
+test("API run with a nested folder filter exposes normalized IDs to hooks", async () => {
+	writeScenario("z-group/nested", "nested-scenario");
+	try {
+		const result = await runApi(["z-group"]);
+
+		assert.equal(result.exitCode, 0);
+		assert.deepEqual(reportScenarioNames(), ["nested-scenario"]);
+		assert.ok(hookEvents().includes("afterAllScenarios:z-group/nested"));
+		assert.ok(hookEvents().includes("afterAllScenarioIds:z-group/nested"));
+		assert.ok(hookEvents().includes("afterAllScenarioKeys:dirName+id+scenario"));
+	} finally {
+		removeScenario("z-group/nested");
+	}
 });
 
 test("CLI parser passes no args as all scenarios", async () => {
