@@ -93,9 +93,12 @@ produces that describes formatting behavior MUST match the design:
     using the repo's existing formatting script, and how compliance is verified,
     using only commands/scripts that actually exist in the shipped repo
     (no invented `format:check` script, no invented CI gate).
-  - The existing local-checks guidance (`npm run lint`, `npm run typecheck`,
-    `npm test`, the `testing-project` `check:config` command) remains present and
-    accurate; nothing that still works is described as removed.
+  - Every local check the "Running tests and checks locally" section listed
+    before this change — `npm run lint`, `npm run typecheck`, `npm test`,
+    `npm run smoke`, and the `testing-project` `check:config` command — remains
+    present and accurate; nothing that still works is described as removed,
+    including if the doc-writer restructures the bullet list into a code-style
+    subsection.
   - No hardcoded Biome version number appears in the prose, and any description
     of trailing-comma/lockfile behavior is consistent with the two authoritative
     design corrections (multiline imports get a trailing comma; lockfiles are not
