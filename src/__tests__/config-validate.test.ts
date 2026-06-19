@@ -222,3 +222,74 @@ test("rejects a non-string role prompt", () => {
 	);
 	assert.match(errors.join("\n"), /roles\.judge\.prompt must be a string/);
 });
+
+test("accepts a known agent referenced by roles.validator string shorthand", () => {
+	const errors = collectConfigErrors(
+		build({
+			roles: {
+				test: { agents: ["tester"] },
+				judge: "grader",
+				improver: "improver",
+				validator: "grader",
+			},
+		}),
+	);
+	assert.deepEqual(errors, []);
+	assert.doesNotMatch(errors.join("\n"), /roles\.validator/);
+});
+
+test("accepts roles.validator in object form with a prompt", () => {
+	const errors = collectConfigErrors(
+		build({
+			roles: {
+				test: { agents: ["tester"] },
+				judge: "grader",
+				improver: "improver",
+				validator: { agent: "grader", prompt: "double-check the fix" },
+			},
+		}),
+	);
+	assert.deepEqual(errors, []);
+});
+
+test("rejects an unknown agent referenced by roles.validator", () => {
+	const errors = collectConfigErrors(
+		build({
+			roles: {
+				test: { agents: ["tester"] },
+				judge: "grader",
+				improver: "improver",
+				validator: "nope",
+			},
+		}),
+	);
+	assert.ok(
+		errors.some((e) => e.includes("roles.validator")),
+		`expected a roles.validator error, got ${JSON.stringify(errors)}`,
+	);
+	assert.match(
+		errors.join("\n"),
+		/roles\.validator references unknown agent "nope"/,
+	);
+});
+
+test("rejects a non-string roles.validator.prompt", () => {
+	const errors = collectConfigErrors(
+		build({
+			roles: {
+				test: { agents: ["tester"] },
+				judge: "grader",
+				improver: "improver",
+				// biome-ignore lint/suspicious/noExplicitAny: testing invalid input
+				validator: { agent: "grader", prompt: 123 as any },
+			},
+		}),
+	);
+	assert.match(errors.join("\n"), /roles\.validator\.prompt must be a string/);
+});
+
+test("accepts a config without roles.validator (no validator errors)", () => {
+	const errors = collectConfigErrors(build());
+	assert.deepEqual(errors, []);
+	assert.doesNotMatch(errors.join("\n"), /roles\.validator/);
+});

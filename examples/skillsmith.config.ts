@@ -24,6 +24,10 @@ const improverPrompt = readFileSync(
 	resolve(here, "prompts/improver.md"),
 	"utf8",
 );
+const validatorPrompt = readFileSync(
+	resolve(here, "prompts/validator.md"),
+	"utf8",
+);
 
 export default defineConfig({
 	// Default run mode. CLI flag `--mode test-only|self-improvement`
@@ -103,6 +107,15 @@ export default defineConfig({
 		// For `improver`, the prompt REPLACES the built-in instructions
 		// entirely (different from `test`/`judge`, which augment).
 		improver: { agent: "cc-opus", prompt: improverPrompt },
+
+		// Optional anti-leakage reviewer for the self-improvement loop.
+		// Omit it entirely and the validator is off — the loop behaves
+		// exactly as it does without this key. It runs read-only on the
+		// same surface as the judge (it never writes a skill). Like
+		// `improver`, its `prompt` REPLACES the built-in validator
+		// instructions (not append) — an override must keep the verdict
+		// JSON schema the harness parses.
+		validator: { agent: "cc-opus", prompt: validatorPrompt },
 	},
 
 	// Project layout. Every entry is a directory the harness scans;
@@ -131,6 +144,13 @@ export default defineConfig({
 		// final skill edits. Useful for catching regressions the
 		// scoped iterations didn't exercise.
 		finalPass: false,
+
+		// Cap on the validator's revise rounds per improver edit (the
+		// improver's first pass plus up to this many re-reviews). Integer
+		// ≥ 1, default 2; a `0` clamps to `1` rather than disabling. This
+		// only tunes the cap — the validator's on/off is governed solely
+		// by whether `roles.validator` is present above.
+		maxValidationRounds: 2,
 	},
 
 	// Hooks fire at well-defined points in the lifecycle. Every hook is

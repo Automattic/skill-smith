@@ -109,6 +109,45 @@ test("maxIterations is clamped to at least 1", () => {
 	assert.equal(resolved.maxIterations, 1);
 });
 
+test("maxValidationRounds defaults to 2 when nothing is set", () => {
+	const resolved = resolveSelfImprovement(baseConfig());
+	assert.equal(resolved.maxValidationRounds, 2);
+});
+
+test("config maxValidationRounds overrides the default", () => {
+	const resolved = resolveSelfImprovement(
+		baseConfig({
+			selfImprovement: {
+				maxValidationRounds: 4,
+			},
+		}),
+	);
+	assert.equal(resolved.maxValidationRounds, 4);
+});
+
+test("override maxValidationRounds wins over config", () => {
+	const resolved = resolveSelfImprovement(
+		baseConfig({
+			selfImprovement: {
+				maxValidationRounds: 4,
+			},
+		}),
+		{ maxValidationRounds: 5 },
+	);
+	assert.equal(resolved.maxValidationRounds, 5);
+});
+
+test("maxValidationRounds is clamped to at least 1", () => {
+	const resolved = resolveSelfImprovement(
+		baseConfig({
+			selfImprovement: {
+				maxValidationRounds: 0,
+			},
+		}),
+	);
+	assert.equal(resolved.maxValidationRounds, 1);
+});
+
 test("validation accepts a fully-specified config with selfImprovement", () => {
 	const errors = collectConfigErrors(
 		baseInput({
@@ -134,6 +173,34 @@ test("validation flags non-integer maxIterations", () => {
 	assert.ok(
 		errors.some((e) => e.includes("maxIterations")),
 		`expected a maxIterations error, got ${JSON.stringify(errors)}`,
+	);
+});
+
+test("validation flags non-integer maxValidationRounds", () => {
+	const errors = collectConfigErrors(
+		baseInput({
+			selfImprovement: {
+				maxValidationRounds: 0.5 as unknown as number,
+			},
+		}),
+	);
+	assert.ok(
+		errors.some((e) => e.includes("maxValidationRounds")),
+		`expected a maxValidationRounds error, got ${JSON.stringify(errors)}`,
+	);
+});
+
+test("validation flags maxValidationRounds below 1", () => {
+	const errors = collectConfigErrors(
+		baseInput({
+			selfImprovement: {
+				maxValidationRounds: 0,
+			},
+		}),
+	);
+	assert.ok(
+		errors.some((e) => e.includes("maxValidationRounds")),
+		`expected a maxValidationRounds error, got ${JSON.stringify(errors)}`,
 	);
 });
 

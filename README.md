@@ -106,6 +106,7 @@ Every run lives under `${paths.base}/<runId>/`. Each iteration owns its own subd
 │   ├── report.json                # what ran this iteration (failures detailed)
 │   ├── run.log
 │   ├── improvement.md             # improver transcript (self-improvement mode, not yet passing)
+│   ├── validation-round-K.md      # validator's prose verdict, K = revise round 0,1,…; only when a validator is configured; header marks a clean `approve` vs a `FAILED-OPEN` approve
 │   └── <scenario>/<agent>/...     # workspaces and per-agent reports
 ├── iteration-2/
 │   └── ...
@@ -122,6 +123,23 @@ Every run lives under `${paths.base}/<runId>/`. Each iteration owns its own subd
 5. The loop exits early on all-pass. If `finalPass: true` and the last iteration ran a subset, the harness runs one extra full sweep at the end so the final report reflects the current state of every (scenario, agent) pair.
 
 The improver is the only agent that writes, and only inside `paths.skills`. The harness never commits, pushes, or captures a diff — your edits live in the working tree for human review. Set `roles.improver.prompt` to a string (or load one from disk) to replace the built-in improver instructions with a project-specific edit strategy.
+
+### The validator — anti-leakage review
+
+The improver's incentive is to make the next sweep pass, and the fastest way to pass *this* sweep is to bake the answers into the skill — name the scenario, hard-code its values, copy the rubric wording. That overfits: the skill passes the eval without getting better at the domain. The optional **validator** is the guard against it.
+
+The validator runs only when you configure `roles.validator` (a `{ agent, prompt? }` like `judge`/`improver`, with a string shorthand). When set, it reviews each improver edit before the next iteration. It is **read-only**: it sees the **post-edit whole skill** (the resulting skill state, not a diff), the **scenario corpus**, and the **rubrics**, and it returns `approve` or `revise` with typed findings (each naming the offending span and a suggested generalization). On `revise` the **improver — still the sole writer** — re-edits the skills in place to address the findings, and the validator re-reviews. This validate/revise loop caps at `selfImprovement.maxValidationRounds` revise rounds.
+
+Four properties make the validator trustworthy rather than just another gate that can go wrong:
+
+- **Advisory — keep and warn, never revert.** When the revise cap is reached without an approval, the harness **keeps the last edit** and records a prominent warning. It does **not** revert, fail the iteration, or touch `report.json`, the matrix, or the exit code. The validator only ever asks the improver to revise; it never undoes an edit itself.
+- **Fail-open.** A provider error, or a verdict that does not parse to a well-shaped `revise`, is treated as `approve` and logged. A broken or flaky validator therefore never blocks the improver — the loop moves on as if the edit were approved.
+- **Honest scope — a floor, not the gate.** The validator catches **blatant, legible** leakage: scenario names, scenario-unique literals, verbatim acceptance- or rubric-copying, and single-case ("for THIS task do X") guidance. It does **not** catch subtle or paraphrased overfitting, and it biases toward approving when uncertain (a false block is worse than a slipped leak). It raises the floor; **human PR review remains the authoritative merge gate.**
+- **No answer key.** The validator never sees the judge's pass/fail reviews or the files the testing agents produced — only the skill, the corpus, and the rubrics. Showing it the corpus is not a new leak: the corpus reaches only this ephemeral reviewer, never the persisted skill.
+
+The review is entirely in-process: the validator writes only its `validation-round-K.md` transcript (above) — no diff, no git artifact.
+
+**Backward compatibility:** with no `roles.validator` configured, the loop behaves exactly as it does today, with zero behavior change.
 
 ### `afterAllScenarios` — the verification gate
 
@@ -182,9 +200,15 @@ export default defineConfig({
     judge: "opus",
     // Replace the built-in improver instructions with a project-specific strategy.
     improver: { agent: "opus", prompt: "..." },
+    // Optional anti-leakage reviewer. Its mere presence is the on/off gate:
+    // omit `validator` and the loop runs exactly as before (validator off).
+    // Accepts a string shorthand (`validator: "opus"`) or the object form;
+    // `prompt` replaces the built-in validator instructions (see below).
+    validator: { agent: "opus", prompt: "..." },
   },
   selfImprovement: {
     maxIterations: 3,                   // default 3
+    maxValidationRounds: 2,             // integer ≥ 1, default 2: the improver's first pass plus up to 2 revise rounds; a configured 0 clamps to 1 (it does not disable the validator — on/off is governed solely by roles.validator)
     scope: "failed-scenarios",          // "failed-pairs" | "failed-scenarios" | "all"
     finalPass: false,
   },
@@ -197,7 +221,7 @@ export default defineConfig({
 });
 ```
 
-`roles.test.prompt` and `roles.judge.prompt` are appended to the respective system prompts as a `# Role instructions` section, augmenting the harness-owned structural blocks. `roles.improver.prompt` replaces the built-in improver instructions entirely. When `roles.improver.prompt` is not set, the harness uses a minimal built-in instruction ("edit the failing skills in place, minimally, no git").
+`roles.test.prompt` and `roles.judge.prompt` are appended to the respective system prompts as a `# Role instructions` section, augmenting the harness-owned structural blocks. `roles.improver.prompt` and `roles.validator.prompt`, by contrast, **replace** their built-in instructions entirely. When `roles.improver.prompt` is not set, the harness uses a minimal built-in instruction ("edit the failing skills in place, minimally, no git"). Overriding `roles.validator.prompt` is a footgun: the replacement is the validator's whole contract, so it must preserve the verdict JSON schema (the `approve`/`revise` object with typed `findings`) and the validator's identity, or the harness cannot parse the verdict — and on an unparseable verdict the validator fails open (treats it as `approve`).
 
 See [`examples/skillsmith.config.ts`](./examples/skillsmith.config.ts) for a reference config showing every provider (`claude-code`, `anthropic-api`, `openai-api`, `codex`, `gemini-api`), provider-specific options like `effort`, and the full set of hooks and `selfImprovement` knobs.
 
@@ -206,8 +230,10 @@ See [`examples/skillsmith.config.ts`](./examples/skillsmith.config.ts) for a ref
 Flags override the config block for a single invocation:
 
 ```
-skillsmith --mode self-improvement --iterations 5 --scope failed-pairs --final-pass
+skillsmith --mode self-improvement --iterations 5 --validation-rounds 3 --scope failed-pairs --final-pass
 ```
+
+`--iterations N` overrides `selfImprovement.maxIterations` and `--validation-rounds N` overrides `selfImprovement.maxValidationRounds` — each for that one run only (CLI flag > config block > default). Both take an integer ≥ 1; a value `< 1` is rejected and the run exits before any work starts. `--validation-rounds` governs only the validator's round cap — it does not turn the validator on or off (that is `roles.validator` presence alone).
 
 ### Hooks
 

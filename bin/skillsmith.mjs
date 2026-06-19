@@ -25,6 +25,7 @@ try {
 			verbose: { type: "boolean", short: "v" },
 			mode: { type: "string" },
 			iterations: { type: "string" },
+			"validation-rounds": { type: "string" },
 			scope: { type: "string" },
 			"final-pass": { type: "boolean" },
 		},
@@ -32,7 +33,7 @@ try {
 } catch (err) {
 	console.error(err.message);
 	console.error(
-		"Usage: skillsmith [--verbose] [--mode test-only|self-improvement] [--iterations N] [--scope failed-pairs|failed-scenarios|all] [--final-pass] [scenario-dir ...]",
+		"Usage: skillsmith [--verbose] [--mode test-only|self-improvement] [--iterations N] [--validation-rounds N] [--scope failed-pairs|failed-scenarios|all] [--final-pass] [scenario-dir ...]",
 	);
 	process.exit(1);
 }
@@ -57,6 +58,14 @@ if (values.iterations !== undefined) {
 		process.exit(1);
 	}
 	overrides.maxIterations = n;
+}
+if (values["validation-rounds"] !== undefined) {
+	const n = Number.parseInt(values["validation-rounds"], 10);
+	if (!Number.isFinite(n) || n < 1) {
+		console.error("--validation-rounds must be an integer >= 1");
+		process.exit(1);
+	}
+	overrides.maxValidationRounds = n;
 }
 if (values.scope !== undefined) {
 	if (!VALID_SCOPES.has(values.scope)) {

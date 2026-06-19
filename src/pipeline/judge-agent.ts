@@ -6,6 +6,7 @@ import type {
 	SkillsmithConfig,
 } from "../config/types";
 import { getProvider } from "../providers/registry";
+import { parseAgentJson } from "../util/parse-agent-json";
 import type { RunLog } from "../util/run-log";
 import type { TestingAgentResult } from "./agent-loop";
 
@@ -74,7 +75,7 @@ export async function runJudgeAgent(
 		};
 	}
 
-	const parsed = parseJudgeJson(result.finalText);
+	const parsed = parseAgentJson(result.finalText);
 	if (parsed === undefined) {
 		log.info(`${scope}: judge JSON unparseable, raw stored`);
 		return {
@@ -136,20 +137,6 @@ function buildJudgeSystemPrompt(
 		sections.push(`# Role instructions\n${rolePrompt}`);
 	}
 	return sections.join("\n\n");
-}
-
-function parseJudgeJson(finalText: string): object | undefined {
-	const trimmed = finalText.trim();
-	const fence = trimmed.match(/^```(?:[a-zA-Z]+)?\n([\s\S]*?)\n```$/);
-	const jsonText = fence?.[1] ?? trimmed;
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(jsonText);
-	} catch {
-		return undefined;
-	}
-	if (parsed === null || typeof parsed !== "object") return undefined;
-	return parsed;
 }
 
 function buildUserMessage(

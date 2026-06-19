@@ -1,0 +1,10 @@
+name: wp-marker
+description: Validator-loop CAP fixture scenario graded by the mock provider.
+skills:
+  - wp-foo
+prompt: |
+  Implement the block described by the skill.
+acceptance:
+  - skill carries the marker
+rubrics:
+  - r1
