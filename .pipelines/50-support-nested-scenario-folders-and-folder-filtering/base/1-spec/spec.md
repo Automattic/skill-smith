@@ -30,17 +30,18 @@ Users should also be able to limit a run to a specific scenario directory or to 
 20. A full scenario ID filter such as `blocks/counter` must select that scenario and any descendant scenarios beneath that exact directory, if such descendants exist.
 21. A folder filter such as `blocks` must select all discovered scenarios under `blocks/` and must not select unrelated IDs such as `my-blocks/counter` or `blocks-old/counter`.
 22. Multiple filters must select the union of all matching scenarios.
-23. Overlapping or duplicate filters must be de-duped after normalization.
-24. When filters are provided, selected scenarios must preserve the user's first selected order after normalization and de-duping.
-25. Unknown filters that match no scenario ID and no folder containing scenarios must fail before hooks, run directory creation, or agent work.
-26. Unknown-filter errors must list available normalized scenario IDs and make clear that users may pass either a scenario ID or a parent folder filter.
-27. Scenario selection must be based on scenario directory IDs, not on `scenario.name` values from `scenario.yaml`.
-28. Duplicate `scenario.name` values among discovered scenarios must fail clearly before agent work, listing the duplicate name and the conflicting scenario IDs.
-29. Existing report JSON keys, progress identity, self-improvement behavior, and artifact directory layout based on `scenario.name` must remain compatible.
-30. This feature must not redesign reports or move artifacts into directories based on nested source paths.
-31. User-facing documentation and CLI usage must define scenario IDs as relative paths from `config.paths.scenarios`.
-32. User-facing documentation and CLI usage must explain exact scenario filters and folder filters with nested examples, and must describe trimming, normalization, duplicate handling, empty-filter errors, and unknown-filter errors.
-33. CLI usage wording must describe positional arguments as scenario-or-folder filters rather than only direct scenario directories.
+23. Filters must be processed in the user's order after trimming, normalization, and duplicate-filter de-duping.
+24. Within each normalized filter, matching scenarios must be considered in deterministic scenario ID order.
+25. Overlapping scenarios must be emitted only at their first match, so duplicate or overlapping filters do not select the same scenario more than once.
+26. Unknown filters that match no scenario ID and no folder containing scenarios must fail before hooks, run directory creation, or agent work.
+27. Unknown-filter errors must list available normalized scenario IDs and make clear that users may pass either a scenario ID or a parent folder filter.
+28. Scenario selection must be based on scenario directory IDs, not on `scenario.name` values from `scenario.yaml`.
+29. Duplicate `scenario.name` values among discovered scenarios must fail clearly before agent work, listing the duplicate name and the conflicting scenario IDs.
+30. Existing report JSON keys, progress identity, self-improvement behavior, and artifact directory layout based on `scenario.name` must remain compatible.
+31. This feature must not redesign reports or move artifacts into directories based on nested source paths.
+32. User-facing documentation and CLI usage must define scenario IDs as relative paths from `config.paths.scenarios`.
+33. User-facing documentation and CLI usage must explain exact scenario filters and folder filters with nested examples, and must describe trimming, normalization, duplicate handling, empty-filter errors, and unknown-filter errors.
+34. CLI usage wording must describe positional arguments as scenario-or-folder filters rather than only direct scenario directories.
 
 ## Out of Scope
 
@@ -63,10 +64,12 @@ Users should also be able to limit a run to a specific scenario directory or to 
 - Given a grouping directory without `scenario.yaml` that contains descendant scenarios, when Skillsmith discovers scenarios, then the grouping directory is not treated as a scenario and its descendant scenarios are discovered.
 - Given discovered scenario IDs in nested folders, when Skillsmith runs with no filters, then scenarios run in deterministic scenario ID order.
 - Given one discovered scenario has malformed YAML and another discovered scenario is valid, when Skillsmith runs all scenarios, then the malformed scenario surfaces as a per-scenario error and the valid scenario can still run.
+- Given one discovered scenario has an unresolved skill or rubric reference and another discovered scenario is valid, when Skillsmith runs all scenarios, then the unresolved-reference scenario surfaces as a per-scenario error and the valid scenario can still run.
 - Given CLI positional filters and API `run({ scenarios })` filters with the same values, when Skillsmith selects scenarios, then both entry points select the same scenario IDs.
 - Given the filter `counter`, when a flat scenario ID `counter` exists, then only `counter` and any descendants beneath `counter/` are selected.
 - Given the filter `blocks/counter`, when scenario ID `blocks/counter` exists, then `blocks/counter` is selected.
 - Given the folder filter `blocks`, when scenarios `blocks/counter` and `blocks/button` exist, then both are selected.
+- Given the folder filter `blocks`, when scenarios `blocks/zebra`, `blocks/button`, and `blocks/counter` exist, then they are selected in deterministic scenario ID order: `blocks/button`, `blocks/counter`, then `blocks/zebra`.
 - Given the folder filter `blocks`, when scenario IDs `my-blocks/counter` and `blocks-old/counter` also exist, then those unrelated scenarios are not selected.
 - Given filters `counter`, `./counter`, and `counter/`, when scenario ID `counter` exists, then `counter` is selected once.
 - Given filter `foo//bar`, when scenario ID `foo/bar` exists, then `foo/bar` is selected.
@@ -78,7 +81,8 @@ Users should also be able to limit a run to a specific scenario directory or to 
 - Given a UNC path filter, when Skillsmith starts scenario selection, then it fails before matching with a clear validation error.
 - Given a filter containing a `..` traversal segment, when Skillsmith starts scenario selection, then it fails before matching with a clear validation error.
 - Given filters `blocks` and `blocks/counter`, when both filters match `blocks/counter`, then `blocks/counter` is selected once.
-- Given multiple filters that match scenarios in a user-provided order, when Skillsmith selects scenarios, then the selected scenario order follows the user's first selected order after normalization and de-duping.
+- Given filters `blocks/counter` and `blocks`, when `blocks` also matches `blocks/button` and `blocks/counter`, then Skillsmith selects `blocks/counter` at its first match and then selects remaining `blocks` matches in deterministic scenario ID order without selecting `blocks/counter` again.
+- Given multiple filters that match scenarios in a user-provided order, when Skillsmith selects scenarios, then filters are processed in the user's normalized order and overlapping scenarios are emitted only at their first match.
 - Given an unknown filter `missing`, when Skillsmith starts scenario selection, then it fails before hooks, run directory creation, or agent work, lists available normalized scenario IDs, and explains that a scenario ID or parent folder may be passed.
 - Given a discovered scenario whose `scenario.name` is `Counter`, when the user filters by `Counter` but no scenario directory ID or parent folder `Counter` exists, then the filter is unknown.
 - Given two discovered scenarios have the same `scenario.name`, when Skillsmith starts a run, then it fails before agent work and lists the duplicate name and the conflicting scenario IDs.
