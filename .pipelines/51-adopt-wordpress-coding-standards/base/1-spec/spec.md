@@ -26,13 +26,13 @@ The authoritative source of truth for "WordPress style" is `@wordpress/prettier-
 
 4. **The committed tree is brought into compliance, not just the configuration.** After the change, running the formatter in write mode over the formattable files produces no edits, because every file Biome formats has already been reformatted to WordPress style as part of this work. "Fully adopts" means the committed code is in WordPress style — not merely that the configuration is capable of producing it.
 
-5. **All files within Biome's formatting reach are reformatted — generated and fixture files included.** Biome respects `.gitignore` (so `node_modules/`, `dist/`, `build/`, `coverage/`, etc. remain untouched), but tracked, non-ignored files that Biome formats — including `package-lock.json`, files under `testing-project/`, and files under `docs/` — are reformatted to the standard rather than carved out. Uniform adoption across the tracked formattable surface is required; no in-tree exclusions are introduced to spare generated or fixture files from formatting.
+5. **All files within Biome's formatting reach are reformatted — generated and fixture files included.** Biome respects `.gitignore` (so `node_modules/`, `dist/`, `build/`, `coverage/`, etc. remain untouched), but tracked, non-ignored files that Biome formats — including `package-lock.json`, `testing-project/package-lock.json`, files under `testing-project/`, and files under `docs/` — are reformatted to the standard rather than carved out. Uniform adoption across the tracked formattable surface is required; no in-tree exclusions are introduced to spare generated or fixture files from formatting. Reformatting these generated files must not break them: in particular, after the reformat each `package-lock.json` remains a valid lockfile that installs the same dependency tree — `npm ci` resolves and installs successfully with no change to resolved versions.
 
 6. **The formatting toolchain supports the required options.** `@biomejs/biome` is upgraded from `2.4.12` to a version that supports `delimiterSpacing` and its per-language overrides (**Biome ≥ 2.5.0**; 2.5.0 is the only published 2.5.x as of June 2026), and the `biome.json` `$schema` reference is updated to match the installed version, so the configuration validates with no unknown-key error and no schema-mismatch warning.
 
-7. **Formatting compliance is verifiable, not merely available.** A verify-only formatting check exists that passes (reports no changes / exits zero) against the committed tree and would fail (exit non-zero) if any in-scope file drifted from WordPress style. This guarantees adoption is mechanically checkable; introducing a *new gating CI workflow* to run that check on every pull request is out of scope (see Out of Scope).
+7. **Formatting compliance is verifiable, not merely available.** Verification is done with the already-installed Biome's verify mode — running `biome format .` **without** `--write` reports diffs and exits non-zero on any unformatted file, and exits zero when the tree complies. This is the check; **no new artifact is required** (no new npm script, no new CI workflow). Adoption is therefore mechanically checkable against the committed tree using tooling that already ships in the repo. Introducing a *new gating CI workflow* to run this check on every pull request is out of scope (see Out of Scope), and adding a dedicated `format:check` npm script is optional convenience, not a requirement.
 
-8. **Existing behavior is preserved across the reformat.** `tsc --noEmit` (`npm run typecheck`) and the test suite (`npm test`) pass unchanged. The reformat changes only whitespace, quote characters, and trailing-comma tokens — it introduces no behavioral change.
+8. **Existing behavior is preserved across the reformat.** The reformat is mechanical: it changes only formatting tokens — whitespace and indentation, quote characters (in JS/TS/MJS and CSS), trailing-comma tokens, and delimiter spacing — and never the meaning of the code or data. For source files, `tsc --noEmit` (`npm run typecheck`) and the test suite (`npm test`) pass unchanged. For data/generated files (the tracked JSON files and lockfiles), reformatting alters layout only and preserves their content semantics — in particular, a reformatted `package-lock.json` remains a valid, install-equivalent lockfile (see Requirement 5).
 
 9. **The version bump must not leave any existing check failing — specifically, `npm run lint` exits zero after the change.** Upgrading Biome to ≥ 2.5.0 newly raises an accessibility lint finding (`lint/a11y/useAriaPropsSupportedByRole`) on `docs/index.html` under the existing recommended-rules configuration, turning `npm run lint` from exit 0 (under 2.4.12) to exit 1 (under 2.5.0). Because `npm run lint` runs in CI and in the documented local checks, the required observable outcome is that **`npm run lint` exits zero after the change**. (How that is achieved — fixing the HTML, scoping/disabling the rule, or excluding the file from linting — is a design/code decision, not a spec decision.)
 
@@ -45,6 +45,7 @@ The authoritative source of truth for "WordPress style" is `@wordpress/prettier-
 - **Formatting of Markdown, YAML, and HTML** — Biome does not format these file types; their formatting is unchanged.
 - **JSX-specific formatting fidelity as an observable outcome.** The repo contains no `.tsx`/JSX files, so JSX-only WordPress settings (e.g. multiline JSX bracket placement) have no effect on current code. Configuring them for fidelity is acceptable but is not a testable outcome here.
 - **Repackaging / changing published package contents** (e.g. introducing a `files` field or `.npmignore`). `@biomejs/biome` is a build-time-only devDependency and is not shipped to consumers; the published-package surface is unrelated to this change.
+- **Changeset mechanics.** The reformat necessarily touches `src/**`, `bin/**`, and `package.json`, so the repo's changeset gate (`changeset-gate.yml`) will mechanically require a changeset even though this change warrants no version bump (it is lint/format config plus a behaviour-equivalent build-time devDependency bump). Satisfying that gate is a landing-process detail deferred to later phases; the research recommends a `none`-bump changeset (precedent: `.changeset/initial-scaffolding.md`). The spec does not prescribe the changeset wording or mechanics, but the PR is expected to satisfy the required changeset gate (see Acceptance Criteria).
 
 ## Acceptance Criteria
 
@@ -57,10 +58,11 @@ Formatter output (WordPress style):
 
 Tree compliance and verification:
 
-- Given the committed repository after this change, when the formatter is run in write mode over the formattable files, then it makes no edits (every formattable file already complies).
-- Given the committed repository, when the verify-only formatting check is run, then it reports no changes and exits zero.
-- Given a deliberately mis-formatted in-scope file (e.g. parentheses spacing removed from a `.ts` file), when the verify-only formatting check is run, then it exits non-zero.
-- Given the set of tracked, non-`.gitignore`d files that Biome formats, when formatting is applied, then `package-lock.json`, files under `testing-project/`, and files under `docs/` are reformatted to the standard (no in-tree exclusions spare them); and given `.gitignore`d paths (`node_modules/`, `dist/`, `build/`, `coverage/`, etc.), when formatting is applied, then they remain untouched.
+- Given the committed repository after this change, when `biome format --write .` is run, then it makes no edits (every formattable file already complies).
+- Given the committed repository after this change, when `biome format .` is run (Biome's verify mode, no `--write`), then it reports no changes and exits zero.
+- Given a deliberately mis-formatted in-scope file (e.g. parentheses spacing removed from a `.ts` file), when `biome format .` is run (no `--write`), then it exits non-zero.
+- Given the set of tracked, non-`.gitignore`d files that Biome formats, when formatting is applied, then `package-lock.json`, `testing-project/package-lock.json`, files under `testing-project/`, and files under `docs/` are reformatted to the standard (no in-tree exclusions spare them); and given `.gitignore`d paths (`node_modules/`, `dist/`, `build/`, `coverage/`, etc.), when formatting is applied, then they remain untouched.
+- Given the reformatted repository, when `npm ci` is run, then it resolves and installs successfully against the reformatted `package-lock.json` with no change to resolved dependency versions (the reformatted lockfile remains install-equivalent).
 
 Toolchain and configuration:
 
@@ -72,6 +74,7 @@ Behavior and check preservation:
 - Given the reformatted tree, when `npm run typecheck` is run, then it passes (exit zero).
 - Given the reformatted tree, when `npm test` is run, then it passes with the same results as before the change.
 - Given the upgraded Biome and the reformatted tree, when `npm run lint` is run, then it exits zero (the new `useAriaPropsSupportedByRole` finding on `docs/index.html` no longer fails the lint run).
+- Given the PR for this change (which touches `src/**`, `bin/**`, and `package.json`), when the repo's changeset gate (`changeset-gate.yml`) runs, then it passes (the specific changeset mechanics are deferred to later phases — see Out of Scope).
 
 Unaffected file types:
 
