@@ -215,15 +215,20 @@ function parsePlaywrightReport(
 }
 
 /**
- * Extract the scenario directory name from a spec file path. Specs live
- * at `<scenarioDir>/e2e.spec.mjs`, so the scenario directory is the
- * spec's immediate parent. Playwright reports file paths relative to its
- * testDir (`eval/scenarios`), e.g. `counter/e2e.spec.mjs` — there is no
- * `scenarios` segment to anchor on, so we take the parent segment
- * directly. This also handles absolute paths that do include `scenarios`.
+ * Extract the scenario directory ID from a spec file path. Specs live at
+ * `<scenarioId>/e2e.spec.mjs`, where `scenarioId` can be a nested path such
+ * as `blocks/counter`. Playwright usually reports paths relative to its
+ * testDir (`eval/scenarios`), but absolute paths can include that anchor.
  */
 function scenarioDirOf(file: string): string | undefined {
 	const segments = file.split(/[\\/]/).filter((s) => s.length > 0);
-	if (segments.length >= 2) return segments[segments.length - 2];
-	return undefined;
+	const specIndex = segments.lastIndexOf("e2e.spec.mjs");
+	if (specIndex <= 0) return undefined;
+
+	const scenariosIndex = segments.lastIndexOf("scenarios", specIndex - 1);
+	const start = scenariosIndex >= 0 ? scenariosIndex + 1 : 0;
+	const scenarioSegments = segments.slice(start, specIndex);
+	if (scenarioSegments.length === 0) return undefined;
+
+	return scenarioSegments.join("/");
 }
