@@ -12,9 +12,9 @@ Scenario enumeration will walk the configured scenarios root recursively. The wa
 
 Scenario selection will be centralized in a new shared module under `src/scenarios/`. The module accepts discovered scenario records and raw user filters, trims and validates each filter, normalizes harmless spelling differences, de-dupes normalized filters in user order, and matches filters against normalized scenario IDs. A filter selects a scenario when it is the root filter `.`, exactly equals the scenario ID, or names an ancestor directory of the scenario ID using segment-aware `filter + "/"` matching. Matching never uses `scenario.name`.
 
-`runPipeline` will preserve the current early-failure ordering: load config and paths, enumerate scenarios, normalize/validate filter syntax, validate duplicate `scenario.name` values across all discovered scenarios, match filters, and only then create the run directory, run hooks, start progress, or invoke agents. This keeps empty, invalid, unknown, and duplicate-name failures side-effect-free while retaining the existing per-scenario error behavior for malformed scenario files and unresolved references.
+`runPipeline` will preserve the current early-failure ordering: load config and paths, enumerate scenarios, normalize/validate filter syntax, validate duplicate real configured `scenario.name` values across all discovered scenarios, match filters, and only then create the run directory, run hooks, start progress, or invoke agents. Duplicate-name validation must ignore synthetic stub names created only to represent malformed YAML or shape-invalid scenarios, so those records keep their per-scenario errors and do not create pre-run duplicate-name failures. Records with unresolved skill or rubric references have successfully parsed scenario files and real configured names, so they participate in duplicate-name validation; if they are not duplicates, they retain their per-scenario unresolved-reference error. This keeps empty, invalid, unknown, and true duplicate-name failures side-effect-free while retaining the existing per-scenario error behavior for malformed scenario files and unresolved references.
 
-Reports, progress, self-improvement, hook scopes, and artifact paths remain keyed by `scenario.name` to avoid redesigning public output shapes. Normalized IDs are used for discovery, selection, filter errors, duplicate-name conflict lists, hook-visible metadata, and documentation. Duplicate `scenario.name` values are rejected before agent work because existing downstream outputs cannot represent them safely.
+Reports, progress, self-improvement, hook scopes, and artifact paths remain keyed by real configured `scenario.name` values to avoid redesigning public output shapes. Normalized IDs are used for discovery, selection, filter errors, duplicate-name conflict lists, hook-visible metadata, and documentation. Duplicate real `scenario.name` values are rejected before agent work because existing downstream outputs cannot represent them safely; malformed YAML and shape-invalid records without a real configured name are excluded from this check and continue through the existing per-scenario error path.
 
 ## Components
 
@@ -41,11 +41,12 @@ type RunScenario = {
   /** Compatibility alias for id; flat scenarios remain unchanged. */
   dirName: string;
   scenario: Scenario;
-  error?: Error;
+  /** Existing user-facing per-scenario error text for parse/reference failures. */
+  error?: string;
 };
 ```
 
-For a flat scenario at `scenarios/counter/scenario.yaml`, `id === dirName === "counter"`. For a nested scenario at `scenarios/blocks/counter/scenario.yaml`, `id === dirName === "blocks/counter"`. `scenario.name` remains the configured display/report/artifact identity and is not used for filtering.
+For a flat scenario at `scenarios/counter/scenario.yaml`, `id === dirName === "counter"`. For a nested scenario at `scenarios/blocks/counter/scenario.yaml`, `id === dirName === "blocks/counter"`. `scenario.name` remains the configured display/report/artifact identity and is not used for filtering. The `error` field is the existing serialized/user-facing scenario error string consumed by reports and summaries; any caught parser or resolver exception must be converted to this string before it is stored on the scenario record.
 
 ### Recursive discovery data flow
 
@@ -53,9 +54,10 @@ For a flat scenario at `scenarios/counter/scenario.yaml`, `id === dirName === "c
 2. If the root is missing, it returns `[]`, preserving existing behavior.
 3. It reads directory entries with `withFileTypes: true` and processes only `dirent.isDirectory()` entries. Non-directories, symlinks, and unusual filesystem entries are not scenarios and are not recursed into.
 4. For each child directory, it appends the child name to the accumulated segment list and computes `id = segments.join("/")`.
-5. If `<directory>/scenario.yaml` exists, it parses and validates the scenario. YAML, shape, skill-reference, and rubric-reference failures are captured as a per-scenario `error` on an emitted record, matching current behavior.
-6. It continues recursing into child directories regardless of whether the current directory emitted a valid or errored scenario.
-7. It returns all records sorted by normalized ID using a locale-independent comparator (`a < b ? -1 : a > b ? 1 : 0`). No-filter runs therefore execute in deterministic scenario ID order.
+5. If `<directory>/scenario.yaml` exists, it parses and validates the scenario. YAML, shape, skill-reference, and rubric-reference failures are captured as a per-scenario string `error` on an emitted record, matching current behavior.
+6. Malformed YAML or shape-invalid records may use a stub `scenario` object only as the existing reporting fallback; their synthetic stub names are not real configured `scenario.name` values and must be excluded from duplicate-name validation. Unresolved-reference records have parsed valid scenario metadata, including a real configured `scenario.name`, so they are included in duplicate-name validation while retaining their unresolved-reference `error` if no duplicate failure applies.
+7. It continues recursing into child directories regardless of whether the current directory emitted a valid or errored scenario.
+8. It returns all records sorted by normalized ID using a locale-independent comparator (`a < b ? -1 : a > b ? 1 : 0`). No-filter runs therefore execute in deterministic scenario ID order.
 
 If implementation chooses to follow symlinked directories instead of ignoring them, it must maintain a `realpath` visited set to avoid cycles. The preferred design is not to follow symlinked directories for recursive discovery.
 
@@ -141,7 +143,7 @@ Available scenarios:
 - counter
 ```
 
-Duplicate scenario names fail before agent work and list the duplicate configured name plus conflicting normalized IDs:
+Duplicate scenario names fail before agent work and list the duplicate configured name plus conflicting normalized IDs. The duplicate-name check considers only real configured names from successfully parsed scenario metadata; malformed YAML and shape-invalid synthetic stub names are ignored for this validation, while unresolved-reference records are included because their names were parsed from `scenario.yaml`.
 
 ```text
 Duplicate scenario.name values are not supported because reports and artifacts are keyed by scenario.name.
@@ -157,6 +159,7 @@ The implementation should include tests at these seams:
 
 - Unit tests for recursive `enumerateScenarios(paths, projectRoot)` covering flat scenarios, nested scenarios, parent-and-child scenarios, grouping directories, non-directories, malformed YAML, unresolved references, ignored symlinks/non-directories, and deterministic ID ordering.
 - Unit tests for pure selection helpers covering trimming, empty filters, absolute/UNC/traversal rejection, separator normalization, `.` root filters, duplicate normalized filters, exact matching, folder matching, substring non-matches, overlap de-duping, user-order processing, deterministic per-filter match order, unknown-filter available lists, and `scenario.name` non-matching.
+- Duplicate-name validation tests proving real configured names collide across valid scenarios and unresolved-reference records, while synthetic stub names from malformed YAML or shape-invalid scenarios do not trigger duplicate-name failures or replace their per-scenario string errors.
 - API integration tests through `run({ cwd, scenarios })` and CLI integration tests through `bin/skillsmith.mjs` using identical filter values to prove parity.
 - Pre-run failure timing tests showing empty, invalid, unknown, and duplicate-name failures happen before hooks, run directory creation, progress, or agent work.
 - Compatibility tests showing nested scenario success still writes report keys, progress identities, self-improvement identities, and artifact directories based on `scenario.name`.
@@ -180,7 +183,7 @@ The implementation should include tests at these seams:
 
 ### Decision: Preserve per-scenario enumeration errors
 
-- **Choice:** Malformed YAML, invalid scenario shapes, and unresolved skill/rubric references remain per-scenario errors on emitted records while discovery continues to other scenarios and descendants.
+- **Choice:** Malformed YAML, invalid scenario shapes, and unresolved skill/rubric references remain per-scenario string errors on emitted records while discovery continues to other scenarios and descendants. Synthetic stub names used for malformed YAML or shape-invalid records are not treated as real configured names for duplicate validation; unresolved-reference records are parsed scenarios with real configured names and therefore still participate in duplicate validation.
 - **Alternatives:** Fail the whole discovery pass on the first invalid nested scenario; skip invalid scenario directories entirely.
 - **Trade-offs:** Per-scenario errors require stub records and downstream skipped/failing handling, but preserve existing behavior and allow valid scenarios to run in the same invocation.
 - **Traces to:** Requirement 8; acceptance criteria for malformed YAML and unresolved references coexisting with valid scenarios.
@@ -215,9 +218,9 @@ The implementation should include tests at these seams:
 
 ### Decision: Reject duplicate `scenario.name` values across all discovered scenarios
 
-- **Choice:** Validate duplicate `scenario.name` values across the full discovered set before filter matching side effects and fail with the duplicate name plus conflicting normalized IDs.
+- **Choice:** Validate duplicate real configured `scenario.name` values across the full discovered set before filter matching side effects and fail with the duplicate name plus conflicting normalized IDs. Exclude synthetic stub names produced for malformed YAML or shape-invalid scenario records so per-scenario parse/shape errors are preserved. Include unresolved-reference records because their scenario files parsed successfully and their configured names are real; if not duplicate, they keep their unresolved-reference per-scenario error.
 - **Alternatives:** Allow duplicates by redesigning reports/artifacts around scenario IDs; validate duplicates only among selected scenarios.
-- **Trade-offs:** Full-set validation can make a targeted run fail because of duplicates outside the selected folder, but the spec requires discovered duplicates to fail and existing name-keyed outputs cannot safely represent duplicates.
+- **Trade-offs:** Full-set validation can make a targeted run fail because of duplicates outside the selected folder, but the spec requires discovered duplicates to fail and existing name-keyed outputs cannot safely represent duplicates. Limiting validation to real configured names avoids turning malformed scenario stubs into global duplicate failures, while still catching unresolved-reference records that would collide in reports/artifacts if allowed to proceed as configured names.
 - **Traces to:** Requirements 29-31; acceptance criteria for duplicate-name failure and compatible reports, progress, self-improvement, and artifact directories.
 
 ### Decision: Keep public outputs keyed by `scenario.name`
@@ -248,11 +251,11 @@ The implementation should include tests at these seams:
 
 - Missing scenarios root returns an empty discovered set as it does today.
 - Non-directory entries, symlinks, and unusual filesystem entries under the scenarios root are ignored for discovery. If symlink traversal is implemented instead, cycle protection via visited realpaths is mandatory.
-- Malformed YAML, invalid scenario shapes, and unresolved skill/rubric references produce per-scenario errors on the affected scenario records. Other valid scenarios, including descendants and siblings, remain eligible to run.
+- Malformed YAML, invalid scenario shapes, and unresolved skill/rubric references produce per-scenario string errors on the affected scenario records. Other valid scenarios, including descendants and siblings, remain eligible to run. Synthetic stub names from malformed YAML or shape-invalid records are excluded from duplicate-name validation; unresolved-reference records use their parsed configured names for duplicate validation and keep their per-scenario error when they are not duplicate-name conflicts.
 - Empty filters fail before matching with `Scenario IDs must not be empty.`
 - Absolute, UNC, and traversal filters fail before matching with a clear invalid-filter `UserFacingError`.
 - Unknown filters fail before hooks, run directory creation, progress, or agent work, and list deterministic available normalized scenario IDs plus a hint that parent folders may be passed.
-- Duplicate `scenario.name` values fail before run side effects and list the duplicate name with conflicting normalized IDs.
+- Duplicate real configured `scenario.name` values fail before run side effects and list the duplicate name with conflicting normalized IDs.
 - No-filter and filtered selections are deterministic by normalized scenario ID within the relevant filter scope.
 - Nested source IDs are observable in selection errors, duplicate-name conflict lists, hook-visible scenario records (`id` and `dirName`), documentation, and optionally run roster logs. They do not replace `scenario.name` in report keys, progress display, self-improvement identity, or artifact directory layout.
 
@@ -261,5 +264,5 @@ The implementation should include tests at these seams:
 - Exact exported helper names and file organization for the selection module are intentionally left to implementation planning. The design requirement is a single shared CLI/API implementation with unit-testable pure helpers.
 - Invalid-filter message wording can vary, but it must identify the bad filter, state that filters are relative to `config.paths.scenarios`, and mention absolute paths, UNC paths, and `..` traversal segments.
 - Ignoring symlinked directories avoids recursive cycles but may surprise users who relied on flat symlinked scenario directories. Following symlinks is acceptable only with explicit cycle protection.
-- Validating duplicate `scenario.name` values across all discovered scenarios is stricter than selected-only validation and can fail targeted runs because of unrelated duplicate names. This is intentional per the spec and should be documented and tested.
+- Validating duplicate real configured `scenario.name` values across all discovered scenarios is stricter than selected-only validation and can fail targeted runs because of unrelated duplicate names. This is intentional per the spec and should be documented and tested.
 - Adding `RunScenario.id` is additive but public hook-context surface area. Documentation and the changeset should describe the new normalized ID field and the continued `dirName` alias.
