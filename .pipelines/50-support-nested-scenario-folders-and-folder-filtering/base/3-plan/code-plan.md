@@ -106,8 +106,14 @@ Implement nested scenario discovery first, then introduce canonical normalized s
   - `src/runner.ts` only if type forwarding must be adjusted; preserve public API shape
 - **Changes:**
   - In `runPipeline`, keep the existing ordering of `loadConfig`, `checkPaths`, self-improvement resolution, and `enumerateScenarios`.
-  - Immediately after enumeration, call duplicate-name validation across the full discovered set.
   - Replace the private `filterScenarios` helper in `src/pipeline/pipeline.ts` with the shared selection module from T3; remove the old exact-`dirName`-only matching implementation.
+  - Make the `runPipeline` orchestration order after enumeration explicit and side-effect-free until selection is complete:
+    1. enumerate the full discovered scenario set;
+    2. use the shared selection helper that only trims, normalizes, de-dupes, and syntax-validates raw filters, failing empty filters, POSIX absolute paths, Windows absolute/root-relative paths, UNC paths, and `..` traversal segments before duplicate-name validation or matching;
+    3. validate duplicate real configured `scenario.name` values across the full discovered set, using only internal `EnumeratedScenario.nameSource === "configured"` records and listing conflicting normalized IDs;
+    4. use the shared matching/selection helper to perform unknown-filter detection and scenario selection from the already-normalized filters;
+    5. only after those steps build `runScenarios`, create the run directory, initialize progress, run hooks, or invoke agents.
+  - If the T3 shared module exposes combined helpers, split or name the responsibilities so `runPipeline` can call a syntax-only raw-filter normalization/validation step before duplicate-name validation and a separate unknown-filter matching/selection step after duplicate-name validation.
   - Preserve no-filter and empty-array behavior as “run all discovered scenarios” in deterministic ID order.
   - Build `runScenarios` from selected scenarios with both `id` and `dirName`, keeping `scenario.name` unchanged.
   - Ensure `RunContext.scenarios` and hook-visible scenario records expose `id` and `dirName` equal to the normalized ID.
