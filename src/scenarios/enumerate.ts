@@ -18,9 +18,11 @@ export interface EnumeratedScenario {
 	scenario: Scenario;
 	/**
 	 * Stable scenario directory identifier, relative to `paths.scenarios` and
-	 * normalized to use `/` separators.
+	 * normalized to use `/` separators. Nested scenarios include their parent
+	 * folders, for example `blocks/counter`.
 	 *
 	 * @example "counter"
+	 * @example "blocks/counter"
 	 */
 	id: string;
 	/** Compatibility alias for `id`. This value must always equal `id`. */
@@ -32,8 +34,8 @@ export interface EnumeratedScenario {
 }
 
 /**
- * Walk `paths.scenarios/*\/scenario.yaml`, parse, and validate that
- * `skills[*]` and `rubrics[*]` references resolve under
+ * Walk `paths.scenarios` recursively, parse every discovered `scenario.yaml`,
+ * and validate that `skills[*]` and `rubrics[*]` references resolve under
  * `paths.skills/` and `paths.rubrics/` respectively.
  *
  * Bad refs or malformed YAML → fail that scenario with an `error`,

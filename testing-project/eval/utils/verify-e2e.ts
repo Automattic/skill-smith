@@ -25,17 +25,19 @@ const WP_ENV_PORT = Number(process.env.WP_ENV_PORT ?? 8987);
  *
  * Playwright projects are named after the testing-agent ids (see
  * playwright.config.ts), so a failing spec's `projectName` maps back to
- * the agent, and its file path maps back to the scenario directory.
+ * the agent, and its file path maps back to the normalized scenario
+ * directory ID.
  */
 export function runE2eVerification(
 	iterationDirectory: string,
 	scenarios: RunScenario[],
 ): VerificationFailure[] {
 	// The iteration subdirectories are named after `scenario.name`, while
-	// the spec files live under `eval/scenarios/<dirName>/`. Playwright's
-	// JSON report carries the dirName (from the spec path), so we need
-	// both directions: name→dir to locate specs, dir→name to attribute
-	// failures back to the report's scenario keys.
+	// the spec files live under `eval/scenarios/<dirName>/`, where `dirName`
+	// is the normalized source ID and may contain `/` for nested scenarios.
+	// Playwright's JSON report carries that source ID from the spec path, so
+	// we need both directions: name→dir to locate specs, dir→name to
+	// attribute failures back to the report's scenario keys.
 	const nameToDir = new Map(scenarios.map((s) => [s.scenario.name, s.dirName]));
 	const dirToName = new Map(scenarios.map((s) => [s.dirName, s.scenario.name]));
 

@@ -151,21 +151,26 @@ export interface RunContext {
 
 /**
  * One scenario selected for a run and exposed to hooks and downstream
- * consumers. The scenario `name` remains the display/reporting key, while
- * `id` identifies the scenario directory relative to `paths.scenarios`.
+ * consumers. `id` identifies the selected scenario's source directory relative
+ * to `config.paths.scenarios`; `scenario.name` remains the display/reporting
+ * key used by reports, progress output, self-improvement, and artifact paths.
  */
 export interface RunScenario {
 	/**
 	 * Stable scenario directory identifier, relative to `config.paths.scenarios`
-	 * and normalized to use `/` separators.
+	 * and normalized to use `/` separators. Nested scenarios include their parent
+	 * folders, for example `blocks/counter`.
 	 *
 	 * @example "counter"
+	 * @example "blocks/counter"
 	 */
 	id: string;
 	/**
-	 * Compatibility alias for `id`. This value must always equal `id`.
+	 * Compatibility alias for `id`. This value must always equal `id`, including
+	 * when the source directory is nested.
 	 *
 	 * @example "counter"
+	 * @example "blocks/counter"
 	 */
 	dirName: string;
 	/** Parsed scenario definition loaded from `scenario.yaml`. */
