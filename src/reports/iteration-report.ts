@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import type { ScenarioRunRecord } from "../pipeline/pipeline";
-import type { ScenarioAgentEntry, ScenarioReport } from "./scenario-report";
-import { classifyVerdict } from "./verdict";
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { ScenarioRunRecord } from '../pipeline/pipeline';
+import type { ScenarioAgentEntry, ScenarioReport } from './scenario-report';
+import { classifyVerdict } from './verdict';
 
 export interface AggregateIterationReportParams {
 	iterationDirectory: string;
@@ -15,7 +15,7 @@ export interface IterationReport {
 	runId: string;
 	iteration: number;
 	pass: boolean;
-	scenarios: Record<string, ScenarioReport | { error: string }>;
+	scenarios: Record< string, ScenarioReport | { error: string } >;
 }
 
 /**
@@ -26,41 +26,46 @@ export interface IterationReport {
  * `{ error: ... }` for that slot.
  */
 export function aggregateIterationReport(
-	params: AggregateIterationReportParams,
+	params: AggregateIterationReportParams
 ): IterationReport {
 	const { iterationDirectory, runId, iteration, scenarios } = params;
 
-	const scenariosOut: Record<string, ScenarioReport | { error: string }> = {};
+	const scenariosOut: Record< string, ScenarioReport | { error: string } > =
+		{};
 
-	for (const s of scenarios) {
-		const reportPath = join(s.scenarioDirectory, "report.json");
-		if (!existsSync(reportPath)) {
-			scenariosOut[s.scenarioName] = { error: "missing scenario report" };
+	for ( const s of scenarios ) {
+		const reportPath = join( s.scenarioDirectory, 'report.json' );
+		if ( ! existsSync( reportPath ) ) {
+			scenariosOut[ s.scenarioName ] = {
+				error: 'missing scenario report',
+			};
 			continue;
 		}
 		try {
-			const parsed = JSON.parse(readFileSync(reportPath, "utf8")) as
+			const parsed = JSON.parse( readFileSync( reportPath, 'utf8' ) ) as
 				| ScenarioReport
 				| null
 				| undefined;
 			if (
 				parsed === null ||
 				parsed === undefined ||
-				typeof parsed !== "object"
+				typeof parsed !== 'object'
 			) {
-				scenariosOut[s.scenarioName] = { error: "scenario report empty" };
+				scenariosOut[ s.scenarioName ] = {
+					error: 'scenario report empty',
+				};
 				continue;
 			}
-			scenariosOut[s.scenarioName] = parsed;
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			scenariosOut[s.scenarioName] = {
-				error: `scenario report unparseable: ${msg}`,
+			scenariosOut[ s.scenarioName ] = parsed;
+		} catch ( err ) {
+			const msg = err instanceof Error ? err.message : String( err );
+			scenariosOut[ s.scenarioName ] = {
+				error: `scenario report unparseable: ${ msg }`,
 			};
 		}
 	}
 
-	const allPass = scenariosAllPass(scenariosOut);
+	const allPass = scenariosAllPass( scenariosOut );
 
 	const report: IterationReport = {
 		runId,
@@ -70,8 +75,8 @@ export function aggregateIterationReport(
 	};
 
 	writeFileSync(
-		join(iterationDirectory, "report.json"),
-		`${JSON.stringify(report, null, 2)}\n`,
+		join( iterationDirectory, 'report.json' ),
+		`${ JSON.stringify( report, null, 2 ) }\n`
 	);
 
 	return report;
@@ -96,11 +101,11 @@ export interface RunSummary {
  */
 export function writeRunSummary(
 	runDirectory: string,
-	summary: RunSummary,
+	summary: RunSummary
 ): void {
 	writeFileSync(
-		join(runDirectory, "run.json"),
-		`${JSON.stringify(summary, null, 2)}\n`,
+		join( runDirectory, 'run.json' ),
+		`${ JSON.stringify( summary, null, 2 ) }\n`
 	);
 }
 
@@ -113,34 +118,36 @@ export function writeRunSummary(
  * agents win, untouched agents inherit their previous row.
  */
 export function mergeIntoRunningReport(
-	prev: Record<string, ScenarioReport | { error: string }>,
-	curr: Record<string, ScenarioReport | { error: string }>,
-): Record<string, ScenarioReport | { error: string }> {
-	const out: Record<string, ScenarioReport | { error: string }> = { ...prev };
-	for (const [name, body] of Object.entries(curr)) {
-		if (!("agents" in body)) {
-			out[name] = body;
+	prev: Record< string, ScenarioReport | { error: string } >,
+	curr: Record< string, ScenarioReport | { error: string } >
+): Record< string, ScenarioReport | { error: string } > {
+	const out: Record< string, ScenarioReport | { error: string } > = {
+		...prev,
+	};
+	for ( const [ name, body ] of Object.entries( curr ) ) {
+		if ( ! ( 'agents' in body ) ) {
+			out[ name ] = body;
 			continue;
 		}
-		const prevBody = out[name];
-		if (prevBody === undefined || !("agents" in prevBody)) {
-			out[name] = body;
+		const prevBody = out[ name ];
+		if ( prevBody === undefined || ! ( 'agents' in prevBody ) ) {
+			out[ name ] = body;
 			continue;
 		}
-		const mergedAgents: Record<string, ScenarioAgentEntry> = {
+		const mergedAgents: Record< string, ScenarioAgentEntry > = {
 			...prevBody.agents,
 		};
-		for (const [agentId, entry] of Object.entries(body.agents)) {
-			mergedAgents[agentId] = entry;
+		for ( const [ agentId, entry ] of Object.entries( body.agents ) ) {
+			mergedAgents[ agentId ] = entry;
 		}
 		const merged: ScenarioReport = {
 			...body,
 			agents: mergedAgents,
-			pass: agentsAllPass(mergedAgents),
+			pass: agentsAllPass( mergedAgents ),
 		};
-		if (body.error !== undefined) merged.error = body.error;
+		if ( body.error !== undefined ) merged.error = body.error;
 		else delete merged.error;
-		out[name] = merged;
+		out[ name ] = merged;
 	}
 	return out;
 }
@@ -153,36 +160,38 @@ export function mergeIntoRunningReport(
 export function writeRunReport(
 	runDirectory: string,
 	runId: string,
-	scenarios: Record<string, ScenarioReport | { error: string }>,
+	scenarios: Record< string, ScenarioReport | { error: string } >
 ): boolean {
-	const pass = scenariosAllPass(scenarios);
+	const pass = scenariosAllPass( scenarios );
 	writeFileSync(
-		join(runDirectory, "report.json"),
-		`${JSON.stringify({ runId, pass, scenarios }, null, 2)}\n`,
+		join( runDirectory, 'report.json' ),
+		`${ JSON.stringify( { runId, pass, scenarios }, null, 2 ) }\n`
 	);
 	return pass;
 }
 
 function scenariosAllPass(
-	scenarios: Record<string, ScenarioReport | { error: string }>,
+	scenarios: Record< string, ScenarioReport | { error: string } >
 ): boolean {
-	const entries = Object.values(scenarios);
-	if (entries.length === 0) return false;
-	return entries.every((entry): entry is ScenarioReport => {
-		if (!("pass" in entry)) return false;
-		if (entry.pass !== true) return false;
-		if ("error" in entry && entry.error !== undefined) return false;
+	const entries = Object.values( scenarios );
+	if ( entries.length === 0 ) return false;
+	return entries.every( ( entry ): entry is ScenarioReport => {
+		if ( ! ( 'pass' in entry ) ) return false;
+		if ( entry.pass !== true ) return false;
+		if ( 'error' in entry && entry.error !== undefined ) return false;
 		return true;
-	});
+	} );
 }
 
-function agentsAllPass(agents: Record<string, ScenarioAgentEntry>): boolean {
-	const entries = Object.values(agents);
-	if (entries.length === 0) return false;
-	for (const entry of entries) {
-		if (entry.error !== undefined) return false;
-		if (entry.review === undefined) return false;
-		if (classifyVerdict(entry.review).kind !== "PASS") return false;
+function agentsAllPass(
+	agents: Record< string, ScenarioAgentEntry >
+): boolean {
+	const entries = Object.values( agents );
+	if ( entries.length === 0 ) return false;
+	for ( const entry of entries ) {
+		if ( entry.error !== undefined ) return false;
+		if ( entry.review === undefined ) return false;
+		if ( classifyVerdict( entry.review ).kind !== 'PASS' ) return false;
 	}
 	return true;
 }

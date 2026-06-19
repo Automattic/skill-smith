@@ -279,7 +279,8 @@ h1 span {
 
 .terminal {
 	padding: 22px;
-	font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+	font-family:
+		"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 	font-size: 0.86rem;
 	color: #d1fae5;
 }
@@ -436,7 +437,8 @@ h2 {
 }
 
 code {
-	font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+	font-family:
+		"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
 .note-card code {
@@ -502,7 +504,11 @@ code {
 	border: 1px solid var(--line);
 	border-radius: var(--radius);
 	background:
-		linear-gradient(135deg, rgba(52, 211, 153, 0.14), rgba(34, 211, 238, 0.08)),
+		linear-gradient(
+			135deg,
+			rgba(52, 211, 153, 0.14),
+			rgba(34, 211, 238, 0.08)
+		),
 		var(--bg-card);
 	padding: 28px;
 }
@@ -620,7 +626,11 @@ code {
 			rgba(34, 211, 238, 0.22),
 			transparent 25rem
 		),
-		linear-gradient(135deg, rgba(139, 92, 246, 0.22), rgba(255, 255, 255, 0.06)),
+		linear-gradient(
+			135deg,
+			rgba(139, 92, 246, 0.22),
+			rgba(255, 255, 255, 0.06)
+		),
 		rgba(255, 255, 255, 0.055);
 	box-shadow: var(--shadow);
 }

@@ -1,47 +1,49 @@
-import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { classifyVerdict } from "../reports/verdict";
-import { run } from "../runner";
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { classifyVerdict } from '../reports/verdict';
+import { run } from '../runner';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const projectRoot = join(here, "fixtures", "judge-skip-project");
+const here = dirname( fileURLToPath( import.meta.url ) );
+const projectRoot = join( here, 'fixtures', 'judge-skip-project' );
 
-test("judge phase is skipped when the testing agent reports an error", async () => {
-	const baseDir = join(projectRoot, ".skillsmith");
-	rmSync(baseDir, { recursive: true, force: true });
+test( 'judge phase is skipped when the testing agent reports an error', async () => {
+	const baseDir = join( projectRoot, '.skillsmith' );
+	rmSync( baseDir, { recursive: true, force: true } );
 
 	const originalLog = console.log;
 	console.log = () => {};
 	let exitCode: number;
 	try {
-		exitCode = await run({ cwd: projectRoot });
+		exitCode = await run( { cwd: projectRoot } );
 	} finally {
 		console.log = originalLog;
 	}
 
-	assert.equal(exitCode, 1, "any agent failing testing fails the run");
+	assert.equal( exitCode, 1, 'any agent failing testing fails the run' );
 
-	const runIds = readdirSync(baseDir).filter((n) => /^\d{8}-\d{6}$/.test(n));
-	const iterationDir = join(baseDir, runIds[0] ?? "", "iteration-1");
+	const runIds = readdirSync( baseDir ).filter( ( n ) =>
+		/^\d{8}-\d{6}$/.test( n )
+	);
+	const iterationDir = join( baseDir, runIds[ 0 ] ?? '', 'iteration-1' );
 
 	// The failing agent's review is recorded as SKIPPED with the testing
 	// error inlined into the reason, so summaries can show why.
 	const failReportPath = join(
 		iterationDir,
-		"hello-scenario",
-		"mock-fail-testing",
-		"report.json",
+		'hello-scenario',
+		'mock-fail-testing',
+		'report.json'
 	);
-	assert.ok(existsSync(failReportPath));
-	const failReport = JSON.parse(readFileSync(failReportPath, "utf8")) as {
+	assert.ok( existsSync( failReportPath ) );
+	const failReport = JSON.parse( readFileSync( failReportPath, 'utf8' ) ) as {
 		review?: { skipped?: string };
 	};
 	assert.match(
-		failReport.review?.skipped ?? "",
-		/^testing failed: mock testing failure/,
+		failReport.review?.skipped ?? '',
+		/^testing failed: mock testing failure/
 	);
 
 	// The skipped judge wasn't run, so no `mock-output.txt`-equivalent
@@ -49,33 +51,33 @@ test("judge phase is skipped when the testing agent reports an error", async () 
 	// own directory creation.
 	const failWorkspace = join(
 		iterationDir,
-		"hello-scenario",
-		"mock-fail-testing",
-		"workspace",
+		'hello-scenario',
+		'mock-fail-testing',
+		'workspace'
 	);
-	assert.ok(existsSync(failWorkspace));
+	assert.ok( existsSync( failWorkspace ) );
 
 	// The other agent's full pipeline still runs as normal: its report
 	// carries the judge's complete review (every rubric/acceptance item),
 	// which classifies as a pass — distinct from the skipped block above.
 	const okReportPath = join(
 		iterationDir,
-		"hello-scenario",
-		"ok",
-		"report.json",
+		'hello-scenario',
+		'ok',
+		'report.json'
 	);
-	const okReport = JSON.parse(readFileSync(okReportPath, "utf8")) as {
+	const okReport = JSON.parse( readFileSync( okReportPath, 'utf8' ) ) as {
 		review?: { skipped?: unknown };
 	};
 	assert.ok(
-		okReport.review !== undefined && !("skipped" in okReport.review),
-		"the passing agent gets a real judge verdict, not a skipped block",
+		okReport.review !== undefined && ! ( 'skipped' in okReport.review ),
+		'the passing agent gets a real judge verdict, not a skipped block'
 	);
 	assert.equal(
-		classifyVerdict(okReport.review).kind,
-		"PASS",
-		"the passing agent's complete review classifies as a pass",
+		classifyVerdict( okReport.review ).kind,
+		'PASS',
+		"the passing agent's complete review classifies as a pass"
 	);
 
-	rmSync(baseDir, { recursive: true, force: true });
-});
+	rmSync( baseDir, { recursive: true, force: true } );
+} );

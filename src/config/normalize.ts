@@ -1,11 +1,11 @@
-import { DEFAULT_PATHS } from "./defaults";
+import { DEFAULT_PATHS } from './defaults';
 import type {
 	AgentDefinition,
 	NormalizedRoles,
 	SingleRoleInput,
 	SkillsmithConfig,
 	SkillsmithConfigInput,
-} from "./types";
+} from './types';
 
 /**
  * Resolve a user-authored `SkillsmithConfigInput` into the
@@ -18,24 +18,24 @@ import type {
  * object form. Defaults are merged into `paths`.
  */
 export function normalizeConfig(
-	input: SkillsmithConfigInput,
+	input: SkillsmithConfigInput
 ): SkillsmithConfig {
-	const agents: Record<string, AgentDefinition> = {};
-	for (const [id, def] of Object.entries(input.agents)) {
-		agents[id] = { ...def, id };
+	const agents: Record< string, AgentDefinition > = {};
+	for ( const [ id, def ] of Object.entries( input.agents ) ) {
+		agents[ id ] = { ...def, id };
 	}
 
 	const roles: NormalizedRoles = {
 		test: {
 			agents: input.roles.test.agents.map(
-				(id) => agents[id] as AgentDefinition,
+				( id ) => agents[ id ] as AgentDefinition
 			),
-			...(input.roles.test.prompt !== undefined
+			...( input.roles.test.prompt !== undefined
 				? { prompt: input.roles.test.prompt }
-				: {}),
+				: {} ),
 		},
-		judge: normalizeSingleRole(input.roles.judge, agents),
-		improver: normalizeSingleRole(input.roles.improver, agents),
+		judge: normalizeSingleRole( input.roles.judge, agents ),
+		improver: normalizeSingleRole( input.roles.improver, agents ),
 	};
 
 	const out: SkillsmithConfig = {
@@ -44,8 +44,8 @@ export function normalizeConfig(
 		roles,
 		paths: { ...DEFAULT_PATHS, ...input.paths },
 	};
-	if (input.hooks !== undefined) out.hooks = input.hooks;
-	if (input.selfImprovement !== undefined) {
+	if ( input.hooks !== undefined ) out.hooks = input.hooks;
+	if ( input.selfImprovement !== undefined ) {
 		out.selfImprovement = input.selfImprovement;
 	}
 	return out;
@@ -53,14 +53,14 @@ export function normalizeConfig(
 
 function normalizeSingleRole(
 	role: SingleRoleInput,
-	agents: Record<string, AgentDefinition>,
+	agents: Record< string, AgentDefinition >
 ): { agent: AgentDefinition; prompt?: string } {
-	if (typeof role === "string") {
-		return { agent: agents[role] as AgentDefinition };
+	if ( typeof role === 'string' ) {
+		return { agent: agents[ role ] as AgentDefinition };
 	}
 	const out: { agent: AgentDefinition; prompt?: string } = {
-		agent: agents[role.agent] as AgentDefinition,
+		agent: agents[ role.agent ] as AgentDefinition,
 	};
-	if (role.prompt !== undefined) out.prompt = role.prompt;
+	if ( role.prompt !== undefined ) out.prompt = role.prompt;
 	return out;
 }

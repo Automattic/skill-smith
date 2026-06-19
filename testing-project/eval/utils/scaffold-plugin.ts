@@ -1,27 +1,27 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-const BLOCK_NAME = "skillsmith/testing-block";
+const BLOCK_NAME = 'skillsmith/testing-block';
 const SLUG_PATTERN = /^[a-z0-9-]+$/;
 
-function pluginSlug(scenarioName: string, agentId: string): string {
-	if (!SLUG_PATTERN.test(scenarioName)) {
+function pluginSlug( scenarioName: string, agentId: string ): string {
+	if ( ! SLUG_PATTERN.test( scenarioName ) ) {
 		throw new Error(
-			`scenario name must match ${SLUG_PATTERN}, got: ${JSON.stringify(scenarioName)}`,
+			`scenario name must match ${ SLUG_PATTERN }, got: ${ JSON.stringify( scenarioName ) }`
 		);
 	}
-	if (!SLUG_PATTERN.test(agentId)) {
+	if ( ! SLUG_PATTERN.test( agentId ) ) {
 		throw new Error(
-			`agent id must match ${SLUG_PATTERN}, got: ${JSON.stringify(agentId)}`,
+			`agent id must match ${ SLUG_PATTERN }, got: ${ JSON.stringify( agentId ) }`
 		);
 	}
-	return `plugin-${scenarioName}-${agentId}`;
+	return `plugin-${ scenarioName }-${ agentId }`;
 }
 
-function pluginIndexPhp(pluginSlug: string): string {
+function pluginIndexPhp( pluginSlug: string ): string {
 	return `<?php
 /**
- * Plugin Name: ${pluginSlug}
+ * Plugin Name: ${ pluginSlug }
  * Description: Auto-scaffolded by skillsmith. Plugin slug is preserved across the run — do not rename.
  * Version:     0.1.0
  * License:     GPL-3.0
@@ -55,19 +55,19 @@ add_action(
 }
 
 function blockJson(): string {
-	return `${JSON.stringify(
+	return `${ JSON.stringify(
 		{
-			$schema: "https://schemas.wp.org/trunk/block.json",
+			$schema: 'https://schemas.wp.org/trunk/block.json',
 			apiVersion: 3,
 			name: BLOCK_NAME,
-			title: "Testing Block",
-			category: "widgets",
+			title: 'Testing Block',
+			category: 'widgets',
 			// Add this manually until we improve WordPress skills.
-			render: "file:./render.php",
+			render: 'file:./render.php',
 		},
 		null,
-		2,
-	)}\n`;
+		2
+	) }\n`;
 }
 
 /**
@@ -79,17 +79,17 @@ function blockJson(): string {
 export function scaffoldPlugin(
 	agentWorkspace: string,
 	scenarioName: string,
-	agentId: string,
+	agentId: string
 ): void {
-	const slug = pluginSlug(scenarioName, agentId);
-	const pluginDir = join(agentWorkspace, slug);
-	const blockDir = join(pluginDir, "src", "blocks", "testing-block");
+	const slug = pluginSlug( scenarioName, agentId );
+	const pluginDir = join( agentWorkspace, slug );
+	const blockDir = join( pluginDir, 'src', 'blocks', 'testing-block' );
 
-	mkdirSync(blockDir, { recursive: true });
-	writeFileSync(join(pluginDir, "index.php"), pluginIndexPhp(slug));
+	mkdirSync( blockDir, { recursive: true } );
+	writeFileSync( join( pluginDir, 'index.php' ), pluginIndexPhp( slug ) );
 	writeFileSync(
-		join(pluginDir, "package.json"),
-		`${JSON.stringify({ name: slug, version: "0.1.0", private: true }, null, 2)}\n`,
+		join( pluginDir, 'package.json' ),
+		`${ JSON.stringify( { name: slug, version: '0.1.0', private: true }, null, 2 ) }\n`
 	);
-	writeFileSync(join(blockDir, "block.json"), blockJson());
+	writeFileSync( join( blockDir, 'block.json' ), blockJson() );
 }

@@ -2,18 +2,18 @@ import type {
 	Options,
 	SDKMessage,
 	SDKUserMessage,
-} from "@anthropic-ai/claude-agent-sdk";
+} from '@anthropic-ai/claude-agent-sdk';
 import type {
 	InvokeParams,
 	InvokeResult,
 	Provider,
 	Role,
 	TokenUsage,
-} from "./types";
+} from './types';
 
-const TOOLS_BY_ROLE: Record<Role, string[]> = {
-	testing: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
-	judge: ["Read"],
+const TOOLS_BY_ROLE: Record< Role, string[] > = {
+	testing: [ 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash' ],
+	judge: [ 'Read' ],
 };
 
 /**
@@ -22,8 +22,8 @@ const TOOLS_BY_ROLE: Record<Role, string[]> = {
  * (OAuth) credentials rather than silently falling back to API-key billing.
  */
 const CLAUDE_CODE_SCRUBBED_ENV_KEYS = [
-	"ANTHROPIC_API_KEY",
-	"ANTHROPIC_AUTH_TOKEN",
+	'ANTHROPIC_API_KEY',
+	'ANTHROPIC_AUTH_TOKEN',
 ];
 
 /**
@@ -35,9 +35,9 @@ const CLAUDE_CODE_SCRUBBED_ENV_KEYS = [
  * @returns A new object containing every key of `env` except those in
  *   {@link CLAUDE_CODE_SCRUBBED_ENV_KEYS}.
  */
-function claudeCodeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+function claudeCodeEnv( env: NodeJS.ProcessEnv ): NodeJS.ProcessEnv {
 	const out = { ...env };
-	for (const key of CLAUDE_CODE_SCRUBBED_ENV_KEYS) delete out[key];
+	for ( const key of CLAUDE_CODE_SCRUBBED_ENV_KEYS ) delete out[ key ];
 	return out;
 }
 
@@ -53,10 +53,10 @@ function claudeCodeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
  * @param args.options - Optional SDK options, including the scrubbed `env`.
  * @returns An async iterable of SDK messages produced by the run.
  */
-export type QueryFn = (args: {
-	prompt: string | AsyncIterable<SDKUserMessage>;
+export type QueryFn = ( args: {
+	prompt: string | AsyncIterable< SDKUserMessage >;
 	options?: Options;
-}) => AsyncIterable<SDKMessage>;
+} ) => AsyncIterable< SDKMessage >;
 
 /**
  * Build a Claude Code provider bound to a specific `query` implementation.
@@ -65,38 +65,39 @@ export type QueryFn = (args: {
  * @param queryFn - The query implementation the provider's `invoke` drives.
  * @returns A {@link Provider} with `id` `"claude-code"`.
  */
-export function createClaudeCodeProvider(queryFn: QueryFn): Provider {
+export function createClaudeCodeProvider( queryFn: QueryFn ): Provider {
 	return {
-		id: "claude-code",
-		async invoke(params: InvokeParams): Promise<InvokeResult> {
-			let finalText = "";
+		id: 'claude-code',
+		async invoke( params: InvokeParams ): Promise< InvokeResult > {
+			let finalText = '';
 			let toolUseCount = 0;
 			let error: string | undefined;
 			let usage: TokenUsage | undefined;
 
 			try {
-				const stream = queryFn({
+				const stream = queryFn( {
 					prompt: params.prompt,
 					options: {
 						model: params.agent.model,
 						cwd: params.cwd,
 						systemPrompt: params.systemPrompt,
-						tools: TOOLS_BY_ROLE[params.role],
-						permissionMode: "bypassPermissions",
+						tools: TOOLS_BY_ROLE[ params.role ],
+						permissionMode: 'bypassPermissions',
 						allowDangerouslySkipPermissions: true,
-						env: claudeCodeEnv(process.env),
+						env: claudeCodeEnv( process.env ),
 					},
-				});
+				} );
 
-				for await (const message of stream) {
-					if (message.type === "assistant") {
-						for (const block of message.message.content ?? []) {
-							if (block.type === "tool_use") toolUseCount++;
-							if (block.type === "text") finalText = block.text;
+				for await ( const message of stream ) {
+					if ( message.type === 'assistant' ) {
+						for ( const block of message.message.content ?? [] ) {
+							if ( block.type === 'tool_use' ) toolUseCount++;
+							if ( block.type === 'text' ) finalText = block.text;
 						}
-					} else if (message.type === "result") {
-						if (message.subtype === "success") finalText = message.result;
-						else error = `result.${message.subtype}`;
+					} else if ( message.type === 'result' ) {
+						if ( message.subtype === 'success' )
+							finalText = message.result;
+						else error = `result.${ message.subtype }`;
 						// Exactly one result message per query carries usage.
 						// The Anthropic SDK splits input four ways; the gross
 						// prompt size billed is input_tokens (uncached new) +
@@ -105,10 +106,14 @@ export function createClaudeCodeProvider(queryFn: QueryFn): Provider {
 						// real usage by ~100x for agent runs that re-use a large
 						// system prompt across tool turns.
 						const newInputTokens = message.usage.input_tokens;
-						const cacheCreationTokens = message.usage.cache_creation_input_tokens;
-						const cacheReadTokens = message.usage.cache_read_input_tokens;
+						const cacheCreationTokens =
+							message.usage.cache_creation_input_tokens;
+						const cacheReadTokens =
+							message.usage.cache_read_input_tokens;
 						const inputTokens =
-							newInputTokens + cacheCreationTokens + cacheReadTokens;
+							newInputTokens +
+							cacheCreationTokens +
+							cacheReadTokens;
 						const outputTokens = message.usage.output_tokens;
 						usage = {
 							inputTokens,
@@ -118,13 +123,13 @@ export function createClaudeCodeProvider(queryFn: QueryFn): Provider {
 						};
 					}
 				}
-			} catch (err) {
-				error = err instanceof Error ? err.message : String(err);
+			} catch ( err ) {
+				error = err instanceof Error ? err.message : String( err );
 			}
 
 			const result: InvokeResult = { finalText, toolUseCount };
-			if (error !== undefined) result.error = error;
-			if (usage !== undefined) result.usage = usage;
+			if ( error !== undefined ) result.error = error;
+			if ( usage !== undefined ) result.usage = usage;
 			return result;
 		},
 	};

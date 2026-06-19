@@ -1,6 +1,6 @@
-export type PhaseName = "testing" | "judge";
+export type PhaseName = 'testing' | 'judge';
 
-export type TerminalStatus = "passed" | "failed" | "skipped";
+export type TerminalStatus = 'passed' | 'failed' | 'skipped';
 
 /**
  * One row in the failures list rendered below the progress bars.

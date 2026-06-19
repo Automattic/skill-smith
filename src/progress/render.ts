@@ -1,5 +1,5 @@
-import { paint } from "../util/ansi";
-import type { Failure, RunSnapshot } from "./types";
+import { paint } from '../util/ansi';
+import type { Failure, RunSnapshot } from './types';
 
 export interface RenderOptions {
 	color?: boolean;
@@ -22,16 +22,18 @@ export interface RenderOptions {
  */
 export function renderSnapshot(
 	snap: RunSnapshot,
-	opts: RenderOptions = {},
+	opts: RenderOptions = {}
 ): string {
 	const color = opts.color ?? false;
 	const barWidth = opts.barWidth ?? 30;
 
 	const lines: string[] = [];
-	lines.push(`skillsmith run ${snap.runId}`);
+	lines.push( `skillsmith run ${ snap.runId }` );
 
-	if (snap.iteration !== undefined && snap.iteration.total > 1) {
-		lines.push(`iteration ${snap.iteration.current}/${snap.iteration.total}`);
+	if ( snap.iteration !== undefined && snap.iteration.total > 1 ) {
+		lines.push(
+			`iteration ${ snap.iteration.current }/${ snap.iteration.total }`
+		);
 	}
 
 	const sc = snap.counters.scenarios;
@@ -40,33 +42,33 @@ export function renderSnapshot(
 	const pDone = ph.passed + ph.failed + ph.skipped;
 
 	lines.push(
-		`scenarios  ${bar(sDone, sc.total, barWidth, color)}  ` +
-			`${pad(`${sDone}/${sc.total}`, countWidth(sc.total))}  ` +
-			`${counterSummary(sc, color)}`,
+		`scenarios  ${ bar( sDone, sc.total, barWidth, color ) }  ` +
+			`${ pad( `${ sDone }/${ sc.total }`, countWidth( sc.total ) ) }  ` +
+			`${ counterSummary( sc, color ) }`
 	);
 	lines.push(
-		`phases     ${bar(pDone, ph.total, barWidth, color)}  ` +
-			`${pad(`${pDone}/${ph.total}`, countWidth(ph.total))}  ` +
-			`${counterSummary(ph, color)}`,
+		`phases     ${ bar( pDone, ph.total, barWidth, color ) }  ` +
+			`${ pad( `${ pDone }/${ ph.total }`, countWidth( ph.total ) ) }  ` +
+			`${ counterSummary( ph, color ) }`
 	);
 
-	const elapsedMs = Math.max(0, snap.now - snap.startedAt);
-	if (snap.finished) {
-		lines.push(`elapsed ${formatClock(elapsedMs)}   done`);
+	const elapsedMs = Math.max( 0, snap.now - snap.startedAt );
+	if ( snap.finished ) {
+		lines.push( `elapsed ${ formatClock( elapsedMs ) }   done` );
 	} else {
-		lines.push(`elapsed ${formatClock(elapsedMs)}`);
+		lines.push( `elapsed ${ formatClock( elapsedMs ) }` );
 	}
 
-	if (snap.failures.length > 0) {
-		lines.push("");
-		lines.push(`failures (${snap.failures.length}):`);
-		const widths = failureColumnWidths(snap.failures);
-		for (const f of snap.failures) {
-			lines.push(`  ${formatFailure(f, widths, color)}`);
+	if ( snap.failures.length > 0 ) {
+		lines.push( '' );
+		lines.push( `failures (${ snap.failures.length }):` );
+		const widths = failureColumnWidths( snap.failures );
+		for ( const f of snap.failures ) {
+			lines.push( `  ${ formatFailure( f, widths, color ) }` );
 		}
 	}
 
-	return lines.join("\n");
+	return lines.join( '\n' );
 }
 
 interface CounterSlice {
@@ -77,54 +79,54 @@ interface CounterSlice {
 	pending: number;
 }
 
-function counterSummary(c: CounterSlice, color: boolean): string {
+function counterSummary( c: CounterSlice, color: boolean ): string {
 	const parts = [
-		`pass ${paint(String(c.passed), "green", color)}`,
-		`fail ${paint(String(c.failed), c.failed > 0 ? "red" : undefined, color)}`,
+		`pass ${ paint( String( c.passed ), 'green', color ) }`,
+		`fail ${ paint( String( c.failed ), c.failed > 0 ? 'red' : undefined, color ) }`,
 	];
-	if (c.skipped > 0)
-		parts.push(`skip ${paint(String(c.skipped), "yellow", color)}`);
-	if (c.running > 0)
-		parts.push(`run ${paint(String(c.running), "cyan", color)}`);
-	return parts.join(" · ");
+	if ( c.skipped > 0 )
+		parts.push( `skip ${ paint( String( c.skipped ), 'yellow', color ) }` );
+	if ( c.running > 0 )
+		parts.push( `run ${ paint( String( c.running ), 'cyan', color ) }` );
+	return parts.join( ' · ' );
 }
 
 function bar(
 	done: number,
 	total: number,
 	width: number,
-	color: boolean,
+	color: boolean
 ): string {
-	if (total <= 0) return paint("░".repeat(width), "gray", color);
-	const fillCount = Math.min(width, Math.round((done / total) * width));
-	const filled = "█".repeat(fillCount);
-	const empty = "░".repeat(width - fillCount);
-	return `${paint(filled, "cyan", color)}${paint(empty, "gray", color)}`;
+	if ( total <= 0 ) return paint( '░'.repeat( width ), 'gray', color );
+	const fillCount = Math.min( width, Math.round( ( done / total ) * width ) );
+	const filled = '█'.repeat( fillCount );
+	const empty = '░'.repeat( width - fillCount );
+	return `${ paint( filled, 'cyan', color ) }${ paint( empty, 'gray', color ) }`;
 }
 
-function formatClock(ms: number): string {
-	const totalSec = Math.floor(ms / 1000);
-	const h = Math.floor(totalSec / 3600);
-	const m = Math.floor((totalSec % 3600) / 60);
+function formatClock( ms: number ): string {
+	const totalSec = Math.floor( ms / 1000 );
+	const h = Math.floor( totalSec / 3600 );
+	const m = Math.floor( ( totalSec % 3600 ) / 60 );
 	const s = totalSec % 60;
-	if (h > 0) return `${h}:${two(m)}:${two(s)}`;
-	return `${two(m)}:${two(s)}`;
+	if ( h > 0 ) return `${ h }:${ two( m ) }:${ two( s ) }`;
+	return `${ two( m ) }:${ two( s ) }`;
 }
 
-function two(n: number): string {
-	return n < 10 ? `0${n}` : String(n);
+function two( n: number ): string {
+	return n < 10 ? `0${ n }` : String( n );
 }
 
-function countWidth(total: number): number {
-	const t = String(total).length;
+function countWidth( total: number ): number {
+	const t = String( total ).length;
 	return t * 2 + 1;
 }
 
-function pad(s: string, width: number): string {
-	return s.length >= width ? s : `${s}${" ".repeat(width - s.length)}`;
+function pad( s: string, width: number ): string {
+	return s.length >= width ? s : `${ s }${ ' '.repeat( width - s.length ) }`;
 }
 
-function failureColumnWidths(failures: Failure[]): {
+function failureColumnWidths( failures: Failure[] ): {
 	scenario: number;
 	agent: number;
 	phase: number;
@@ -132,11 +134,11 @@ function failureColumnWidths(failures: Failure[]): {
 	let scenario = 0;
 	let agent = 0;
 	let phase = 0;
-	for (const f of failures) {
-		if (f.scenario.length > scenario) scenario = f.scenario.length;
-		if (f.agentId.length > agent) agent = f.agentId.length;
-		const phaseLabel = f.phase ?? "—";
-		if (phaseLabel.length > phase) phase = phaseLabel.length;
+	for ( const f of failures ) {
+		if ( f.scenario.length > scenario ) scenario = f.scenario.length;
+		if ( f.agentId.length > agent ) agent = f.agentId.length;
+		const phaseLabel = f.phase ?? '—';
+		if ( phaseLabel.length > phase ) phase = phaseLabel.length;
 	}
 	return { scenario, agent, phase };
 }
@@ -144,11 +146,11 @@ function failureColumnWidths(failures: Failure[]): {
 function formatFailure(
 	f: Failure,
 	widths: { scenario: number; agent: number; phase: number },
-	color: boolean,
+	color: boolean
 ): string {
-	const cross = paint("✗", "red", color);
-	const scenario = pad(f.scenario, widths.scenario);
-	const agent = pad(f.agentId, widths.agent);
-	const phase = pad(f.phase ?? "—", widths.phase);
-	return `${cross} ${scenario}  ${agent}  ${phase}  ${f.detail}`;
+	const cross = paint( '✗', 'red', color );
+	const scenario = pad( f.scenario, widths.scenario );
+	const agent = pad( f.agentId, widths.agent );
+	const phase = pad( f.phase ?? '—', widths.phase );
+	return `${ cross } ${ scenario }  ${ agent }  ${ phase }  ${ f.detail }`;
 }
