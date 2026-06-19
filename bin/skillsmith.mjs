@@ -32,7 +32,7 @@ try {
 } catch (err) {
 	console.error(err.message);
 	console.error(
-		"Usage: skillsmith [--verbose] [--mode test-only|self-improvement] [--iterations N] [--scope failed-pairs|failed-scenarios|all] [--final-pass] [scenario-dir ...]",
+		"Usage: skillsmith [--verbose] [--mode test-only|self-improvement] [--iterations N] [--scope failed-pairs|failed-scenarios|all] [--final-pass] [scenario-or-folder-filter ...]",
 	);
 	process.exit(1);
 }

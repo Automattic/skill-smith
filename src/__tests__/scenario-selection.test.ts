@@ -369,6 +369,8 @@ test("CLI parser rejects unsupported option-like args before run", async () => {
 	assert.equal(result.exitCode, 1);
 	assert.match(result.stderr, /Unknown option '--scenario'/);
 	assert.match(result.stderr, /Usage: skillsmith \[--verbose\]/);
+	assert.match(result.stderr, /\[scenario-or-folder-filter \.\.\.\]/);
+	assert.doesNotMatch(result.stderr, /\[scenario-dir \.\.\.\]/);
 	assert.doesNotMatch(result.stderr, /Error:/);
 	assert.deepEqual(cliHookEvents(), []);
 	assert.equal(existsSync(join(projectRoot, ".skillsmith")), false);
