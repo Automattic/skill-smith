@@ -6,32 +6,32 @@
  * document the surface area.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { defineConfig } from "@automattic/skillsmith";
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { defineConfig } from '@automattic/skillsmith';
 
-const here = dirname(fileURLToPath(import.meta.url));
+const here = dirname( fileURLToPath( import.meta.url ) );
 
 // Prompts can be inlined as strings or loaded from files. Loading from
 // disk keeps the config readable and lets you version the prompts on
 // their own.
 const testingAgentPrompt = readFileSync(
-	resolve(here, "prompts/testing-agent.md"),
-	"utf8",
+	resolve( here, 'prompts/testing-agent.md' ),
+	'utf8'
 );
 const improverPrompt = readFileSync(
-	resolve(here, "prompts/improver.md"),
-	"utf8",
+	resolve( here, 'prompts/improver.md' ),
+	'utf8'
 );
 
-export default defineConfig({
+export default defineConfig( {
 	// Default run mode. CLI flag `--mode test-only|self-improvement`
 	// overrides this for a single invocation.
 	//   - "test-only" (default): one iteration, no improver.
 	//   - "self-improvement": loop up to `selfImprovement.maxIterations`,
 	//     letting `roles.improver` edit failing skills between iterations.
-	mode: "test-only",
+	mode: 'test-only',
 
 	// Roster of every agent the run can use. Keyed by a stable id —
 	// the key appears in directory names and reports. Each entry takes
@@ -43,43 +43,43 @@ export default defineConfig({
 		// headless/CI). It uses the subscription even when a pay-as-you-go
 		// Anthropic credential is also exported — that credential is ignored
 		// here, so it stays billed to `anthropic-api` below, not to this agent.
-		"cc-haiku": {
-			provider: "claude-code",
-			model: "claude-haiku-4-5",
+		'cc-haiku': {
+			provider: 'claude-code',
+			model: 'claude-haiku-4-5',
 		},
-		"cc-opus": {
-			provider: "claude-code",
-			model: "claude-opus-4-7",
+		'cc-opus': {
+			provider: 'claude-code',
+			model: 'claude-opus-4-7',
 		},
 
 		// Anthropic via the public API (uses ANTHROPIC_API_KEY).
-		"anthropic-sonnet": {
-			provider: "anthropic-api",
-			model: "claude-sonnet-4-6",
+		'anthropic-sonnet': {
+			provider: 'anthropic-api',
+			model: 'claude-sonnet-4-6',
 		},
 
 		// OpenAI via the public API (uses OPENAI_API_KEY).
-		"openai-nano": {
-			provider: "openai-api",
-			model: "gpt-5.4-nano",
+		'openai-nano': {
+			provider: 'openai-api',
+			model: 'gpt-5.4-nano',
 		},
 
 		// OpenAI via the Codex SDK. Supports `effort: "low"|"medium"|
 		// "high"|"xhigh"` to set reasoning effort on the model call.
-		"codex-mini": {
-			provider: "codex",
-			model: "gpt-5.4-mini",
+		'codex-mini': {
+			provider: 'codex',
+			model: 'gpt-5.4-mini',
 		},
-		"codex-gpt55": {
-			provider: "codex",
-			model: "gpt-5.5",
-			effort: "xhigh",
+		'codex-gpt55': {
+			provider: 'codex',
+			model: 'gpt-5.5',
+			effort: 'xhigh',
 		},
 
 		// Google Gemini via the public API (uses GEMINI_API_KEY).
-		"gemini-flash": {
-			provider: "gemini-api",
-			model: "gemini-2.5-flash",
+		'gemini-flash': {
+			provider: 'gemini-api',
+			model: 'gemini-2.5-flash',
 		},
 	},
 
@@ -92,26 +92,31 @@ export default defineConfig({
 		// so it augments (does not replace) the skill blob, workspace
 		// dump, write constraint, and recursion guard.
 		test: {
-			agents: ["cc-haiku", "cc-opus", "anthropic-sonnet", "gemini-flash"],
+			agents: [
+				'cc-haiku',
+				'cc-opus',
+				'anthropic-sonnet',
+				'gemini-flash',
+			],
 			prompt: testingAgentPrompt,
 		},
 
 		// Single-agent roles accept a string shorthand…
-		judge: "codex-gpt55",
+		judge: 'codex-gpt55',
 
 		// …or the object form when you want a project-specific prompt.
 		// For `improver`, the prompt REPLACES the built-in instructions
 		// entirely (different from `test`/`judge`, which augment).
-		improver: { agent: "cc-opus", prompt: improverPrompt },
+		improver: { agent: 'cc-opus', prompt: improverPrompt },
 	},
 
 	// Project layout. Every entry is a directory the harness scans;
 	// `base` is where it writes run artifacts.
 	paths: {
-		base: "./.skillsmith",
-		skills: "./skills",
-		scenarios: "./eval/scenarios",
-		rubrics: "./eval/rubrics",
+		base: './.skillsmith',
+		skills: './skills',
+		scenarios: './eval/scenarios',
+		rubrics: './eval/rubrics',
 	},
 
 	// Behavior of the self-improvement loop. Only consulted when
@@ -125,7 +130,7 @@ export default defineConfig({
 		//   - "failed-pairs"     — only the exact (scenario, agent) pairs that failed.
 		//   - "failed-scenarios" — every agent of every scenario where any agent failed.
 		//   - "all"              — re-run the full matrix each iteration.
-		scope: "failed-scenarios",
+		scope: 'failed-scenarios',
 
 		// After the loop ends, re-run the full matrix once with the
 		// final skill edits. Useful for catching regressions the
@@ -137,16 +142,16 @@ export default defineConfig({
 	// fire-and-forget except `afterAllScenarios`, whose return value the
 	// harness consumes (see README for the full lifecycle table).
 	hooks: {
-		beforeAll: ({ runDirectory }) => {
-			console.log(`run directory: ${runDirectory}`);
+		beforeAll: ( { runDirectory } ) => {
+			console.log( `run directory: ${ runDirectory }` );
 		},
-		beforeTestAgent: ({ scenario, agent, agentWorkspace }) => {
+		beforeTestAgent: ( { scenario, agent, agentWorkspace } ) => {
 			// Scaffold project-specific fixtures into the workspace here.
 			void scenario;
 			void agent;
 			void agentWorkspace;
 		},
-		afterAllScenarios: ({ iteration, iterationDirectory, scenarios }) => {
+		afterAllScenarios: ( { iteration, iterationDirectory, scenarios } ) => {
 			// Run your own verification (e.g. a real e2e suite) against
 			// this iteration's artifacts. Return a list of failures to
 			// mark scenarios/pairs failed even if the judge passed them.
@@ -156,4 +161,4 @@ export default defineConfig({
 			return true;
 		},
 	},
-});
+} );

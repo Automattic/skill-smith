@@ -1,18 +1,18 @@
-import { writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import type {
 	AgentDefinition,
 	IterationCompleteHookContext,
 	IterationInfo,
 	RunScenario,
 	SkillsmithConfig,
-} from "../config/types";
-import { getProvider } from "../providers/registry";
-import type { IterationReport } from "../reports/iteration-report";
-import type { EnumeratedScenario } from "../scenarios/enumerate";
-import { tryHook } from "../util/hooks";
-import type { RunLog } from "../util/run-log";
-import { buildImprovementContext } from "./context";
+} from '../config/types';
+import { getProvider } from '../providers/registry';
+import type { IterationReport } from '../reports/iteration-report';
+import type { EnumeratedScenario } from '../scenarios/enumerate';
+import { tryHook } from '../util/hooks';
+import type { RunLog } from '../util/run-log';
+import { buildImprovementContext } from './context';
 
 const DEFAULT_PROMPT = `# Improver instructions
 
@@ -68,8 +68,8 @@ export interface ImprovementResult {
  * the evidence trail. Errors are logged; the loop keeps moving.
  */
 export async function runImprovement(
-	params: RunImprovementParams,
-): Promise<ImprovementResult> {
+	params: RunImprovementParams
+): Promise< ImprovementResult > {
 	const {
 		projectRoot,
 		runId,
@@ -86,7 +86,7 @@ export async function runImprovement(
 		scenarios,
 	} = params;
 
-	log.section(`improvement (after iteration ${iteration})`);
+	log.section( `improvement (after iteration ${ iteration })` );
 
 	const baseCtx: IterationCompleteHookContext = {
 		runId,
@@ -99,80 +99,80 @@ export async function runImprovement(
 		pass: iterationReport.pass,
 	};
 
-	const context = buildImprovementContext({
+	const context = buildImprovementContext( {
 		projectRoot,
 		config,
 		iterationReport,
 		allScenarios,
-	});
+	} );
 
 	await tryHook(
-		"beforeImprove",
-		`iteration:${iteration}`,
+		'beforeImprove',
+		`iteration:${ iteration }`,
 		config.hooks?.beforeImprove,
 		baseCtx,
-		log,
+		log
 	);
 
-	const skillsDir = resolve(projectRoot, config.paths.skills);
+	const skillsDir = resolve( projectRoot, config.paths.skills );
 	const instructions =
 		improverPrompt !== undefined && improverPrompt.length > 0
 			? improverPrompt
 			: DEFAULT_PROMPT;
 
 	const systemPrompt = [
-		"You are the improver agent in the skillsmith self-improvement loop.",
-		`Your working directory is the skills root: ${skillsDir}.`,
-		"You have Read/Write/Edit/Glob/Grep/Bash tools — use them to edit the skills in place.",
-		"",
+		'You are the improver agent in the skillsmith self-improvement loop.',
+		`Your working directory is the skills root: ${ skillsDir }.`,
+		'You have Read/Write/Edit/Glob/Grep/Bash tools — use them to edit the skills in place.',
+		'',
 		instructions,
-		"",
-		"# Recursion guard",
-		"Do not invoke `skillsmith` or any wrapper that would re-enter the harness.",
-	].join("\n");
+		'',
+		'# Recursion guard',
+		'Do not invoke `skillsmith` or any wrapper that would re-enter the harness.',
+	].join( '\n' );
 
 	const userMessage = [
-		`# Iteration ${iteration} report`,
-		JSON.stringify(context.report, null, 2),
-		"",
-		"# Skills referenced by the failing scenarios",
-		`skill ids: ${context.skillIds.join(", ") || "(none)"}`,
-		"",
-		context.skillsBlob || "(no skill text available)",
-	].join("\n");
+		`# Iteration ${ iteration } report`,
+		JSON.stringify( context.report, null, 2 ),
+		'',
+		'# Skills referenced by the failing scenarios',
+		`skill ids: ${ context.skillIds.join( ', ' ) || '(none)' }`,
+		'',
+		context.skillsBlob || '(no skill text available)',
+	].join( '\n' );
 
 	log.info(
-		`improver starting: provider=${agent.provider} model=${agent.model} cwd=${skillsDir}`,
+		`improver starting: provider=${ agent.provider } model=${ agent.model } cwd=${ skillsDir }`
 	);
 
-	const provider = getProvider(agent.provider);
-	const result = await provider.invoke({
+	const provider = getProvider( agent.provider );
+	const result = await provider.invoke( {
 		agent,
 		systemPrompt,
 		prompt: userMessage,
 		cwd: skillsDir,
-		role: "testing",
-	});
+		role: 'testing',
+	} );
 
-	const improvementPath = join(iterationDirectory, "improvement.md");
+	const improvementPath = join( iterationDirectory, 'improvement.md' );
 	const body =
 		result.error !== undefined
-			? `<!-- improver error: ${result.error} -->\n\n${result.finalText}`
+			? `<!-- improver error: ${ result.error } -->\n\n${ result.finalText }`
 			: result.finalText;
-	writeFileSync(improvementPath, body);
+	writeFileSync( improvementPath, body );
 
-	if (result.error !== undefined) {
-		log.info(`improver error: ${result.error}`);
+	if ( result.error !== undefined ) {
+		log.info( `improver error: ${ result.error }` );
 	} else {
-		log.info(`improver done: tool-uses=${result.toolUseCount}`);
+		log.info( `improver done: tool-uses=${ result.toolUseCount }` );
 	}
 
 	await tryHook(
-		"afterImprove",
-		`iteration:${iteration}`,
+		'afterImprove',
+		`iteration:${ iteration }`,
 		config.hooks?.afterImprove,
 		{ ...baseCtx, improvementPath },
-		log,
+		log
 	);
 
 	return { improvementPath };

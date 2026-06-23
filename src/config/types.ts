@@ -1,11 +1,11 @@
-import type { ProviderId } from "../providers/types";
+import type { ProviderId } from '../providers/types';
 
 /**
  * Top-level run mode. `test-only` runs a single iteration; `self-improvement`
  * runs up to `selfImprovement.maxIterations`, invoking the improver between
  * failing iterations.
  */
-export type RunMode = "test-only" | "self-improvement";
+export type RunMode = 'test-only' | 'self-improvement';
 
 /**
  * How a subsequent iteration narrows what to re-evaluate based on the
@@ -14,7 +14,7 @@ export type RunMode = "test-only" | "self-improvement";
  *   - `failed-scenarios` — every agent of every scenario where any agent failed.
  *   - `all` — re-run the full matrix each iteration.
  */
-export type EvaluationScope = "failed-pairs" | "failed-scenarios" | "all";
+export type EvaluationScope = 'failed-pairs' | 'failed-scenarios' | 'all';
 
 /**
  * One agent as the user writes it in `agents`. The id comes from the map
@@ -25,7 +25,7 @@ export type EvaluationScope = "failed-pairs" | "failed-scenarios" | "all";
 export interface AgentDefinitionInput {
 	provider: ProviderId;
 	model: string;
-	[key: string]: unknown;
+	[ key: string ]: unknown;
 }
 
 /**
@@ -38,7 +38,7 @@ export interface AgentDefinition {
 	id: string;
 	provider: ProviderId;
 	model: string;
-	[key: string]: unknown;
+	[ key: string ]: unknown;
 }
 
 /**
@@ -98,9 +98,9 @@ export interface Paths {
  */
 export interface SkillsmithConfigInput {
 	mode: RunMode;
-	agents: Record<string, AgentDefinitionInput>;
+	agents: Record< string, AgentDefinitionInput >;
 	roles: RolesInput;
-	paths?: Partial<Paths>;
+	paths?: Partial< Paths >;
 	hooks?: Hooks;
 	selfImprovement?: SelfImprovementConfig;
 }
@@ -113,7 +113,7 @@ export interface SkillsmithConfigInput {
  */
 export interface SkillsmithConfig {
 	mode: RunMode;
-	agents: Record<string, AgentDefinition>;
+	agents: Record< string, AgentDefinition >;
 	roles: NormalizedRoles;
 	paths: Paths;
 	hooks?: Hooks;
@@ -127,7 +127,7 @@ export interface Scenario {
 	prompt: string;
 	acceptance: string[];
 	rubrics: string[];
-	[key: string]: unknown;
+	[ key: string ]: unknown;
 }
 
 /**
@@ -246,7 +246,7 @@ export interface ImproveHookContext extends IterationCompleteHookContext {
 	improvementPath: string;
 }
 
-export type HookFn<Ctx> = (ctx: Ctx) => void | Promise<void>;
+export type HookFn< Ctx > = ( ctx: Ctx ) => void | Promise< void >;
 
 /**
  * `afterAllScenarios` is the one hook whose return value the harness
@@ -255,8 +255,12 @@ export type HookFn<Ctx> = (ctx: Ctx) => void | Promise<void>;
  * into the iteration report (see `Hooks.afterAllScenarios`).
  */
 export type AfterAllScenariosHookFn = (
-	ctx: IterationCompleteHookContext,
-) => VerificationReturn | void | Promise<VerificationReturn> | Promise<void>;
+	ctx: IterationCompleteHookContext
+) =>
+	| VerificationReturn
+	| void
+	| Promise< VerificationReturn >
+	| Promise< void >;
 
 /**
  * Project hooks, listed in the order they fire within a run:
@@ -277,23 +281,23 @@ export type AfterAllScenariosHookFn = (
  * return value the harness reads.
  */
 export interface Hooks {
-	beforeAll?: HookFn<RunContext>;
-	beforeScenario?: HookFn<ScenarioContext>;
-	beforeTestAgent?: HookFn<AgentContext>;
-	afterTestAgent?: HookFn<AgentContext>;
-	beforeJudgeAgent?: HookFn<AgentContext>;
-	afterJudgeAgent?: HookFn<AgentContext>;
-	afterScenario?: HookFn<ScenarioContext>;
-	afterAll?: HookFn<RunContext>;
+	beforeAll?: HookFn< RunContext >;
+	beforeScenario?: HookFn< ScenarioContext >;
+	beforeTestAgent?: HookFn< AgentContext >;
+	afterTestAgent?: HookFn< AgentContext >;
+	beforeJudgeAgent?: HookFn< AgentContext >;
+	afterJudgeAgent?: HookFn< AgentContext >;
+	afterScenario?: HookFn< ScenarioContext >;
+	afterAll?: HookFn< RunContext >;
 	/** Fires once per iteration, before any scenario runs. */
-	beforeIteration?: HookFn<IterationHookContext>;
+	beforeIteration?: HookFn< IterationHookContext >;
 	/**
 	 * Fires once per iteration, at the very end — after the improver has
 	 * run, so the skills it edited are already on disk.
 	 */
-	afterIteration?: HookFn<IterationCompleteHookContext>;
+	afterIteration?: HookFn< IterationCompleteHookContext >;
 	/** Fires once per iteration, just before the scenario sweep begins. */
-	beforeAllScenarios?: HookFn<IterationHookContext>;
+	beforeAllScenarios?: HookFn< IterationHookContext >;
 	/**
 	 * Fires after the judges have graded the scenario sweep but before
 	 * the improver runs. Its return value can mark scenarios (or specific
@@ -304,7 +308,7 @@ export interface Hooks {
 	 */
 	afterAllScenarios?: AfterAllScenariosHookFn;
 	/** Fires before the improver agent runs (self-improvement mode only). */
-	beforeImprove?: HookFn<IterationCompleteHookContext>;
+	beforeImprove?: HookFn< IterationCompleteHookContext >;
 	/** Fires after the improver wrote its transcript (self-improvement mode only). */
-	afterImprove?: HookFn<ImproveHookContext>;
+	afterImprove?: HookFn< ImproveHookContext >;
 }

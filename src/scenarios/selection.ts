@@ -1,6 +1,6 @@
-import path from "node:path";
-import type { EnumeratedScenario } from "./enumerate";
-import { UserFacingError } from "../util/errors";
+import path from 'node:path';
+import type { EnumeratedScenario } from './enumerate';
+import { UserFacingError } from '../util/errors';
 
 /**
  * Normalize a user-provided scenario filter into the canonical spelling used
@@ -18,24 +18,24 @@ import { UserFacingError } from "../util/errors";
  * normalizeScenarioFilter("./blocks//counter/");
  * // "blocks/counter"
  */
-export function normalizeScenarioFilter(rawFilter: string): string {
+export function normalizeScenarioFilter( rawFilter: string ): string {
 	const trimmed = rawFilter.trim();
-	if (trimmed.length === 0) {
-		throw new UserFacingError("Scenario IDs must not be empty.");
+	if ( trimmed.length === 0 ) {
+		throw new UserFacingError( 'Scenario IDs must not be empty.' );
 	}
 
-	if (isUnsafeScenarioFilter(trimmed)) {
+	if ( isUnsafeScenarioFilter( trimmed ) ) {
 		throw new UserFacingError(
-			`Invalid scenario filter: ${trimmed}\n\nScenario filters must be relative to config.paths.scenarios and must not be absolute paths, UNC paths, or contain '..' segments.`,
+			`Invalid scenario filter: ${ trimmed }\n\nScenario filters must be relative to config.paths.scenarios and must not be absolute paths, UNC paths, or contain '..' segments.`
 		);
 	}
 
 	const segments = trimmed
-		.replace(/\\/g, "/")
-		.split("/")
-		.filter((segment) => segment.length > 0 && segment !== ".");
+		.replace( /\\/g, '/' )
+		.split( '/' )
+		.filter( ( segment ) => segment.length > 0 && segment !== '.' );
 
-	return segments.length === 0 ? "." : segments.join("/");
+	return segments.length === 0 ? '.' : segments.join( '/' );
 }
 
 /**
@@ -49,14 +49,14 @@ export function normalizeScenarioFilter(rawFilter: string): string {
  * normalizeScenarioFilters(["counter", "./counter", "counter/"]);
  * // ["counter"]
  */
-export function normalizeScenarioFilters(rawFilters: string[]): string[] {
+export function normalizeScenarioFilters( rawFilters: string[] ): string[] {
 	const filters: string[] = [];
-	const seen = new Set<string>();
-	for (const rawFilter of rawFilters) {
-		const filter = normalizeScenarioFilter(rawFilter);
-		if (!seen.has(filter)) {
-			seen.add(filter);
-			filters.push(filter);
+	const seen = new Set< string >();
+	for ( const rawFilter of rawFilters ) {
+		const filter = normalizeScenarioFilter( rawFilter );
+		if ( ! seen.has( filter ) ) {
+			seen.add( filter );
+			filters.push( filter );
 		}
 	}
 	return filters;
@@ -81,28 +81,31 @@ export function normalizeScenarioFilters(rawFilters: string[]): string[] {
  */
 export function selectScenariosByNormalizedFilters(
 	scenarios: EnumeratedScenario[],
-	filters: string[],
+	filters: string[]
 ): EnumeratedScenario[] {
-	const sortedScenarios = [...scenarios].sort(compareScenarioIds);
-	if (filters.length === 0) return sortedScenarios;
+	const sortedScenarios = [ ...scenarios ].sort( compareScenarioIds );
+	if ( filters.length === 0 ) return sortedScenarios;
 
-	const availableIds = sortedScenarios.map((scenario) => scenario.id);
+	const availableIds = sortedScenarios.map( ( scenario ) => scenario.id );
 	const unknown = filters.filter(
-		(filter) => !availableIds.some((id) => matchesScenarioFilter(filter, id)),
+		( filter ) =>
+			! availableIds.some( ( id ) => matchesScenarioFilter( filter, id ) )
 	);
 
-	if (unknown.length > 0) {
-		throw new UserFacingError(formatUnknownFiltersMessage(unknown, availableIds));
+	if ( unknown.length > 0 ) {
+		throw new UserFacingError(
+			formatUnknownFiltersMessage( unknown, availableIds )
+		);
 	}
 
 	const selected: EnumeratedScenario[] = [];
-	const emitted = new Set<string>();
-	for (const filter of filters) {
-		for (const scenario of sortedScenarios) {
-			if (emitted.has(scenario.id)) continue;
-			if (!matchesScenarioFilter(filter, scenario.id)) continue;
-			emitted.add(scenario.id);
-			selected.push(scenario);
+	const emitted = new Set< string >();
+	for ( const filter of filters ) {
+		for ( const scenario of sortedScenarios ) {
+			if ( emitted.has( scenario.id ) ) continue;
+			if ( ! matchesScenarioFilter( filter, scenario.id ) ) continue;
+			emitted.add( scenario.id );
+			selected.push( scenario );
 		}
 	}
 
@@ -121,8 +124,8 @@ export function selectScenariosByNormalizedFilters(
  * matchesScenarioFilter("blocks", "blocks/counter");
  * // true
  */
-export function matchesScenarioFilter(filter: string, id: string): boolean {
-	return filter === "." || id === filter || id.startsWith(`${filter}/`);
+export function matchesScenarioFilter( filter: string, id: string ): boolean {
+	return filter === '.' || id === filter || id.startsWith( `${ filter }/` );
 }
 
 /**
@@ -141,11 +144,11 @@ export function matchesScenarioFilter(filter: string, id: string): boolean {
  */
 export function selectScenariosByFilters(
 	scenarios: EnumeratedScenario[],
-	rawFilters: string[] | undefined,
+	rawFilters: string[] | undefined
 ): EnumeratedScenario[] {
 	return selectScenariosByNormalizedFilters(
 		scenarios,
-		normalizeScenarioFilters(rawFilters ?? []),
+		normalizeScenarioFilters( rawFilters ?? [] )
 	);
 }
 
@@ -162,42 +165,51 @@ export function selectScenariosByFilters(
  * @throws UserFacingError when two or more configured scenarios share a name.
  */
 export function validateConfiguredScenarioNamesAreUnique(
-	scenarios: EnumeratedScenario[],
+	scenarios: EnumeratedScenario[]
 ): void {
-	const idsByName = new Map<string, string[]>();
-	for (const scenario of scenarios) {
-		if (scenario.nameSource !== "configured") continue;
-		const ids = idsByName.get(scenario.scenario.name) ?? [];
-		ids.push(scenario.id);
-		idsByName.set(scenario.scenario.name, ids);
+	const idsByName = new Map< string, string[] >();
+	for ( const scenario of scenarios ) {
+		if ( scenario.nameSource !== 'configured' ) continue;
+		const ids = idsByName.get( scenario.scenario.name ) ?? [];
+		ids.push( scenario.id );
+		idsByName.set( scenario.scenario.name, ids );
 	}
 
-	for (const [name, ids] of [...idsByName.entries()].sort(([a], [b]) =>
-		a.localeCompare(b),
-	)) {
-		if (ids.length < 2) continue;
-		const conflicts = ids.sort().map((id) => `- ${id}`).join("\n");
+	for ( const [ name, ids ] of [ ...idsByName.entries() ].sort(
+		( [ a ], [ b ] ) => a.localeCompare( b )
+	) ) {
+		if ( ids.length < 2 ) continue;
+		const conflicts = ids
+			.sort()
+			.map( ( id ) => `- ${ id }` )
+			.join( '\n' );
 		throw new UserFacingError(
-			`Duplicate scenario.name "${name}" configured by:\n${conflicts}`,
+			`Duplicate scenario.name "${ name }" configured by:\n${ conflicts }`
 		);
 	}
 }
 
-function isUnsafeScenarioFilter(trimmed: string): boolean {
-	if (trimmed.startsWith("/") || trimmed.startsWith("//")) return true;
-	if (path.win32.isAbsolute(trimmed)) return true;
-	return trimmed.replace(/\\/g, "/").split("/").includes("..");
+function isUnsafeScenarioFilter( trimmed: string ): boolean {
+	if ( trimmed.startsWith( '/' ) || trimmed.startsWith( '//' ) ) return true;
+	if ( path.win32.isAbsolute( trimmed ) ) return true;
+	return trimmed.replace( /\\/g, '/' ).split( '/' ).includes( '..' );
 }
 
-function compareScenarioIds(a: EnumeratedScenario, b: EnumeratedScenario): number {
+function compareScenarioIds(
+	a: EnumeratedScenario,
+	b: EnumeratedScenario
+): number {
 	return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-function formatUnknownFiltersMessage(unknown: string[], availableIds: string[]): string {
+function formatUnknownFiltersMessage(
+	unknown: string[],
+	availableIds: string[]
+): string {
 	const label =
 		unknown.length === 1
-			? `Unknown scenario: ${unknown[0]}`
-			: `Unknown scenarios: ${unknown.join(", ")}`;
-	const available = availableIds.map((id) => `- ${id}`).join("\n");
-	return `${label}\n\nAvailable scenarios:\n${available}\n\nPass a scenario ID or parent folder relative to config.paths.scenarios.`;
+			? `Unknown scenario: ${ unknown[ 0 ] }`
+			: `Unknown scenarios: ${ unknown.join( ', ' ) }`;
+	const available = availableIds.map( ( id ) => `- ${ id }` ).join( '\n' );
+	return `${ label }\n\nAvailable scenarios:\n${ available }\n\nPass a scenario ID or parent folder relative to config.paths.scenarios.`;
 }
