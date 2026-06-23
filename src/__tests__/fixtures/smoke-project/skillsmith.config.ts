@@ -15,4 +15,23 @@ export default defineConfig( {
 	paths: {
 		base: './.skillsmith',
 	},
+	hooks: {
+		afterAllScenarios: ( { scenarios } ) => {
+			const [ scenario ] = scenarios;
+			if ( scenario === undefined ) {
+				throw new Error( 'expected one run scenario' );
+			}
+			if ( scenario.id !== 'hello' ) {
+				throw new Error( `expected scenario.id, got ${ scenario.id }` );
+			}
+			if ( scenario.dirName !== scenario.id ) {
+				throw new Error(
+					'expected scenario.dirName to match scenario.id'
+				);
+			}
+			if ( 'nameSource' in scenario ) {
+				throw new Error( 'RunScenario must not expose nameSource' );
+			}
+		},
+	},
 } );

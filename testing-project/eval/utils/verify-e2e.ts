@@ -28,17 +28,19 @@ const WP_ENV_PORT = Number( process.env.WP_ENV_PORT ?? 8987 );
  *
  * Playwright projects are named after the testing-agent ids (see
  * playwright.config.ts), so a failing spec's `projectName` maps back to
- * the agent, and its file path maps back to the scenario directory.
+ * the agent, and its file path maps back to the normalized scenario
+ * directory ID.
  */
 export function runE2eVerification(
 	iterationDirectory: string,
 	scenarios: RunScenario[]
 ): VerificationFailure[] {
 	// The iteration subdirectories are named after `scenario.name`, while
-	// the spec files live under `eval/scenarios/<dirName>/`. Playwright's
-	// JSON report carries the dirName (from the spec path), so we need
-	// both directions: name→dir to locate specs, dir→name to attribute
-	// failures back to the report's scenario keys.
+	// the spec files live under `eval/scenarios/<dirName>/`, where `dirName`
+	// is the normalized source ID and may contain `/` for nested scenarios.
+	// Playwright's JSON report carries that source ID from the spec path, so
+	// we need both directions: name→dir to locate specs, dir→name to
+	// attribute failures back to the report's scenario keys.
 	const nameToDir = new Map(
 		scenarios.map( ( s ) => [ s.scenario.name, s.dirName ] )
 	);
@@ -236,15 +238,20 @@ function parsePlaywrightReport(
 }
 
 /**
- * Extract the scenario directory name from a spec file path. Specs live
- * at `<scenarioDir>/e2e.spec.mjs`, so the scenario directory is the
- * spec's immediate parent. Playwright reports file paths relative to its
- * testDir (`eval/scenarios`), e.g. `counter/e2e.spec.mjs` — there is no
- * `scenarios` segment to anchor on, so we take the parent segment
- * directly. This also handles absolute paths that do include `scenarios`.
+ * Extract the scenario directory ID from a spec file path. Specs live at
+ * `<scenarioId>/e2e.spec.mjs`, where `scenarioId` can be a nested path such
+ * as `blocks/counter`. Playwright usually reports paths relative to its
+ * testDir (`eval/scenarios`), but absolute paths can include that anchor.
  */
 function scenarioDirOf( file: string ): string | undefined {
 	const segments = file.split( /[\\/]/ ).filter( ( s ) => s.length > 0 );
-	if ( segments.length >= 2 ) return segments[ segments.length - 2 ];
-	return undefined;
+	const specIndex = segments.lastIndexOf( 'e2e.spec.mjs' );
+	if ( specIndex <= 0 ) return undefined;
+
+	const scenariosIndex = segments.lastIndexOf( 'scenarios', specIndex - 1 );
+	const start = scenariosIndex >= 0 ? scenariosIndex + 1 : 0;
+	const scenarioSegments = segments.slice( start, specIndex );
+	if ( scenarioSegments.length === 0 ) return undefined;
+
+	return scenarioSegments.join( '/' );
 }
