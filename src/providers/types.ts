@@ -49,5 +49,7 @@ export interface InvokeResult {
 
 export interface Provider {
 	readonly id: ProviderId;
+	/** Names the env var this provider's credential needs, read before invoke. */
+	readonly requiredEnv?: string;
 	invoke( params: InvokeParams ): Promise< InvokeResult >;
 }

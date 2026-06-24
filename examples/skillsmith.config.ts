@@ -52,13 +52,15 @@ export default defineConfig( {
 			model: 'claude-opus-4-7',
 		},
 
-		// Anthropic via the public API (uses ANTHROPIC_API_KEY).
+		// Anthropic via the public API (uses ANTHROPIC_API_KEY). When the
+		// key is unset the agent is skipped (not failed) before it runs.
 		'anthropic-sonnet': {
 			provider: 'anthropic-api',
 			model: 'claude-sonnet-4-6',
 		},
 
-		// OpenAI via the public API (uses OPENAI_API_KEY).
+		// OpenAI via the public API (uses OPENAI_API_KEY). When the key is
+		// unset the agent is skipped (not failed) before it runs.
 		'openai-nano': {
 			provider: 'openai-api',
 			model: 'gpt-5.4-nano',
@@ -76,7 +78,8 @@ export default defineConfig( {
 			effort: 'xhigh',
 		},
 
-		// Google Gemini via the public API (uses GEMINI_API_KEY).
+		// Google Gemini via the public API (uses GOOGLE_GENERATIVE_AI_API_KEY).
+		// When the key is unset the agent is skipped (not failed) before it runs.
 		'gemini-flash': {
 			provider: 'gemini-api',
 			model: 'gemini-2.5-flash',

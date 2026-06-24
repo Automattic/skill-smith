@@ -33,6 +33,7 @@ import {
 	emitSummary,
 	prepareSummary,
 } from '../reports/summary';
+import { classifyRunnability, decide, type SkippedAgent } from '../runnability';
 import {
 	type EnumeratedScenario,
 	enumerateScenarios,
@@ -99,6 +100,30 @@ export async function runPipeline( params: PipelineParams ): Promise< number > {
 	const runDirectory = resolve( projectRoot, config.paths.base, runId );
 	mkdirSync( runDirectory, { recursive: true } );
 
+	const runnability = classifyRunnability( config, process.env );
+
+	// A misconfigured judge stops the whole run: there is no graded matrix
+	// to write, so bail before any hook fires, before the tracker, and
+	// before any report. Returning 2 (rather than throwing) keeps this off
+	// the runner's precondition path, which is exit 1.
+	const judgeId = config.roles.judge.agent.id;
+	const judgeSkip = runnability.skipped.find( ( s ) => s.id === judgeId );
+	if ( judgeSkip !== undefined && decide( judgeSkip.roles ) === 'STOP_RUN' ) {
+		console.error(
+			`skillsmith: judge agent "${ judgeId }" is misconfigured: ${ judgeSkip.reason }. Stopping the run.`
+		);
+		return 2;
+	}
+
+	const runnableTestAgentIds = runnability.runnableTestAgentIds;
+
+	// Test/improver skips to announce early (R2 scope). Any STOP_RUN
+	// (judge) id was already printed and `return 2`'d above; the filter
+	// makes the test/improver-only scope explicit and future-proof.
+	const earlySkips = runnability.skipped
+		.filter( ( s ) => decide( s.roles ) !== 'STOP_RUN' )
+		.map( ( s ) => ( { id: s.id, reason: s.reason } ) );
+
 	const iterations: IterationInfo[] = [];
 	const runScenarios: RunScenario[] = allScenarios.map(
 		( { id, dirName, scenario } ) => ( {
@@ -113,6 +138,7 @@ export async function runPipeline( params: PipelineParams ): Promise< number > {
 		runDirectory,
 		iterations,
 		scenarios: runScenarios,
+		skipped: runnability.skipped,
 	};
 
 	const tracker = new ProgressTracker(
@@ -120,11 +146,23 @@ export async function runPipeline( params: PipelineParams ): Promise< number > {
 			runId,
 			scenarios: allScenarios.map( ( s ) => ( {
 				name: s.scenario.name,
-				agentIds: config.roles.test.agents.map( ( a ) => a.id ),
+				agentIds: runnableTestAgentIds,
 			} ) ),
+			skippedAgents: earlySkips,
 		},
 		verbose ? { interactive: false } : {}
 	);
+	// In interactive mode the seeded skip section rides every paint (R4),
+	// so emit nothing extra. When the dashboard will not repaint mid-run
+	// (resolved non-interactive: non-TTY or `verbose`), announce each skip
+	// early on stderr at detection time.
+	if ( ! tracker.interactive ) {
+		for ( const s of earlySkips ) {
+			console.error(
+				`skillsmith: skipping misconfigured agent "${ s.id }": ${ s.reason }`
+			);
+		}
+	}
 	const maxIterations =
 		selfImprovement.mode === 'test-only'
 			? 1
@@ -180,6 +218,7 @@ export async function runPipeline( params: PipelineParams ): Promise< number > {
 				verbose: verbose ?? false,
 				selection: selection.scenarios,
 				agentFilter: selection.agentFilter,
+				runnableTestAgentIds,
 				iterations,
 				runCtx,
 				tracker,
@@ -194,16 +233,23 @@ export async function runPipeline( params: PipelineParams ): Promise< number > {
 				mergedScenarios,
 				outcome.report.scenarios
 			);
-			mergedPass = writeRunReport( runDirectory, runId, mergedScenarios );
+			mergedPass = writeRunReport(
+				runDirectory,
+				runId,
+				mergedScenarios,
+				runnability.skipped
+			);
 			renderRunSummary();
 
 			// The improver is part of the iteration: it runs after the
 			// scenario sweep was graded and verified, when the run is not
-			// yet passing and there is budget left.
+			// yet passing and there is budget left. A misconfigured improver
+			// makes no edit, so the iteration just completed is the last one.
 			if (
 				! mergedPass &&
 				i < maxIterations &&
-				selfImprovement.mode === 'self-improvement'
+				selfImprovement.mode === 'self-improvement' &&
+				runnability.improverRunnable
 			) {
 				await runImprovement( {
 					projectRoot,
@@ -211,6 +257,7 @@ export async function runPipeline( params: PipelineParams ): Promise< number > {
 					runDirectory,
 					iterations,
 					scenarios: runScenarios,
+					skipped: runCtx.skipped,
 					config,
 					agent: config.roles.improver.agent,
 					improverPrompt: config.roles.improver.prompt,
@@ -225,13 +272,24 @@ export async function runPipeline( params: PipelineParams ): Promise< number > {
 			await fireAfterIteration( config, runCtx, outcome, i );
 
 			if ( mergedPass ) break;
+			// A misconfigured improver made no edit this iteration, so the
+			// next iteration would re-run the same failing matrix to no
+			// effect — and would be a forbidden further iteration. The
+			// iteration just completed is the last one.
+			if (
+				selfImprovement.mode === 'self-improvement' &&
+				! runnability.improverRunnable
+			) {
+				break;
+			}
 		}
 
 		if (
 			selfImprovement.finalPass &&
 			lastWasSubset &&
 			selfImprovement.mode === 'self-improvement' &&
-			! mergedPass
+			! mergedPass &&
+			runnability.improverRunnable
 		) {
 			const i = iterations.length + 1;
 			const outcome = await runOneIteration( {
@@ -244,6 +302,7 @@ export async function runPipeline( params: PipelineParams ): Promise< number > {
 				verbose: verbose ?? false,
 				selection: allScenarios,
 				agentFilter: undefined,
+				runnableTestAgentIds,
 				iterations,
 				runCtx,
 				tracker,
@@ -255,7 +314,12 @@ export async function runPipeline( params: PipelineParams ): Promise< number > {
 				mergedScenarios,
 				outcome.report.scenarios
 			);
-			mergedPass = writeRunReport( runDirectory, runId, mergedScenarios );
+			mergedPass = writeRunReport(
+				runDirectory,
+				runId,
+				mergedScenarios,
+				runnability.skipped
+			);
 			renderRunSummary();
 			await fireAfterIteration( config, runCtx, outcome, i );
 		}
@@ -290,6 +354,12 @@ interface RunOneIterationParams {
 	verbose: boolean;
 	selection: EnumeratedScenario[];
 	agentFilter: Record< string, string[] > | undefined;
+	/**
+	 * The test agents that are runnable this run. Applied as a run-scoped
+	 * allowlist at the agent loop, so a misconfigured test agent never runs
+	 * regardless of any per-scenario `agentFilter`.
+	 */
+	runnableTestAgentIds: string[];
 	iterations: IterationInfo[];
 	runCtx: RunContext;
 	tracker: ProgressTracker;
@@ -379,23 +449,36 @@ async function runOneIteration(
 		);
 	}
 
+	// The runnable allowlist is a run-scoped filter applied whether or not
+	// a per-scenario `agentFilter` exists: when there is no per-scenario
+	// filter the allowlist itself becomes the filter; when there is one,
+	// the effective set is its intersection with the allowlist.
+	const runnableSet = new Set( args.runnableTestAgentIds );
 	let scenarioRecords: ScenarioRunRecord[];
 	try {
 		scenarioRecords = await Promise.all(
-			args.selection.map( ( s ) =>
-				runScenario( s, {
+			args.selection.map( ( s ) => {
+				const existingFilter = args.agentFilter?.[ s.scenario.name ];
+				const effectiveFilter =
+					existingFilter === undefined
+						? args.runnableTestAgentIds
+						: existingFilter.filter( ( id ) =>
+								runnableSet.has( id )
+							);
+				return runScenario( s, {
 					runId: args.runId,
 					config: args.config,
 					projectRoot: args.projectRoot,
 					runDirectory: args.runDirectory,
 					iterationDirectory,
 					iterations: args.iterations,
-					agentFilter: args.agentFilter?.[ s.scenario.name ],
+					agentFilter: effectiveFilter,
 					log,
 					tracker: args.tracker,
 					scenarios: args.runCtx.scenarios,
-				} )
-			)
+					skipped: args.runCtx.skipped,
+				} );
+			} )
 		);
 	} catch ( err ) {
 		log.dump( iterationDirectory );
@@ -475,6 +558,7 @@ interface ScenarioRunArgs {
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
+	skipped: ReadonlyArray< SkippedAgent >;
 }
 
 async function runScenario(
@@ -489,6 +573,7 @@ async function runScenario(
 		runDirectory: args.runDirectory,
 		iterations: args.iterations,
 		scenarios: args.scenarios,
+		skipped: args.skipped,
 		scenario,
 	};
 
@@ -519,6 +604,7 @@ async function runScenario(
 				log: args.log,
 				tracker: args.tracker,
 				scenarios: args.scenarios,
+				skipped: args.skipped,
 				agentIdFilter: args.agentFilter,
 			} );
 		}

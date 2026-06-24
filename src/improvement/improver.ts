@@ -9,6 +9,7 @@ import type {
 } from '../config/types';
 import { getProvider } from '../providers/registry';
 import type { IterationReport } from '../reports/iteration-report';
+import type { SkippedAgent } from '../runnability';
 import type { EnumeratedScenario } from '../scenarios/enumerate';
 import { tryHook } from '../util/hooks';
 import type { RunLog } from '../util/run-log';
@@ -40,6 +41,7 @@ export interface RunImprovementParams {
 	runDirectory: string;
 	iterations: IterationInfo[];
 	scenarios: RunScenario[];
+	skipped: ReadonlyArray< SkippedAgent >;
 	config: SkillsmithConfig;
 	agent: AgentDefinition;
 	/**
@@ -84,6 +86,7 @@ export async function runImprovement(
 		runDirectory,
 		iterations,
 		scenarios,
+		skipped,
 	} = params;
 
 	log.section( `improvement (after iteration ${ iteration })` );
@@ -94,6 +97,7 @@ export async function runImprovement(
 		runDirectory,
 		iterations,
 		scenarios,
+		skipped,
 		iteration,
 		iterationDirectory,
 		pass: iterationReport.pass,

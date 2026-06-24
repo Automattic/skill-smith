@@ -1,0 +1,24 @@
+# Code Plan Review
+
+## Verdict: approved
+
+## Summary
+
+This is a reconciliation plan (single `trunk`→branch merge, resolve 19 conflicts both-sides, install, reformat, run guardrails, commit), and it holds up under direct verification against the live repo. I re-ran the trial merge from the current HEAD (`aff644b`) and confirmed every load-bearing structural claim the plan makes: the merge produces **exactly** the 19 named conflicting files (all `UU`, zero add/delete); the five toolchain/aux files (`package.json`, `package-lock.json`, `biome.json`, `src/progress/types.ts`, `testing-project/playwright.config.ts`) auto-merge clean; all six changesets land as a union; the merged `package.json` pins `@biomejs/biome` at `2.5.0`, `biome.json` is the WordPress config, and `package-lock.json` has zero `2.4.12` references while the local binary is still `2.4.12` pre-install (so the install-before-format ordering is genuinely load-bearing). I also confirmed the per-file resolution directives are accurate against the actual conflict hunks — `pipeline.ts` Meeting point 1 (HEAD side carries `agentFilter: effectiveFilter` + `scenarios` + `skipped`; trunk side carries `scenarios` only), Meeting point 2 (`writeRunReport` 4-arg HEAD vs 3-arg trunk), `tracker.ts` (`interactiveMode` HEAD vs three `this.interactive` trunk uses that must be rewritten), `summary.ts` (HEAD's unconditional `pushSkipBlock` vs trunk's early `return lines` to avoid), `verify-e2e.ts` (three `projectArgs`/signature conflict regions plus the auto-merged nested `scenarioDirOf`), and the gemini `GOOGLE_GENERATIVE_AI_API_KEY` characterization correction (matches `gemini-api.ts`'s `requiredEnv`). The 19 files partition cleanly across Tasks 2–5 with no duplication, omission, or extras; the dependency chain (merge → resolve → install+format → guardrails → inspect+commit) is acyclic and correctly ordered; and every guardrail command resolves to a real script. The trial merge was aborted and HEAD restored to `aff644b` with a clean working tree.
+
+## Verification performed
+
+- **Trial merge** `git merge --no-commit --no-ff 95c86bd` → exactly 19 `UU` files, identical to the spec/plan list; aborted afterward, HEAD unchanged at `aff644b`, tree clean.
+- **Branch state**: 89 behind / 85 ahead of `95c86bd`; merge-base `9541456`. (Plan recorded HEAD `79dfada`; actual is `aff644b` because the plan-writer's own `.pipelines/` commit landed after — adds only artifact commits, does not change the merge structure. Not a defect.)
+- **Toolchain auto-merge**: all five files status `M` not `UU`; `2.5.0` pin and WordPress `biome.json` present; zero `2.4.12` in the lockfile; local binary reports `2.4.12` pre-install.
+- **Conflict-hunk directives**: spot-read the actual conflict regions in `pipeline.ts` (lines ~494–527, both `writeRunReport` regions), `tracker.ts`, `summary.ts`, `verify-e2e.ts`, and `examples/skillsmith.config.ts`; every "keep HEAD / rewrite / merge" instruction matches the real hunk contents.
+- **Coverage**: Tasks 2–5 cover exactly the 19 files (no dupes, no gaps, no extras).
+- **Guardrails resolve**: `lint`, `typecheck`, `test` (root), `check:config` (testing-project), `scripts/validate-changesets.ts`, and `npx changeset status --since=origin/trunk` (with `origin/trunk` resolving and `@changesets/cli` present) all exist and are invokable.
+- **Dependencies present**: `src/scenarios/selection.ts` exports the three symbols `pipeline.ts` must import; all nine skip-feature tests + trunk's `scenario-filter-selection.test.ts` present (27 total); `codex.e2e.test.ts` self-guards on `CODEX_E2E`.
+
+## Notes (non-blocking — no action required)
+
+- **Guardrail scopes**: the project's six guardrails are fixed commands with no scoped gates, so the plan's `## Guardrail scopes` section correctly renders a `None` body. Nothing to fill or validate.
+- **All-e2e task typing is justified here.** Every task is `e2e`, which is correct for a behavior-preserving reconciliation whose oracle is the already-shipped suite plus the repository guardrails run as end-to-end checks against the merged tree. The plan explicitly forbids new unit tests and prescribes none, so there is no unit-test-planning violation. The one truly unguarded item (nested `scenarioDirOf`) is correctly handled as reviewer-inspection only (Flow 10 / Task 8), matching the design's single named unguarded failure mode.
+- **Orphaned-import handling** (`noUnusedImports` warns but exits 0) is correctly treated as an eyeball step in Tasks 6 and 7 rather than a hard gate — consistent with the design's "soft signals."
+- **No documentation tasks** appear (the README work here is conflict resolution of shipped prose, not new doc authoring), and the plan introduces no new component, dependency, changeset, or interface — staying within spec and design scope.

@@ -11,14 +11,22 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { emitSummary, prepareSummary } from '../reports/summary';
 
-function withReport( scenarios: Record< string, unknown > ): {
+function withReport(
+	scenarios: Record< string, unknown >,
+	skipped?: unknown
+): {
 	runDirectory: string;
 } {
 	const runDirectory = mkdtempSync( join( tmpdir(), 'skillsmith-summary-' ) );
 	mkdirSync( runDirectory, { recursive: true } );
+	const report: Record< string, unknown > = {
+		runId: '20260101-000000',
+		scenarios,
+	};
+	if ( skipped !== undefined ) report.skipped = skipped;
 	writeFileSync(
 		join( runDirectory, 'report.json' ),
-		JSON.stringify( { runId: '20260101-000000', scenarios }, null, 2 )
+		JSON.stringify( report, null, 2 )
 	);
 	return { runDirectory };
 }
@@ -278,6 +286,180 @@ test( 'writes summary.txt mirroring the console (without ANSI)', async () => {
 	assert.match( body, /counter-block\s+haiku\s+FAIL/ );
 	assert.match( body, /RUN RESULT: FAIL/ );
 	assert.match( body, /haiku: rubric r1/ );
+	assert.equal(
+		body.includes( String.fromCharCode( 27 ) ),
+		false,
+		'summary.txt must not contain ANSI escapes'
+	);
+} );
+
+const allPassScenario = {
+	'counter-block': {
+		scenario: 'counter-block',
+		agents: {
+			haiku: {
+				testing: { duration: 1200 },
+				review: {
+					rubrics: { r1: { pass: true } },
+					acceptance: [ { item: 'x', pass: true } ],
+				},
+			},
+		},
+	},
+};
+
+test( 'all-pass matrix plus a skipped agent exits 2 with a distinct skip block', async () => {
+	const { runDirectory } = withReport( allPassScenario, [
+		{ id: 'gpt', roles: [ 'test' ], reason: 'OPENAI_API_KEY is not set' },
+	] );
+
+	const { value, out } = captureStdout( () =>
+		emitSummary( prepareSummary( { runDirectory, runId: 'x' } ) )
+	);
+
+	assert.equal( value, 2 );
+	// The surviving row still renders as PASS.
+	assert.match( out, /counter-block\s+haiku\s+PASS/ );
+	// A labelled skip section names the id and reason, distinct from the
+	// per-cell SKIPPED marker.
+	assert.match( out, /SKIPPED AGENTS/ );
+	assert.match( out, /gpt: OPENAI_API_KEY is not set/ );
+} );
+
+test( 'a failing agent plus a skipped agent exits 2 and shows both signals distinctly', async () => {
+	const { runDirectory } = withReport(
+		{
+			'counter-block': {
+				scenario: 'counter-block',
+				agents: {
+					haiku: {
+						testing: { duration: 1100 },
+						review: {
+							rubrics: { r1: { pass: false } },
+							acceptance: [ { item: 'x', pass: true } ],
+						},
+					},
+				},
+			},
+		},
+		[
+			{
+				id: 'gpt',
+				roles: [ 'judge' ],
+				reason: 'OPENAI_API_KEY is not set',
+			},
+		]
+	);
+
+	const { value, out } = captureStdout( () =>
+		emitSummary( prepareSummary( { runDirectory, runId: 'x' } ) )
+	);
+
+	// The skip takes precedence over the genuine failure.
+	assert.equal( value, 2 );
+	// The FAIL row and its failure block still render.
+	assert.match( out, /RUN RESULT: FAIL/ );
+	assert.match( out, /haiku: rubric r1/ );
+	// The skip block is its own labelled section, not a failure-scenario
+	// block: the skip line names the agent under the SKIPPED AGENTS header.
+	assert.match( out, /SKIPPED AGENTS/ );
+	assert.match( out, /gpt: OPENAI_API_KEY is not set/ );
+	// The skip line is not rendered as a `RUN RESULT: FAIL` scenario block:
+	// "gpt" never appears as a failing-scenario header.
+	const lines = out.split( '\n' );
+	const failIdx = lines.findIndex( ( l ) =>
+		l.includes( 'RUN RESULT: FAIL' )
+	);
+	const skipHeaderIdx = lines.findIndex( ( l ) =>
+		l.includes( 'SKIPPED AGENTS' )
+	);
+	assert.ok( skipHeaderIdx > failIdx, 'skip block follows the FAIL section' );
+} );
+
+test( 'a report with no skipped field is unchanged: all-pass exits 0, no skip block', async () => {
+	const { runDirectory } = withReport( allPassScenario );
+
+	const { value, out } = captureStdout( () =>
+		emitSummary( prepareSummary( { runDirectory, runId: 'x' } ) )
+	);
+
+	assert.equal( value, 0 );
+	assert.match( out, /RUN RESULT: PASS/ );
+	assert.doesNotMatch( out, /SKIPPED AGENTS/ );
+} );
+
+test( 'a report with no skipped field is unchanged: any-fail exits 1, no skip block', async () => {
+	const { runDirectory } = withReport( {
+		'counter-block': {
+			scenario: 'counter-block',
+			agents: {
+				haiku: {
+					testing: { duration: 1100 },
+					review: {
+						rubrics: { r1: { pass: false } },
+						acceptance: [ { item: 'x', pass: true } ],
+					},
+				},
+			},
+		},
+	} );
+
+	const { value, out } = captureStdout( () =>
+		emitSummary( prepareSummary( { runDirectory, runId: 'x' } ) )
+	);
+
+	assert.equal( value, 1 );
+	assert.match( out, /RUN RESULT: FAIL/ );
+	assert.doesNotMatch( out, /SKIPPED AGENTS/ );
+} );
+
+test( 'an empty matrix with a skipped agent exits 2 with no RUN RESULT: PASS', async () => {
+	const { runDirectory } = withReport( {}, [
+		{ id: 'gpt', roles: [ 'test' ], reason: 'OPENAI_API_KEY is not set' },
+	] );
+
+	const { value, out } = captureStdout( () =>
+		emitSummary( prepareSummary( { runDirectory, runId: 'x' } ) )
+	);
+
+	assert.equal( value, 2 );
+	assert.doesNotMatch( out, /RUN RESULT: PASS/ );
+	assert.match( out, /SKIPPED AGENTS/ );
+	assert.match( out, /gpt: OPENAI_API_KEY is not set/ );
+} );
+
+test( 'malformed skipped entries are ignored', async () => {
+	const { runDirectory } = withReport( allPassScenario, [
+		{ id: 'gpt', roles: [ 'test' ], reason: 'OPENAI_API_KEY is not set' },
+		{ id: 42, reason: 'no string id' },
+		'not an object',
+		null,
+	] );
+
+	const { value, out } = captureStdout( () =>
+		emitSummary( prepareSummary( { runDirectory, runId: 'x' } ) )
+	);
+
+	// One valid entry is enough to force exit 2 and render the block.
+	assert.equal( value, 2 );
+	assert.match( out, /SKIPPED AGENTS/ );
+	assert.match( out, /gpt: OPENAI_API_KEY is not set/ );
+} );
+
+test( 'summary.txt mirrors the skip block without ANSI escapes', async () => {
+	const { runDirectory } = withReport( allPassScenario, [
+		{ id: 'gpt', roles: [ 'test' ], reason: 'OPENAI_API_KEY is not set' },
+	] );
+
+	captureStdout( () =>
+		emitSummary( prepareSummary( { runDirectory, runId: 'x' } ) )
+	);
+
+	const summaryPath = join( runDirectory, 'summary.txt' );
+	assert.ok( existsSync( summaryPath ), 'summary.txt should be written' );
+	const body = readFileSync( summaryPath, 'utf8' );
+	assert.match( body, /SKIPPED AGENTS/ );
+	assert.match( body, /gpt: OPENAI_API_KEY is not set/ );
 	assert.equal(
 		body.includes( String.fromCharCode( 27 ) ),
 		false,

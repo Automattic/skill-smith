@@ -10,6 +10,7 @@ import type {
 export interface TrackerInit {
 	runId: string;
 	scenarios: { name: string; agentIds: string[] }[];
+	skippedAgents?: { id: string; reason: string }[];
 }
 
 export interface TrackerOptions {
@@ -67,7 +68,7 @@ type PhaseSlot = 'pending' | 'running' | 'passed' | 'failed' | 'skipped';
 export class ProgressTracker {
 	private readonly stream: NodeJS.WritableStream;
 	private readonly color: boolean;
-	private readonly interactive: boolean;
+	private readonly interactiveMode: boolean;
 	private readonly throttleMs: number;
 	private readonly tickMs: number;
 	private readonly nowFn: () => number;
@@ -75,6 +76,7 @@ export class ProgressTracker {
 	private readonly startedAt: number;
 	private readonly scenarios: Map< string, ScenarioState >;
 	private failures: Failure[] = [];
+	private readonly skippedAgents: { id: string; reason: string }[];
 	private finished = false;
 	private iteration: { current: number; total: number } | undefined;
 
@@ -86,11 +88,12 @@ export class ProgressTracker {
 	constructor( init: TrackerInit, opts: TrackerOptions = {} ) {
 		this.stream = opts.stream ?? process.stderr;
 		this.color = opts.color ?? defaultColor( this.stream );
-		this.interactive = opts.interactive ?? isTty( this.stream );
+		this.interactiveMode = opts.interactive ?? isTty( this.stream );
 		this.throttleMs = opts.throttleMs ?? 200;
 		this.tickMs = opts.tickMs ?? 1000;
 		this.nowFn = opts.now ?? ( () => Date.now() );
 		this.runId = init.runId;
+		this.skippedAgents = init.skippedAgents ?? [];
 		this.startedAt = this.nowFn();
 		this.scenarios = new Map(
 			init.scenarios.map( ( s ) => [
@@ -110,12 +113,17 @@ export class ProgressTracker {
 			] )
 		);
 
-		if ( this.interactive && this.tickMs > 0 ) {
+		if ( this.interactiveMode && this.tickMs > 0 ) {
 			this.tickTimer = setInterval( () => this.onTick(), this.tickMs );
 			if ( typeof this.tickTimer.unref === 'function' ) {
 				this.tickTimer.unref();
 			}
 		}
+	}
+
+	/** The resolved interactive mode (`opts.interactive ?? isTty(stream)`). */
+	get interactive(): boolean {
+		return this.interactiveMode;
 	}
 
 	/**
@@ -136,6 +144,8 @@ export class ProgressTracker {
 			activeScenarios === undefined
 				? undefined
 				: new Set( activeScenarios );
+		// Config skips are run-scoped (detected once up front); deliberately
+		// NOT cleared here — unlike failures, which are per-iteration.
 		this.failures = [];
 		for ( const s of this.scenarios.values() ) {
 			s.active = activeSet === undefined || activeSet.has( s.name );
@@ -244,10 +254,11 @@ export class ProgressTracker {
 			iteration: this.iteration,
 			counters: this.counters(),
 			failures: this.failures.slice(),
+			skippedAgents: this.skippedAgents.slice(),
 			finished: this.finished,
 		};
 		const block = renderSnapshot( snapshot, { color: this.color } );
-		if ( this.interactive ) {
+		if ( this.interactiveMode ) {
 			const erase =
 				this.lastPaintedLines > 0
 					? `\x1b[${ this.lastPaintedLines }A\x1b[0J`

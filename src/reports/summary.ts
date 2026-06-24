@@ -26,6 +26,12 @@ interface Row {
 	metrics: Record< string, Metrics >;
 }
 
+/** One agent the run did not run, read back from the report. */
+interface SkippedEntry {
+	id: string;
+	reason: string;
+}
+
 /** One rendered line of the long-format table. */
 interface DisplayRow {
 	scenario: string;
@@ -41,8 +47,9 @@ interface DisplayRow {
  * Render the summary from `${runDirectory}/report.json` — the merged
  * matrix across every iteration the pipeline ran — write the plain-text
  * mirror to `${runDirectory}/summary.txt`, and return the console lines
- * + exit code so the caller can decide when to print. Exit code is 0
- * if every cell is PASS, 1 otherwise.
+ * + exit code so the caller can decide when to print. Exit code is 2
+ * if the run skipped any agent, otherwise 0 if every cell is PASS and 1
+ * if not.
  *
  * The table is long-format: one line per (scenario, agent), carrying
  * the agent's verdict plus the testing agent's wall-clock duration and
@@ -62,23 +69,28 @@ export function prepareSummary( params: PrintSummaryParams ): PreparedSummary {
 	}
 
 	const rows = loadRows( reportPath );
+	const skipped = loadSkipped( reportPath );
 	const sortedAgents = collectAgentIds( rows );
 	const allPass =
 		rows.length > 0 && rows.every( ( r ) => isRowPass( r, sortedAgents ) );
+	// A skipped agent means the run could not be fully attempted; that
+	// outranks both PASS and FAIL.
+	const exitCode = skipped.length > 0 ? 2 : allPass ? 0 : 1;
 
 	const useColor = shouldUseColor( process.stdout );
 	const rendered = renderSummaryLines(
 		rows,
 		sortedAgents,
 		allPass,
+		skipped,
 		useColor
 	);
 	const plain = useColor
-		? renderSummaryLines( rows, sortedAgents, allPass, false )
+		? renderSummaryLines( rows, sortedAgents, allPass, skipped, false )
 		: rendered;
 	writeRunSummary( runDirectory, plain );
 
-	return { consoleLines: [ '', ...rendered ], exitCode: allPass ? 0 : 1 };
+	return { consoleLines: [ '', ...rendered ], exitCode };
 }
 
 /** Print previously prepared console lines and return the exit code. */
@@ -116,6 +128,28 @@ function loadRows( reportPath: string ): Row[] {
 	return rows;
 }
 
+/**
+ * Read the report's top-level `skipped` array. A missing or absent value
+ * defaults to `[]` (mirroring `loadRows`' `scenarios ?? {}`). Entries are
+ * validated defensively — anything lacking a string `id` and `reason` is
+ * ignored — so a malformed report degrades to "no skips" rather than
+ * crashing.
+ */
+function loadSkipped( reportPath: string ): SkippedEntry[] {
+	const parsed = ( JSON.parse( readFileSync( reportPath, 'utf8' ) ) ??
+		{} ) as Record< string, unknown >;
+	const raw = parsed.skipped;
+	if ( ! Array.isArray( raw ) ) return [];
+	const skipped: SkippedEntry[] = [];
+	for ( const entry of raw ) {
+		if ( entry === null || typeof entry !== 'object' ) continue;
+		const { id, reason } = entry as { id?: unknown; reason?: unknown };
+		if ( typeof id !== 'string' || typeof reason !== 'string' ) continue;
+		skipped.push( { id, reason } );
+	}
+	return skipped;
+}
+
 function collectAgentIds( rows: Row[] ): string[] {
 	const ids = new Set< string >();
 	for ( const row of rows ) {
@@ -128,6 +162,7 @@ function renderSummaryLines(
 	rows: Row[],
 	sortedAgents: string[],
 	allPass: boolean,
+	skipped: SkippedEntry[],
 	color: boolean
 ): string[] {
 	const lines: string[] = [];
@@ -135,24 +170,50 @@ function renderSummaryLines(
 	lines.push( '' );
 	if ( allPass ) {
 		lines.push( 'RUN RESULT: PASS' );
-		return lines;
+	} else {
+		lines.push(
+			color
+				? paint( 'RUN RESULT: FAIL', 'red', true )
+				: 'RUN RESULT: FAIL'
+		);
+		lines.push( '' );
+		const failingRows = rows.filter(
+			( r ) => ! isRowPass( r, sortedAgents )
+		);
+		failingRows.forEach( ( row, i ) => {
+			const header = color
+				? paint( row.scenario, 'red', true )
+				: row.scenario;
+			lines.push( header );
+			for ( const line of failureLines( row, sortedAgents ) ) {
+				lines.push( `  ${ line }` );
+			}
+			if ( i < failingRows.length - 1 ) lines.push( '' );
+		} );
 	}
-	lines.push(
-		color ? paint( 'RUN RESULT: FAIL', 'red', true ) : 'RUN RESULT: FAIL'
-	);
-	lines.push( '' );
-	const failingRows = rows.filter( ( r ) => ! isRowPass( r, sortedAgents ) );
-	failingRows.forEach( ( row, i ) => {
-		const header = color
-			? paint( row.scenario, 'red', true )
-			: row.scenario;
-		lines.push( header );
-		for ( const line of failureLines( row, sortedAgents ) ) {
-			lines.push( `  ${ line }` );
-		}
-		if ( i < failingRows.length - 1 ) lines.push( '' );
-	} );
+	pushSkipBlock( lines, skipped, color );
 	return lines;
+}
+
+/**
+ * Append the run-level skip section: one labelled block listing every
+ * agent the run did not run, with its reason. Its own header and color
+ * (cyan) keep it visually distinct from the red `RUN RESULT: FAIL`
+ * section and the yellow per-cell `SKIPPED` marker.
+ */
+function pushSkipBlock(
+	lines: string[],
+	skipped: SkippedEntry[],
+	color: boolean
+): void {
+	if ( skipped.length === 0 ) return;
+	lines.push( '' );
+	lines.push(
+		color ? paint( 'SKIPPED AGENTS', 'cyan', true ) : 'SKIPPED AGENTS'
+	);
+	for ( const { id, reason } of skipped ) {
+		lines.push( `  ${ id }: ${ reason }` );
+	}
 }
 
 function pushTable(

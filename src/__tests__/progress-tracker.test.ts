@@ -148,6 +148,105 @@ test( 'erase prefix counts wrapped terminal rows, not logical lines', () => {
 	);
 } );
 
+test( 'seeded skippedAgents ride the first paint, surviving beginIteration', () => {
+	const { stream, chunks } = captureStream();
+	const clock = new FakeClock( 1000 );
+	const tracker = new ProgressTracker(
+		{
+			runId: 'r1',
+			scenarios: [ { name: 's1', agentIds: [ 'sonnet' ] } ],
+			skippedAgents: [
+				{ id: 'gpt', reason: 'OPENAI_API_KEY is not set' },
+			],
+		},
+		{
+			stream,
+			color: false,
+			interactive: true,
+			throttleMs: 200,
+			tickMs: 0,
+			now: clock.now,
+		}
+	);
+
+	// The real first paint comes from beginIteration; the seeded list must
+	// survive that exact call (proving it is not cleared on the reset).
+	tracker.beginIteration( 1, 1 );
+	assert.equal( chunks.length, 1, 'beginIteration drives the first paint' );
+	assert.match( chunks[ 0 ] ?? '', /SKIPPED AGENTS/ );
+	assert.match( chunks[ 0 ] ?? '', /gpt: OPENAI_API_KEY is not set/ );
+} );
+
+test( 'repaint erase count covers the block including the skip rows', () => {
+	const { stream, chunks } = captureStream();
+	const clock = new FakeClock( 1000 );
+	const tracker = new ProgressTracker(
+		{
+			runId: 'r1',
+			scenarios: [ { name: 's1', agentIds: [ 'sonnet' ] } ],
+			skippedAgents: [
+				{ id: 'gpt', reason: 'OPENAI_API_KEY is not set' },
+			],
+		},
+		{
+			stream,
+			color: false,
+			interactive: true,
+			throttleMs: 0,
+			tickMs: 0,
+			now: clock.now,
+		}
+	);
+
+	tracker.phaseStarted( 's1', 'sonnet', 'testing' );
+	const first = chunks[ 0 ] ?? '';
+	assert.match( first, /SKIPPED AGENTS/ );
+	const firstRows = first.replace( /\n$/, '' ).split( '\n' ).length;
+
+	clock.advance( 1 );
+	tracker.phaseFinished( 's1', 'sonnet', 'testing', {
+		status: 'passed',
+		durationMs: 100,
+	} );
+
+	const second = chunks[ 1 ] ?? '';
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: asserts a repaint starts with real ANSI cursor-up + erase-display escapes; the ESC byte (0x1b) is the intended content.
+	const match = second.match( /^\x1b\[(\d+)A\x1b\[0J/ );
+	assert.ok( match, 'second paint must start with cursor-up + erase' );
+	const eraseRows = Number( match[ 1 ] );
+	// The first block carried the SKIPPED AGENTS section, so the erase prefix
+	// must walk up over every one of its rows (header, bars, elapsed, blank,
+	// "SKIPPED AGENTS", and the gpt row) — not just the bars.
+	assert.ok(
+		eraseRows >= firstRows,
+		`erase rows (${ eraseRows }) must cover the full first block including skip rows (${ firstRows })`
+	);
+} );
+
+test( 'no seeded skippedAgents: no SKIPPED AGENTS section on any paint', () => {
+	const { stream, chunks } = captureStream();
+	const clock = new FakeClock( 1000 );
+	const tracker = new ProgressTracker(
+		// skippedAgents omitted — defaults to [].
+		{ runId: 'r1', scenarios: [ { name: 's1', agentIds: [ 'sonnet' ] } ] },
+		{
+			stream,
+			color: false,
+			interactive: true,
+			throttleMs: 0,
+			tickMs: 0,
+			now: clock.now,
+		}
+	);
+
+	tracker.beginIteration( 1, 1 );
+	tracker.phaseStarted( 's1', 'sonnet', 'testing' );
+	clock.advance( 1 );
+	tracker.phaseFinished( 's1', 'sonnet', 'testing', { status: 'passed' } );
+
+	assert.doesNotMatch( chunks.join( '' ), /SKIPPED AGENTS/ );
+} );
+
 test( 'non-interactive mode writes only the final block on finish', async () => {
 	const { stream, chunks } = captureStream();
 	const tracker = new ProgressTracker(

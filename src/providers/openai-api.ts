@@ -4,6 +4,7 @@ import type { Provider } from './types';
 
 export const openaiApiProvider: Provider = {
 	id: 'openai-api',
+	requiredEnv: 'OPENAI_API_KEY',
 	invoke: ( params ) => {
 		if ( ! process.env.OPENAI_API_KEY ) {
 			return Promise.resolve( {

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ScenarioRunRecord } from '../pipeline/pipeline';
+import type { SkippedAgent } from '../runnability';
 import type { ScenarioAgentEntry, ScenarioReport } from './scenario-report';
 import { classifyVerdict } from './verdict';
 
@@ -155,17 +156,20 @@ export function mergeIntoRunningReport(
 /**
  * Write `${runDirectory}/report.json` — the merged matrix across every
  * iteration the pipeline ran. This is the canonical "final" report
- * the console summary renders.
+ * the console summary renders. The `skipped` set rides alongside
+ * `scenarios` as a top-level sibling, so a skipped agent is never
+ * mistaken for a graded cell.
  */
 export function writeRunReport(
 	runDirectory: string,
 	runId: string,
-	scenarios: Record< string, ScenarioReport | { error: string } >
+	scenarios: Record< string, ScenarioReport | { error: string } >,
+	skipped: ReadonlyArray< SkippedAgent > = []
 ): boolean {
 	const pass = scenariosAllPass( scenarios );
 	writeFileSync(
 		join( runDirectory, 'report.json' ),
-		`${ JSON.stringify( { runId, pass, scenarios }, null, 2 ) }\n`
+		`${ JSON.stringify( { runId, pass, scenarios, skipped }, null, 2 ) }\n`
 	);
 	return pass;
 }

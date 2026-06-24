@@ -27,10 +27,16 @@ export default defineConfig( {
 			model: 'claude-opus-4-7',
 			effort: 'xhigh',
 		},
+		// Skipped unless OPENAI_API_KEY is set, so the run exercises the
+		// misconfigured-agent path end to end without that credential.
+		gpt: {
+			provider: 'openai-api',
+			model: 'gpt-5',
+		},
 	},
 	roles: {
 		test: {
-			agents: [ 'haiku' ],
+			agents: [ 'haiku', 'gpt' ],
 			prompt: testingAgentPrompt,
 		},
 		judge: 'opus',
@@ -51,10 +57,35 @@ export default defineConfig( {
 		// A spec failure marks that exact (scenario, agent) pair failed —
 		// even if the judge passed it — so the improver learns the code
 		// looked right but broke in a real runtime, and the loop iterates.
-		afterAllScenarios: ( { scenarios, iterationDirectory } ) => {
+		afterAllScenarios: ( {
+			scenarios,
+			iterationDirectory,
+			config,
+			skipped,
+		} ) => {
+			// Only the runnable test agents have artifacts to verify. A
+			// skipped agent produced none, so drop it before driving e2e so
+			// no Playwright project runs for an agent that never executed.
+			const skippedTestIds = new Set(
+				skipped
+					.filter( ( agent ) => agent.roles.includes( 'test' ) )
+					.map( ( agent ) => agent.id )
+			);
+			const runnableAgentIds = config.roles.test.agents
+				.map( ( agent ) => agent.id )
+				.filter( ( id ) => ! skippedTestIds.has( id ) );
+			// The full configured set (no skipped filtering): every declared
+			// test agent has a Playwright project, so verify-e2e needs all
+			// project names to know which selectors are valid before narrowing
+			// to the runnable subset.
+			const configuredProjectNames = config.roles.test.agents.map(
+				( agent ) => agent.id
+			);
 			const failures = runE2eVerification(
 				iterationDirectory,
-				scenarios
+				scenarios,
+				runnableAgentIds,
+				configuredProjectNames
 			);
 			return failures.length > 0 ? { failures } : true;
 		},

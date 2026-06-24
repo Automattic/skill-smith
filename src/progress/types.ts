@@ -51,5 +51,11 @@ export interface RunSnapshot {
 	iteration?: { current: number; total: number };
 	counters: RunCounters;
 	failures: Failure[];
+	/**
+	 * Agent-level skips surfaced live in the dashboard, distinct from
+	 * `failures`: these are agents excluded up front (e.g. misconfigured),
+	 * not phase outcomes. Always present; default `[]` when none.
+	 */
+	skippedAgents: { id: string; reason: string }[];
 	finished: boolean;
 }

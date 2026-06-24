@@ -9,6 +9,7 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RunScenario, VerificationFailure } from '@automattic/skillsmith';
+import { projectArgs } from './project-args';
 
 // This file lives at `<projectRoot>/eval/utils/verify-e2e.ts`, so the
 // project root — where `node_modules`, `.wp-env.json`, and the npm
@@ -30,10 +31,20 @@ const WP_ENV_PORT = Number( process.env.WP_ENV_PORT ?? 8987 );
  * playwright.config.ts), so a failing spec's `projectName` maps back to
  * the agent, and its file path maps back to the normalized scenario
  * directory ID.
+ *
+ * `configuredProjectNames` is the full set of Playwright project names the
+ * config declares (every configured test agent gets a project). It is
+ * passed in by the caller rather than read here so this module does not
+ * depend on the config module. Only the runnable subset
+ * (`runnableAgentIds`) is forwarded to Playwright, so a misconfigured
+ * agent has no project run for it and the report attributes no failure
+ * to it.
  */
 export function runE2eVerification(
 	iterationDirectory: string,
-	scenarios: RunScenario[]
+	scenarios: RunScenario[],
+	runnableAgentIds: string[],
+	configuredProjectNames: string[]
 ): VerificationFailure[] {
 	// The iteration subdirectories are named after `scenario.name`, while
 	// the spec files live under `eval/scenarios/<dirName>/`, where `dirName`
@@ -149,11 +160,22 @@ export function runE2eVerification(
 			env: wpEnv,
 		} );
 		try {
-			execFileSync( 'npm', [ 'run', 'test:e2e', '--', ...e2eSpecs ], {
-				stdio: 'inherit',
-				cwd: PROJECT_ROOT,
-				env: { ...wpEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath },
-			} );
+			// Restrict the run to the runnable agents' Playwright projects.
+			// A misconfigured agent has no project forwarded here, so no spec
+			// runs for it and the merged report attributes no failure to it.
+			const projectSelectors = projectArgs(
+				runnableAgentIds,
+				configuredProjectNames
+			);
+			execFileSync(
+				'npm',
+				[ 'run', 'test:e2e', '--', ...e2eSpecs, ...projectSelectors ],
+				{
+					stdio: 'inherit',
+					cwd: PROJECT_ROOT,
+					env: { ...wpEnv, PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath },
+				}
+			);
 		} catch {
 			// Playwright exits non-zero when specs fail. That is exactly the
 			// signal we are after — swallow it and read the JSON report.
