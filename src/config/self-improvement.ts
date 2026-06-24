@@ -1,4 +1,4 @@
-import type { EvaluationScope, RunMode, SkillsmithConfig } from "./types";
+import type { EvaluationScope, RunMode, SkillsmithConfig } from './types';
 
 export interface ResolvedSelfImprovement {
 	mode: RunMode;
@@ -16,11 +16,11 @@ export interface SelfImprovementOverrides {
 
 const DEFAULTS: Pick<
 	ResolvedSelfImprovement,
-	"mode" | "maxIterations" | "scope" | "finalPass"
+	'mode' | 'maxIterations' | 'scope' | 'finalPass'
 > = {
-	mode: "test-only",
+	mode: 'test-only',
 	maxIterations: 3,
-	scope: "failed-scenarios",
+	scope: 'failed-scenarios',
 	finalPass: false,
 };
 
@@ -36,14 +36,14 @@ const DEFAULTS: Pick<
  */
 export function resolveSelfImprovement(
 	config: SkillsmithConfig,
-	overrides: SelfImprovementOverrides = {},
+	overrides: SelfImprovementOverrides = {}
 ): ResolvedSelfImprovement {
 	const cfg = config.selfImprovement ?? {};
 	const maxIterations =
 		overrides.maxIterations ?? cfg.maxIterations ?? DEFAULTS.maxIterations;
 	return {
 		mode: overrides.mode ?? config.mode ?? DEFAULTS.mode,
-		maxIterations: Math.max(1, maxIterations),
+		maxIterations: Math.max( 1, maxIterations ),
 		scope: overrides.scope ?? cfg.scope ?? DEFAULTS.scope,
 		finalPass: overrides.finalPass ?? cfg.finalPass ?? DEFAULTS.finalPass,
 	};

@@ -80,7 +80,7 @@
 					</p>
 				</div>
 
-				<div class="visual" aria-label="Skillsmith run preview">
+				<div class="visual" role="img" aria-label="Skillsmith run preview">
 					<div class="terminal-window">
 						<div class="window-bar" aria-hidden="true">
 							<span></span><span></span><span></span>
@@ -336,10 +336,13 @@ RUN RESULT: PASS</pre>
 			<div class="container split">
 				<div class="section-header no-margin">
 					<p class="eyebrow">Use it</p>
-					<h2>Run every scenario, or target the one you are fixing.</h2>
+					<h2>Run every scenario, one scenario ID, or a whole folder.</h2>
 					<p>
-						Skillsmith is designed around simple scenario directories and project-specific hooks.
-						Run a full suite to catch regressions, or focus on one scenario while iterating.
+						Skillsmith discovers scenario folders under <code>config.paths.scenarios</code>, including
+						nested paths. Target a normalized scenario ID such as <code>blocks/counter</code>, or pass
+						a parent folder such as <code>blocks</code> to run every scenario below it. See the
+						<a href="https://github.com/Automattic/skillsmith#readme">README</a> for the full CLI
+						and API reference.
 					</p>
 				</div>
 
@@ -348,9 +351,12 @@ RUN RESULT: PASS</pre>
 					<pre><code># Run the full suite
 skillsmith
 
-# Run targeted scenarios by directory ID
+# Run targeted scenarios by scenario ID
 skillsmith counter
-skillsmith counter config-fetch</code></pre>
+skillsmith blocks/counter
+
+# Run all scenarios under a parent folder
+skillsmith blocks</code></pre>
 				</div>
 			</div>
 		</section>

@@ -7,10 +7,10 @@
  */
 export function projectArgs(
 	runnableAgentIds: string[],
-	configuredProjectNames: string[],
+	configuredProjectNames: string[]
 ): string[] {
-	const configured = new Set(configuredProjectNames);
+	const configured = new Set( configuredProjectNames );
 	return runnableAgentIds
-		.filter((id) => configured.has(id))
-		.flatMap((id) => ["--project", id]);
+		.filter( ( id ) => configured.has( id ) )
+		.flatMap( ( id ) => [ '--project', id ] );
 }

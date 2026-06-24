@@ -1,5 +1,5 @@
-import { expect, test } from "@wordpress/e2e-test-utils-playwright";
-import { deactivateAllPlugins } from "../../utils/wp-cli.mjs";
+import { expect, test } from '@wordpress/e2e-test-utils-playwright';
+import { deactivateAllPlugins } from '../../utils/wp-cli.mjs';
 
 /**
  * E2E tests for the paginated-list scenario.
@@ -12,47 +12,47 @@ import { deactivateAllPlugins } from "../../utils/wp-cli.mjs";
  *   - Page 2 contains the oldest test post.
  */
 
-test.describe("paginated-list scenario", () => {
+test.describe( 'paginated-list scenario', () => {
 	let post;
-	test.beforeAll(async ({ requestUtils }, workerInfo) => {
+	test.beforeAll( async ( { requestUtils }, workerInfo ) => {
 		deactivateAllPlugins();
 		await requestUtils.activatePlugin(
-			`plugin-paginated-list-${workerInfo.project.metadata.agentId}`,
+			`plugin-paginated-list-${ workerInfo.project.metadata.agentId }`
 		);
 		// Five test posts, oldest first so requestUtils assigns ascending IDs.
-		for (let i = 1; i <= 5; i++) {
-			await requestUtils.createPost({
-				title: `Test post ${i}`,
-				status: "publish",
-			});
+		for ( let i = 1; i <= 5; i++ ) {
+			await requestUtils.createPost( {
+				title: `Test post ${ i }`,
+				status: 'publish',
+			} );
 		}
-		post = await requestUtils.createPost({
-			title: "Block host",
-			content: "<!-- wp:skillsmith/testing-block /-->",
-			status: "publish",
-		});
-	});
+		post = await requestUtils.createPost( {
+			title: 'Block host',
+			content: '<!-- wp:skillsmith/testing-block /-->',
+			status: 'publish',
+		} );
+	} );
 
-	test.beforeEach(async ({ page }) => {
-		await page.goto(`/?p=${post.id}`);
-	});
+	test.beforeEach( async ( { page } ) => {
+		await page.goto( `/?p=${ post.id }` );
+	} );
 
-	test.afterAll(async ({ requestUtils }) => {
+	test.afterAll( async ( { requestUtils } ) => {
 		deactivateAllPlugins();
 		await requestUtils.deleteAllPosts();
-	});
+	} );
 
-	test("renders the first page of 3 newest posts server-side", async ({
+	test( 'renders the first page of 3 newest posts server-side', async ( {
 		page,
-	}) => {
-		const region = page.locator("[data-wp-router-region]");
-		await expect(region).toBeVisible();
+	} ) => {
+		const region = page.locator( '[data-wp-router-region]' );
+		await expect( region ).toBeVisible();
 
 		// Newest first: the host post + Test post 5 + Test post 4.
-		await expect(region).toContainText("Test post 5");
-		await expect(region).toContainText("Test post 4");
+		await expect( region ).toContainText( 'Test post 5' );
+		await expect( region ).toContainText( 'Test post 4' );
 		// Test post 1 is the oldest — should not be on page 1.
-		await expect(region).not.toContainText("Test post 1");
+		await expect( region ).not.toContainText( 'Test post 1' );
 
 		// Previous link should not be available on page 1. The link may be
 		// either omitted server-side, or rendered with `data-wp-bind--hidden`
@@ -64,25 +64,25 @@ test.describe("paginated-list scenario", () => {
 		// accessibility tree on the initial render.)
 		await expect(
 			page
-				.locator(".wp-block-skillsmith-testing-block")
-				.getByRole("link", { name: /^previous$/i }),
-		).toHaveCount(0);
-	});
+				.locator( '.wp-block-skillsmith-testing-block' )
+				.getByRole( 'link', { name: /^previous$/i } )
+		).toHaveCount( 0 );
+	} );
 
-	test("Next link navigates client-side to page 2 without a full reload", async ({
+	test( 'Next link navigates client-side to page 2 without a full reload', async ( {
 		page,
-	}) => {
+	} ) => {
 		// Plant a sentinel on window. A full reload would wipe it.
-		await page.evaluate(() => {
+		await page.evaluate( () => {
 			window.__noReloadSentinel = true;
-		});
+		} );
 
 		// Scope the Next link to the testing block so it never collides
 		// with theme-emitted post navigation that might also expose a
 		// "Next" link in some themes.
 		await page
-			.locator(".wp-block-skillsmith-testing-block")
-			.getByRole("link", { name: /^next$/i })
+			.locator( '.wp-block-skillsmith-testing-block' )
+			.getByRole( 'link', { name: /^next$/i } )
 			.click();
 
 		// Wait for the in-place swap to land: page 2 should now show
@@ -98,18 +98,20 @@ test.describe("paginated-list scenario", () => {
 		// be slow on the first request after env startup. The 30s
 		// ceiling absorbs that cold-start latency while still flagging
 		// a genuinely stuck navigation.
-		const region = page.locator("[data-wp-router-region]");
-		await expect(region).toContainText("Test post 1", { timeout: 30_000 });
-		await expect(region).not.toContainText("Test post 5");
+		const region = page.locator( '[data-wp-router-region]' );
+		await expect( region ).toContainText( 'Test post 1', {
+			timeout: 30_000,
+		} );
+		await expect( region ).not.toContainText( 'Test post 5' );
 
 		// URL must reflect ?pg=2 either via pushState (router) or a
 		// full reload (fallback). The sentinel check below distinguishes.
-		expect(page.url()).toMatch(/[?&]pg=2(\b|&|$)/);
+		expect( page.url() ).toMatch( /[?&]pg=2(\b|&|$)/ );
 
 		// The sentinel survived → no full reload → this was client-side.
 		const survived = await page.evaluate(
-			() => window.__noReloadSentinel === true,
+			() => window.__noReloadSentinel === true
 		);
-		expect(survived).toBe(true);
-	});
-});
+		expect( survived ).toBe( true );
+	} );
+} );

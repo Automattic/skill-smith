@@ -1,4 +1,4 @@
-import type { SkillsmithConfigInput } from "./types";
+import type { SkillsmithConfigInput } from './types';
 
 /**
  * Passthrough used in `skillsmith.config.ts` so projects get the input
@@ -7,7 +7,7 @@ import type { SkillsmithConfigInput } from "./types";
  * plain identity function.
  */
 export function defineConfig(
-	input: SkillsmithConfigInput,
+	input: SkillsmithConfigInput
 ): SkillsmithConfigInput {
 	return input;
 }

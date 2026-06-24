@@ -1,9 +1,9 @@
-import { resolve } from "node:path";
-import type { SkillsmithConfig } from "../config/types";
-import type { IterationReport } from "../reports/iteration-report";
-import type { ScenarioReport } from "../reports/scenario-report";
-import type { EnumeratedScenario } from "../scenarios/enumerate";
-import { loadSkill } from "../scenarios/skill-loader";
+import { resolve } from 'node:path';
+import type { SkillsmithConfig } from '../config/types';
+import type { IterationReport } from '../reports/iteration-report';
+import type { ScenarioReport } from '../reports/scenario-report';
+import type { EnumeratedScenario } from '../scenarios/enumerate';
+import { loadSkill } from '../scenarios/skill-loader';
 
 export interface BuildImprovementContextParams {
 	projectRoot: string;
@@ -27,12 +27,12 @@ export interface ImproverScenarioReport {
 	scenario: string;
 	pass: boolean;
 	error?: string;
-	agents: Record<string, ImproverAgentEntry>;
+	agents: Record< string, ImproverAgentEntry >;
 }
 export interface ImproverReport {
 	iteration: number;
 	pass: boolean;
-	scenarios: Record<string, ImproverScenarioReport | { error: string }>;
+	scenarios: Record< string, ImproverScenarioReport | { error: string } >;
 }
 
 export interface ImprovementContext {
@@ -52,20 +52,20 @@ export interface ImprovementContext {
  * directly (it lives on `config.roles.improver.prompt`).
  */
 export function buildImprovementContext(
-	params: BuildImprovementContextParams,
+	params: BuildImprovementContextParams
 ): ImprovementContext {
 	const { projectRoot, config, iterationReport, allScenarios } = params;
 
-	const failingScenarios = collectFailingScenarios(iterationReport);
+	const failingScenarios = collectFailingScenarios( iterationReport );
 
-	const skillIds = collectSkillIds(failingScenarios, allScenarios);
-	const skillsRoot = resolve(projectRoot, config.paths.skills);
+	const skillIds = collectSkillIds( failingScenarios, allScenarios );
+	const skillsRoot = resolve( projectRoot, config.paths.skills );
 	const skillsBlob = skillIds
-		.map((id) => loadSkill(id, skillsRoot))
-		.join("\n\n");
+		.map( ( id ) => loadSkill( id, skillsRoot ) )
+		.join( '\n\n' );
 
 	return {
-		report: projectReportForImprover(iterationReport),
+		report: projectReportForImprover( iterationReport ),
 		skillsBlob,
 		skillIds,
 	};
@@ -76,12 +76,12 @@ interface FailingScenario {
 	body: ScenarioReport;
 }
 
-function collectFailingScenarios(report: IterationReport): FailingScenario[] {
+function collectFailingScenarios( report: IterationReport ): FailingScenario[] {
 	const out: FailingScenario[] = [];
-	for (const [name, body] of Object.entries(report.scenarios)) {
-		if (!("agents" in body)) continue;
-		if (body.pass === true && body.error === undefined) continue;
-		out.push({ name, body });
+	for ( const [ name, body ] of Object.entries( report.scenarios ) ) {
+		if ( ! ( 'agents' in body ) ) continue;
+		if ( body.pass === true && body.error === undefined ) continue;
+		out.push( { name, body } );
 	}
 	return out;
 }
@@ -94,44 +94,46 @@ function collectFailingScenarios(report: IterationReport): FailingScenario[] {
  * — e.g. an e2e failure the per-agent reviews never saw — ride along on
  * `scenario.error`.
  */
-function projectReportForImprover(report: IterationReport): ImproverReport {
-	const scenarios: Record<string, ImproverScenarioReport | { error: string }> =
-		{};
-	for (const [name, body] of Object.entries(report.scenarios)) {
-		if (!("agents" in body)) {
-			scenarios[name] = body;
+function projectReportForImprover( report: IterationReport ): ImproverReport {
+	const scenarios: Record<
+		string,
+		ImproverScenarioReport | { error: string }
+	> = {};
+	for ( const [ name, body ] of Object.entries( report.scenarios ) ) {
+		if ( ! ( 'agents' in body ) ) {
+			scenarios[ name ] = body;
 			continue;
 		}
-		const agents: Record<string, ImproverAgentEntry> = {};
-		for (const [agentId, entry] of Object.entries(body.agents)) {
+		const agents: Record< string, ImproverAgentEntry > = {};
+		for ( const [ agentId, entry ] of Object.entries( body.agents ) ) {
 			const out: ImproverAgentEntry = {};
-			if (entry.review !== undefined) out.review = entry.review;
-			if (entry.error !== undefined) out.error = entry.error;
-			agents[agentId] = out;
+			if ( entry.review !== undefined ) out.review = entry.review;
+			if ( entry.error !== undefined ) out.error = entry.error;
+			agents[ agentId ] = out;
 		}
 		const scenarioOut: ImproverScenarioReport = {
 			scenario: body.scenario,
 			pass: body.pass,
 			agents,
 		};
-		if (body.error !== undefined) scenarioOut.error = body.error;
-		scenarios[name] = scenarioOut;
+		if ( body.error !== undefined ) scenarioOut.error = body.error;
+		scenarios[ name ] = scenarioOut;
 	}
 	return { iteration: report.iteration, pass: report.pass, scenarios };
 }
 
 function collectSkillIds(
 	failing: FailingScenario[],
-	allScenarios: EnumeratedScenario[],
+	allScenarios: EnumeratedScenario[]
 ): string[] {
 	const byName = new Map(
-		allScenarios.map((s) => [s.scenario.name, s.scenario]),
+		allScenarios.map( ( s ) => [ s.scenario.name, s.scenario ] )
 	);
-	const ids = new Set<string>();
-	for (const { name } of failing) {
-		const scenario = byName.get(name);
-		if (scenario === undefined) continue;
-		for (const id of scenario.skills) ids.add(id);
+	const ids = new Set< string >();
+	for ( const { name } of failing ) {
+		const scenario = byName.get( name );
+		if ( scenario === undefined ) continue;
+		for ( const id of scenario.skills ) ids.add( id );
 	}
-	return [...ids].sort();
+	return [ ...ids ].sort();
 }

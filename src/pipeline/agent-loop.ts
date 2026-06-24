@@ -1,5 +1,5 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type {
 	AgentContext,
 	AgentDefinition,
@@ -7,19 +7,19 @@ import type {
 	RunScenario,
 	Scenario,
 	SkillsmithConfig,
-} from "../config/types";
-import type { ProgressTracker } from "../progress";
-import type { TokenUsage } from "../providers/types";
-import type { SkippedAgent } from "../runnability";
+} from '../config/types';
+import type { ProgressTracker } from '../progress';
+import type { TokenUsage } from '../providers/types';
+import type { SkippedAgent } from '../runnability';
 import {
 	type Cell,
 	classifyVerdict,
 	summarizeFailures,
-} from "../reports/verdict";
-import { tryHook } from "../util/hooks";
-import type { RunLog } from "../util/run-log";
-import { runJudgeAgent } from "./judge-agent";
-import { runTestingAgent } from "./testing-agent";
+} from '../reports/verdict';
+import { tryHook } from '../util/hooks';
+import type { RunLog } from '../util/run-log';
+import { runJudgeAgent } from './judge-agent';
+import { runTestingAgent } from './testing-agent';
 
 export interface RunAgentsParams {
 	scenario: Scenario;
@@ -32,7 +32,7 @@ export interface RunAgentsParams {
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
-	skipped: ReadonlyArray<SkippedAgent>;
+	skipped: ReadonlyArray< SkippedAgent >;
 	/**
 	 * When present, only testing agents whose ids appear in this list
 	 * run for this scenario. Used by `failed-pairs` mode to re-run only
@@ -65,7 +65,7 @@ interface TestingBlock {
  * four agent-scoped hooks, and dispatches testing + judge agents in
  * parallel across testing entries.
  */
-export async function runAgents(params: RunAgentsParams): Promise<void> {
+export async function runAgents( params: RunAgentsParams ): Promise< void > {
 	const {
 		scenario,
 		scenarioDirectory,
@@ -82,21 +82,21 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 	} = params;
 
 	const filterSet =
-		agentIdFilter !== undefined ? new Set(agentIdFilter) : undefined;
+		agentIdFilter !== undefined ? new Set( agentIdFilter ) : undefined;
 	const agents =
 		filterSet === undefined
 			? config.roles.test.agents
-			: config.roles.test.agents.filter((a) => filterSet.has(a.id));
+			: config.roles.test.agents.filter( ( a ) => filterSet.has( a.id ) );
 
-	if (filterSet !== undefined) {
+	if ( filterSet !== undefined ) {
 		log.info(
-			`agent filter active for ${scenario.name}: ${agents.map((a) => a.id).join(",") || "(none)"}`,
+			`agent filter active for ${ scenario.name }: ${ agents.map( ( a ) => a.id ).join( ',' ) || '(none)' }`
 		);
 	}
 
 	await Promise.all(
-		agents.map((agent) =>
-			runAgentPair({
+		agents.map( ( agent ) =>
+			runAgentPair( {
 				agent,
 				scenario,
 				scenarioDirectory,
@@ -109,8 +109,8 @@ export async function runAgents(params: RunAgentsParams): Promise<void> {
 				tracker,
 				scenarios,
 				skipped,
-			}),
-		),
+			} )
+		)
 	);
 }
 
@@ -126,10 +126,10 @@ interface RunAgentPairParams {
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
-	skipped: ReadonlyArray<SkippedAgent>;
+	skipped: ReadonlyArray< SkippedAgent >;
 }
 
-async function runAgentPair(params: RunAgentPairParams): Promise<void> {
+async function runAgentPair( params: RunAgentPairParams ): Promise< void > {
 	const {
 		agent,
 		scenario,
@@ -144,10 +144,10 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		scenarios,
 		skipped,
 	} = params;
-	const agentDirectory = join(scenarioDirectory, agent.id);
-	const agentWorkspace = join(agentDirectory, "workspace");
+	const agentDirectory = join( scenarioDirectory, agent.id );
+	const agentWorkspace = join( agentDirectory, 'workspace' );
 
-	mkdirSync(agentWorkspace, { recursive: true });
+	mkdirSync( agentWorkspace, { recursive: true } );
 
 	const agentCtx: AgentContext = {
 		runId,
@@ -161,87 +161,87 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 		agentWorkspace,
 	};
 
-	const scope = `scenario:${scenario.name}/agent:${agent.id}`;
+	const scope = `scenario:${ scenario.name }/agent:${ agent.id }`;
 
 	await tryHook(
-		"beforeTestAgent",
+		'beforeTestAgent',
 		scope,
 		config.hooks?.beforeTestAgent,
 		agentCtx,
-		log,
+		log
 	);
 
-	tracker.phaseStarted(scenario.name, agent.id, "testing");
+	tracker.phaseStarted( scenario.name, agent.id, 'testing' );
 	const testingStart = Date.now();
 	let testingResult: TestingAgentResult;
 	try {
-		testingResult = await runTestingAgent({
+		testingResult = await runTestingAgent( {
 			scenario,
 			agent,
 			agentWorkspace,
 			projectRoot,
 			config,
 			log,
-		});
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
-		log.info(`testing-agent failed (${scope}): ${msg}`);
+		} );
+	} catch ( err ) {
+		const msg = err instanceof Error ? err.message : String( err );
+		log.info( `testing-agent failed (${ scope }): ${ msg }` );
 		testingResult = {
-			finalText: "",
+			finalText: '',
 			toolUseCount: 0,
 			filesWritten: [],
 			error: msg,
 		};
 	}
 	const testingDuration = Date.now() - testingStart;
-	tracker.phaseFinished(scenario.name, agent.id, "testing", {
-		status: testingResult.error === undefined ? "passed" : "failed",
+	tracker.phaseFinished( scenario.name, agent.id, 'testing', {
+		status: testingResult.error === undefined ? 'passed' : 'failed',
 		durationMs: testingDuration,
 		detail: testingResult.error,
-	});
+	} );
 
 	const testing: TestingBlock = { duration: testingDuration };
-	if (testingResult.usage !== undefined) {
+	if ( testingResult.usage !== undefined ) {
 		testing.tokenUsage = testingResult.usage;
 	}
 
 	await tryHook(
-		"afterTestAgent",
+		'afterTestAgent',
 		scope,
 		config.hooks?.afterTestAgent,
 		agentCtx,
-		log,
+		log
 	);
 
-	if (testingResult.error !== undefined) {
+	if ( testingResult.error !== undefined ) {
 		// Testing didn't produce evaluable output (missing API key, transport
 		// error, etc.). Skip the judge entirely: an empty workspace can't pass
 		// the rubrics, so running the judge would burn compute and add a
 		// redundant `N rubrics failed` row to the dashboard one line below the
 		// real cause. The paired before/afterJudgeAgent hooks are skipped
 		// symmetrically.
-		tracker.phaseFinished(scenario.name, agent.id, "judge", {
-			status: "skipped",
-			detail: "testing failed",
-		});
-		writeAgentReport(agentDirectory, testing, {
-			skipped: `testing failed: ${testingResult.error}`,
-		});
+		tracker.phaseFinished( scenario.name, agent.id, 'judge', {
+			status: 'skipped',
+			detail: 'testing failed',
+		} );
+		writeAgentReport( agentDirectory, testing, {
+			skipped: `testing failed: ${ testingResult.error }`,
+		} );
 	} else {
 		await tryHook(
-			"beforeJudgeAgent",
+			'beforeJudgeAgent',
 			scope,
 			config.hooks?.beforeJudgeAgent,
 			agentCtx,
-			log,
+			log
 		);
 
-		tracker.phaseStarted(scenario.name, agent.id, "judge");
+		tracker.phaseStarted( scenario.name, agent.id, 'judge' );
 		const judgeStart = Date.now();
 		let judgeError: string | undefined;
 		let rawReview: unknown;
 		try {
-			rawReview = await runJudgeAgent({
+			rawReview = await runJudgeAgent( {
 				scenario,
 				judge: config.roles.judge.agent,
 				agentDirectory,
@@ -250,49 +250,49 @@ async function runAgentPair(params: RunAgentPairParams): Promise<void> {
 				config,
 				log,
 				testingResult,
-			});
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			log.info(`judge-agent failed (${scope}): ${msg}`);
-			rawReview = { skipped: `judge dispatch failed: ${msg}` };
+			} );
+		} catch ( err ) {
+			const msg = err instanceof Error ? err.message : String( err );
+			log.info( `judge-agent failed (${ scope }): ${ msg }` );
+			rawReview = { skipped: `judge dispatch failed: ${ msg }` };
 			judgeError = msg;
 		}
 		const cell: Cell =
 			judgeError !== undefined
-				? { kind: "FAIL", failures: [judgeError] }
-				: classifyVerdict(rawReview);
-		const verdictResult = cellToPhaseResult(cell);
-		tracker.phaseFinished(scenario.name, agent.id, "judge", {
+				? { kind: 'FAIL', failures: [ judgeError ] }
+				: classifyVerdict( rawReview );
+		const verdictResult = cellToPhaseResult( cell );
+		tracker.phaseFinished( scenario.name, agent.id, 'judge', {
 			status: verdictResult.status,
 			durationMs: Date.now() - judgeStart,
 			detail: verdictResult.detail,
-		});
+		} );
 
 		// Persist the judge's complete review (every rubric / acceptance
 		// item with its pass flag and notes) so a human or the improver
 		// can read the full picture. The collapsed `verdict` above is only
 		// used to drive the live dashboard.
-		writeAgentReport(agentDirectory, testing, rawReview);
+		writeAgentReport( agentDirectory, testing, rawReview );
 
 		await tryHook(
-			"afterJudgeAgent",
+			'afterJudgeAgent',
 			scope,
 			config.hooks?.afterJudgeAgent,
 			agentCtx,
-			log,
+			log
 		);
 	}
 }
 
-function cellToPhaseResult(cell: Cell): {
-	status: "passed" | "failed" | "skipped";
+function cellToPhaseResult( cell: Cell ): {
+	status: 'passed' | 'failed' | 'skipped';
 	detail?: string;
 } {
-	if (cell.kind === "SKIPPED") {
-		return { status: "skipped", detail: cell.reason };
+	if ( cell.kind === 'SKIPPED' ) {
+		return { status: 'skipped', detail: cell.reason };
 	}
-	if (cell.kind === "PASS") return { status: "passed" };
-	return { status: "failed", detail: summarizeFailures(cell.failures) };
+	if ( cell.kind === 'PASS' ) return { status: 'passed' };
+	return { status: 'failed', detail: summarizeFailures( cell.failures ) };
 }
 
 /**
@@ -305,11 +305,11 @@ function cellToPhaseResult(cell: Cell): {
 function writeAgentReport(
 	agentDirectory: string,
 	testing: TestingBlock,
-	review: unknown,
+	review: unknown
 ): void {
-	mkdirSync(agentDirectory, { recursive: true });
+	mkdirSync( agentDirectory, { recursive: true } );
 	writeFileSync(
-		join(agentDirectory, "report.json"),
-		`${JSON.stringify({ testing, review }, null, 2)}\n`,
+		join( agentDirectory, 'report.json' ),
+		`${ JSON.stringify( { testing, review }, null, 2 ) }\n`
 	);
 }

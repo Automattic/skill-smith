@@ -12,6 +12,15 @@ Run these before pushing a PR. Each maps to a script in [`package.json`](./packa
 - `npm run smoke` — runs `bin/skillsmith.mjs` end-to-end against the working directory.
 - `npm --prefix testing-project run check:config` — loads the fixture config through its real import graph, catching config-load and import regressions the other checks miss.
 
+## Code style
+
+skillsmith's JavaScript, TypeScript, and `.mjs` code is formatted with Biome to a WordPress-derived style. The most visible day-to-day traits are **spaces inside parentheses and array brackets** — calls and arrays read as `fn( a, b )` and `[ 1, 2 ]` — and **single quotes** for string literals. The style also uses tab indentation, always-parenthesized arrow parameters (`( x ) => x`), and ES5 trailing commas (present in multiline arrays, object literals, and multiline imports; absent from function parameter and argument lists). You don't need to memorize these: the formatter applies them for you.
+
+- `npm run format` rewrites your changed files in place to match the style. Run it before pushing; it's the fastest way to bring new code into compliance.
+- `biome format .` (no `--write`) is the verify path — it reports any unformatted files and exits non-zero, exiting zero when the tree complies. This is how the project checks formatting; there is no separate `format:check` script.
+
+`npm run lint` (above) runs Biome's linter, which is a separate pass from formatting and does not rewrite code. Run `npm run format` to fix style and `npm run lint` to catch lint findings.
+
 ## Versioning policy
 
 The package is published as `@automattic/skillsmith` and versioned with [Changesets](https://github.com/changesets/changesets). The contract is short: every PR that affects consumers carries a small `.changeset/*.md` file describing the change; on merge to `trunk`, automation opens a "Version Packages" PR that, when a maintainer merges it, bumps `package.json:version`, appends to `CHANGELOG.md`, tags the commit, creates a GitHub Release, and publishes to npm.

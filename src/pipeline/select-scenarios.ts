@@ -1,7 +1,7 @@
-import type { EvaluationScope } from "../config/types";
-import type { ScenarioReport } from "../reports/scenario-report";
-import { classifyVerdict } from "../reports/verdict";
-import type { EnumeratedScenario } from "../scenarios/enumerate";
+import type { EvaluationScope } from '../config/types';
+import type { ScenarioReport } from '../reports/scenario-report';
+import { classifyVerdict } from '../reports/verdict';
+import type { EnumeratedScenario } from '../scenarios/enumerate';
 
 export interface ScenarioSelection {
 	scenarios: EnumeratedScenario[];
@@ -11,7 +11,7 @@ export interface ScenarioSelection {
 	 * agent ids to re-run. Scenarios absent from the map run their full
 	 * configured agent matrix.
 	 */
-	agentFilter?: Record<string, string[]>;
+	agentFilter?: Record< string, string[] >;
 }
 
 /**
@@ -33,63 +33,64 @@ export interface ScenarioSelection {
 export function selectScenarios(
 	iteration: number,
 	allScenarios: EnumeratedScenario[],
-	prevScenarioReports: Record<string, ScenarioReport | { error: string }>,
-	mode: EvaluationScope,
+	prevScenarioReports: Record< string, ScenarioReport | { error: string } >,
+	mode: EvaluationScope
 ): ScenarioSelection {
-	if (iteration <= 1 || mode === "all") {
+	if ( iteration <= 1 || mode === 'all' ) {
 		return { scenarios: allScenarios };
 	}
 
-	const failingAgentsByScenario = collectFailingAgents(prevScenarioReports);
+	const failingAgentsByScenario = collectFailingAgents( prevScenarioReports );
 
-	const filtered = allScenarios.filter((s) => {
-		if (s.error !== undefined) return true;
-		return failingAgentsByScenario.has(s.scenario.name);
-	});
+	const filtered = allScenarios.filter( ( s ) => {
+		if ( s.error !== undefined ) return true;
+		return failingAgentsByScenario.has( s.scenario.name );
+	} );
 
-	if (mode === "failed-scenarios") {
+	if ( mode === 'failed-scenarios' ) {
 		return { scenarios: filtered };
 	}
 
-	const agentFilter: Record<string, string[]> = {};
-	for (const s of filtered) {
-		if (s.error !== undefined) continue;
-		const set = failingAgentsByScenario.get(s.scenario.name);
+	const agentFilter: Record< string, string[] > = {};
+	for ( const s of filtered ) {
+		if ( s.error !== undefined ) continue;
+		const set = failingAgentsByScenario.get( s.scenario.name );
 		// An empty set means "scenario failed but no specific agent did"
 		// (e.g. a scenario-level verification failure). Leave it out of
 		// the filter so the scenario re-runs its full agent matrix.
-		if (set !== undefined && set.size > 0) {
-			agentFilter[s.scenario.name] = [...set];
+		if ( set !== undefined && set.size > 0 ) {
+			agentFilter[ s.scenario.name ] = [ ...set ];
 		}
 	}
 	return { scenarios: filtered, agentFilter };
 }
 
 function collectFailingAgents(
-	scenarios: Record<string, ScenarioReport | { error: string }>,
-): Map<string, Set<string>> {
-	const out = new Map<string, Set<string>>();
-	for (const [name, body] of Object.entries(scenarios)) {
-		if (!("agents" in body) || body.error !== undefined) {
+	scenarios: Record< string, ScenarioReport | { error: string } >
+): Map< string, Set< string > > {
+	const out = new Map< string, Set< string > >();
+	for ( const [ name, body ] of Object.entries( scenarios ) ) {
+		if ( ! ( 'agents' in body ) || body.error !== undefined ) {
 			// Scenario-level error (enumeration failure or a verification
 			// gate that failed the whole scenario) → re-evaluate every
 			// agent next iteration.
-			out.set(name, new Set());
+			out.set( name, new Set() );
 			continue;
 		}
-		const failed = new Set<string>();
-		for (const [agentId, entry] of Object.entries(body.agents)) {
-			if (entry.error !== undefined) {
-				failed.add(agentId);
+		const failed = new Set< string >();
+		for ( const [ agentId, entry ] of Object.entries( body.agents ) ) {
+			if ( entry.error !== undefined ) {
+				failed.add( agentId );
 				continue;
 			}
-			if (entry.review === undefined) {
-				failed.add(agentId);
+			if ( entry.review === undefined ) {
+				failed.add( agentId );
 				continue;
 			}
-			if (classifyVerdict(entry.review).kind !== "PASS") failed.add(agentId);
+			if ( classifyVerdict( entry.review ).kind !== 'PASS' )
+				failed.add( agentId );
 		}
-		if (failed.size > 0) out.set(name, failed);
+		if ( failed.size > 0 ) out.set( name, failed );
 	}
 	return out;
 }

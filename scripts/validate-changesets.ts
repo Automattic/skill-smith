@@ -1,6 +1,6 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
-import { parse as parseYaml } from "yaml";
+import { readdirSync, readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 
 /**
  * One validation error emitted by {@link validateChangesetFile}.
@@ -24,7 +24,7 @@ export type Err = { file: string; line: number; msg: string };
  * `releases.length > 0` to detect non-empty changesets, so a `none`-bump
  * entry still triggers the Version Packages PR.
  */
-const VALID = new Set(["patch", "minor", "major", "none"]);
+const VALID = new Set( [ 'patch', 'minor', 'major', 'none' ] );
 
 /**
  * Regex that splits a changeset into its front-matter and body sections.
@@ -74,80 +74,82 @@ export function validateChangesetFile(
 	file: string,
 	raw: string,
 	pkgName: string,
-	version: string,
+	version: string
 ): Err[] {
 	const errs: Err[] = [];
-	const preRelease = String(version).startsWith("0.");
+	const preRelease = String( version ).startsWith( '0.' );
 
-	const match = raw.match(FENCE_RE);
-	if (!match) {
-		errs.push({
+	const match = raw.match( FENCE_RE );
+	if ( ! match ) {
+		errs.push( {
 			file,
 			line: 1,
 			msg: "missing or unterminated front matter (expected two '---' fences)",
-		});
+		} );
 		return errs;
 	}
 
-	const fmRaw = match[1] ?? "";
-	const body = match[2] ?? "";
+	const fmRaw = match[ 1 ] ?? '';
+	const body = match[ 2 ] ?? '';
 
 	// R-shape-2: the canonical empty form `---\n---\n` is the documented
 	// contributor escape hatch and must pass.
-	if (fmRaw.trim() === "" && body.trim() === "") {
+	if ( fmRaw.trim() === '' && body.trim() === '' ) {
 		return errs;
 	}
 
 	// R-shape-3: a changeset with front matter MUST have a non-empty body.
-	if (body.trim() === "") {
-		errs.push({
+	if ( body.trim() === '' ) {
+		errs.push( {
 			file,
 			line: 4,
-			msg: "empty body (changeset has front matter but no summary)",
-		});
+			msg: 'empty body (changeset has front matter but no summary)',
+		} );
 	}
 
 	let fm: unknown;
 	try {
-		fm = parseYaml(fmRaw);
-	} catch (e) {
-		errs.push({
+		fm = parseYaml( fmRaw );
+	} catch ( e ) {
+		errs.push( {
 			file,
 			line: 2,
-			msg: `YAML parse error: ${(e as Error).message}`,
-		});
+			msg: `YAML parse error: ${ ( e as Error ).message }`,
+		} );
 		return errs;
 	}
 
-	if (fm === null || typeof fm !== "object") {
-		errs.push({
+	if ( fm === null || typeof fm !== 'object' ) {
+		errs.push( {
 			file,
 			line: 2,
-			msg: "front matter must be a YAML mapping of package name to bump",
-		});
+			msg: 'front matter must be a YAML mapping of package name to bump',
+		} );
 		return errs;
 	}
 
-	for (const [name, bump] of Object.entries(fm as Record<string, unknown>)) {
-		if (name !== pkgName) {
-			errs.push({
+	for ( const [ name, bump ] of Object.entries(
+		fm as Record< string, unknown >
+	) ) {
+		if ( name !== pkgName ) {
+			errs.push( {
 				file,
 				line: 2,
-				msg: `unknown package "${name}" (expected "${pkgName}")`,
-			});
+				msg: `unknown package "${ name }" (expected "${ pkgName }")`,
+			} );
 		}
-		if (typeof bump !== "string" || !VALID.has(bump)) {
-			errs.push({
+		if ( typeof bump !== 'string' || ! VALID.has( bump ) ) {
+			errs.push( {
 				file,
 				line: 2,
-				msg: `invalid bump "${String(bump)}" (expected one of patch, minor, major, none)`,
-			});
-		} else if (preRelease && bump === "major") {
-			errs.push({
+				msg: `invalid bump "${ String( bump ) }" (expected one of patch, minor, major, none)`,
+			} );
+		} else if ( preRelease && bump === 'major' ) {
+			errs.push( {
 				file,
 				line: 2,
-				msg: `'major' is forbidden while pre-1.0 (version=${version}). Use 'minor' with a 'BREAKING:' prefix; see CONTRIBUTING.md#pre-10-policy.`,
-			});
+				msg: `'major' is forbidden while pre-1.0 (version=${ version }). Use 'minor' with a 'BREAKING:' prefix; see CONTRIBUTING.md#pre-10-policy.`,
+			} );
 		}
 	}
 
@@ -165,27 +167,31 @@ export function validateChangesetFile(
  *   on filesystem/JSON failures the caller is expected to surface.
  */
 export function main(): number {
-	const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
+	const pkg = JSON.parse( readFileSync( 'package.json', 'utf8' ) ) as {
 		name: string;
 		version: string;
 	};
-	const files = readdirSync(".changeset").filter(
-		(n) => n.endsWith(".md") && n !== "README.md",
+	const files = readdirSync( '.changeset' ).filter(
+		( n ) => n.endsWith( '.md' ) && n !== 'README.md'
 	);
 	const errors: Err[] = [];
-	for (const f of files) {
-		const raw = readFileSync(`.changeset/${f}`, "utf8");
-		errors.push(...validateChangesetFile(f, raw, pkg.name, pkg.version));
+	for ( const f of files ) {
+		const raw = readFileSync( `.changeset/${ f }`, 'utf8' );
+		errors.push(
+			...validateChangesetFile( f, raw, pkg.name, pkg.version )
+		);
 	}
-	if (errors.length === 0) {
+	if ( errors.length === 0 ) {
 		return 0;
 	}
-	for (const e of errors) {
-		process.stderr.write(`.changeset/${e.file}:${e.line}: ${e.msg}\n`);
+	for ( const e of errors ) {
+		process.stderr.write(
+			`.changeset/${ e.file }:${ e.line }: ${ e.msg }\n`
+		);
 	}
 	return 1;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-	process.exit(main());
+if ( import.meta.url === pathToFileURL( process.argv[ 1 ] ?? '' ).href ) {
+	process.exit( main() );
 }

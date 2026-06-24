@@ -15,6 +15,7 @@ npm-debug.log*
 .vscode/
 .idea/
 .claude/
+.rp.local.md
 
 # TESTING PROJECT SPECIFIC
 test-results/
