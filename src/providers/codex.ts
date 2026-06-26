@@ -4,19 +4,141 @@ import type {
 	RunStreamedResult,
 	ThreadOptions,
 } from '@openai/codex-sdk';
-import type { AgentDefinition } from '../config/types';
+import type { AgentDefinition, McpServerConfig } from '../config/types';
 import type {
 	InvokeParams,
 	InvokeResult,
+	JudgeCapabilities,
 	Provider,
-	Role,
 	TokenUsage,
 } from './types';
 
-const SANDBOX_BY_ROLE: Record< Role, ThreadOptions[ 'sandboxMode' ] > = {
-	testing: 'workspace-write',
-	judge: 'read-only',
-};
+/**
+ * A single value in the Codex constructor `config`. Derived from the exported
+ * `CodexOptions['config']` because the SDK does not export `CodexConfigValue`
+ * itself; used to type the `mcp_servers` override (see `invoke`).
+ */
+type CodexConfigValue = NonNullable< CodexOptions[ 'config' ] >[ string ];
+
+/**
+ * Sandbox the `testing` role always runs in. The testing agent writes to and
+ * runs commands in its workspace, so it gets `workspace-write` regardless of
+ * any `capabilities` on the invocation.
+ */
+const TESTING_SANDBOX: ThreadOptions[ 'sandboxMode' ] = 'workspace-write';
+
+/**
+ * Sandbox the `judge` role runs in when no `capabilities` request live
+ * execution. `read-only` keeps the default judge unable to mutate or run
+ * commands in its workspace.
+ */
+const DEFAULT_JUDGE_SANDBOX: ThreadOptions[ 'sandboxMode' ] = 'read-only';
+
+/**
+ * Codex tool names that run shell commands. Their presence in
+ * `capabilities.tools` means the judge needs to execute commands, which —
+ * under `approvalPolicy: 'never'` — requires the `workspace-write` sandbox
+ * (see {@link sandboxModeFor}). `Bash` mirrors the Claude Code naming a project
+ * is most likely to configure.
+ */
+const COMMAND_RUNNING_TOOLS = [ 'Bash' ];
+
+/**
+ * Codex CLI config key under which MCP servers are declared. The `@openai/codex-sdk`
+ * flattens the constructor `config` object into dotted `--config` overrides, so a
+ * `mcp_servers.<name>` entry here reaches the CLI as a native MCP server.
+ */
+const MCP_SERVERS_CONFIG_KEY = 'mcp_servers';
+
+/**
+ * Judge thread settings translated from {@link JudgeCapabilities}. Mirrors the
+ * slice of {@link ThreadOptions} the provider derives from a judge invocation's
+ * capabilities.
+ */
+interface JudgeThreadSurface {
+	/** Sandbox the judge thread runs in. */
+	sandboxMode: ThreadOptions[ 'sandboxMode' ];
+	/**
+	 * Network access for the judge thread, when the capabilities (or, as a
+	 * fallback, the agent key) decide it. Left unset to defer to the SDK
+	 * default.
+	 */
+	networkAccessEnabled?: boolean;
+	/** MCP servers to wire into the constructor config, keyed by server name. */
+	mcpServers?: Record< string, McpServerConfig >;
+}
+
+/**
+ * Decide whether a judge invocation needs the `workspace-write` sandbox.
+ *
+ * Under `approvalPolicy: 'never'`, the `read-only` sandbox blocks command
+ * execution outright (see the R1 caveat on {@link createCodexProvider}). A judge
+ * therefore needs `workspace-write` whenever it must run commands or mutate
+ * files — namely when it may write (`allowWrite`), when its tool set includes a
+ * command-running tool such as `Bash`, or when it has MCP servers (which run as
+ * external processes). Absent all of those, the judge stays `read-only`.
+ *
+ * @param capabilities - The judge's capability overrides, when present.
+ * @returns The sandbox mode the judge thread should run in.
+ */
+function sandboxModeFor(
+	capabilities: JudgeCapabilities | undefined
+): ThreadOptions[ 'sandboxMode' ] {
+	if ( capabilities === undefined ) return DEFAULT_JUDGE_SANDBOX;
+	const allowWrite = capabilities.allowWrite === true;
+	const hasCommandTool = ( capabilities.tools ?? [] ).some( ( tool ) =>
+		COMMAND_RUNNING_TOOLS.includes( tool )
+	);
+	const hasMcpServers =
+		capabilities.mcpServers !== undefined &&
+		Object.keys( capabilities.mcpServers ).length > 0;
+	const needsLiveExecution = allowWrite || hasCommandTool || hasMcpServers;
+	return needsLiveExecution ? 'workspace-write' : DEFAULT_JUDGE_SANDBOX;
+}
+
+/**
+ * Translate a judge invocation's role and capabilities into the Codex thread
+ * surface the provider applies.
+ *
+ * The `testing` role is fixed to {@link TESTING_SANDBOX} and ignores
+ * `capabilities`. The `judge` role defaults to {@link DEFAULT_JUDGE_SANDBOX} and
+ * lets a project widen it: a capabilities set that needs live execution promotes
+ * the sandbox to `workspace-write` (see {@link sandboxModeFor}),
+ * `capabilities.network` sets `networkAccessEnabled`, and `capabilities.mcpServers`
+ * are surfaced for wiring into the constructor config.
+ *
+ * @param role - The invocation role; only `judge` consults `capabilities`.
+ * @param capabilities - The judge's capability overrides, when present.
+ * @returns The sandbox, optional network flag, and optional MCP servers for the
+ *   invocation.
+ *
+ * @example
+ * // Read-only judge default:
+ * judgeThreadSurfaceFor( 'judge', undefined );
+ * // => { sandboxMode: 'read-only' }
+ */
+function judgeThreadSurfaceFor(
+	role: InvokeParams[ 'role' ],
+	capabilities: JudgeCapabilities | undefined
+): JudgeThreadSurface {
+	if ( role === 'testing' ) {
+		return { sandboxMode: TESTING_SANDBOX };
+	}
+
+	const surface: JudgeThreadSurface = {
+		sandboxMode: sandboxModeFor( capabilities ),
+	};
+	if ( typeof capabilities?.network === 'boolean' ) {
+		surface.networkAccessEnabled = capabilities.network;
+	}
+	if (
+		capabilities?.mcpServers !== undefined &&
+		Object.keys( capabilities.mcpServers ).length > 0
+	) {
+		surface.mcpServers = capabilities.mcpServers;
+	}
+	return surface;
+}
 
 const DEVELOPER_INSTRUCTIONS =
 	'Treat the clearly delimited Skillsmith instruction block in the user input as authoritative workflow and developer instructions for this run. Follow the user request after that block.';
@@ -42,6 +164,13 @@ export type CodexCtor = new (
 /**
  * Build a Codex provider bound to a specific `Codex` constructor. Production
  * passes the real one; tests pass a fake.
+ *
+ * R1 caveat: this provider runs with `approvalPolicy: 'never'`, under which the
+ * `read-only` sandbox blocks command execution entirely. A judge that must run
+ * commands (a Bash/MCP capability, or `allowWrite`) therefore has to use
+ * `workspace-write` — `read-only` would simply fail rather than run read-only.
+ * The judge's no-modify guarantee then rests on the copied workspace it grades,
+ * not on the Codex sandbox.
  */
 export function createCodexProvider( CodexCtor: CodexCtor ): Provider {
 	return {
@@ -61,23 +190,44 @@ export function createCodexProvider( CodexCtor: CodexCtor ): Provider {
 			let sawUsage = false;
 
 			try {
+				const surface = judgeThreadSurfaceFor(
+					params.role,
+					params.capabilities
+				);
+				const config: CodexOptions[ 'config' ] = {
+					project_root_markers: [],
+					project_doc_max_bytes: 0,
+					developer_instructions: DEVELOPER_INSTRUCTIONS,
+				};
+				// Codex has no typed `mcpServers`; the judge's MCP servers are
+				// wired as `mcp_servers.<name>` config overrides the SDK flattens
+				// into the CLI's `--config` TOML. The `McpServerConfig` shape
+				// (string/string[]/Record<string,string> fields) is a structural
+				// `CodexConfigObject`, but its optional named fields don't satisfy
+				// the open index signature without a cast.
+				if ( surface.mcpServers ) {
+					config[ MCP_SERVERS_CONFIG_KEY ] =
+						surface.mcpServers as unknown as CodexConfigValue;
+				}
+
 				const codex = new CodexCtor( {
 					apiKey: process.env.OPENAI_API_KEY,
 					env: codexEnv( process.env ),
-					config: {
-						project_root_markers: [],
-						project_doc_max_bytes: 0,
-						developer_instructions: DEVELOPER_INSTRUCTIONS,
-					},
+					config,
 				} );
 
 				const thread = codex.startThread( {
 					model: params.agent.model,
-					sandboxMode: SANDBOX_BY_ROLE[ params.role ],
+					sandboxMode: surface.sandboxMode,
 					workingDirectory: params.cwd,
 					skipGitRepoCheck: true,
 					approvalPolicy: 'never',
 					...extraThreadOptions( params.agent ),
+					// The judge's `capabilities.network` overrides the agent key
+					// so a project can decide network access on the judge call.
+					...( surface.networkAccessEnabled !== undefined && {
+						networkAccessEnabled: surface.networkAccessEnabled,
+					} ),
 				} );
 
 				const stream: RunStreamedResult = await thread.runStreamed(

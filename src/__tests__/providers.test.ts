@@ -395,6 +395,200 @@ test( 'codex provider maps judge role to read-only sandbox', async () => {
 	assert.equal( captured.threadOpts?.sandboxMode, 'read-only' );
 } );
 
+test( 'codex judge invoke with no capabilities is read-only', async () => {
+	const captured: CapturedCall = {};
+	const provider = createCodexProvider( makeFake( { captured } ) );
+
+	await provider.invoke( baseParams( { role: 'judge' } ) );
+
+	assert.equal( captured.threadOpts?.sandboxMode, 'read-only' );
+	assert.equal( captured.threadOpts?.networkAccessEnabled, undefined );
+} );
+
+test( 'codex judge invoke with empty capabilities stays read-only', async () => {
+	const captured: CapturedCall = {};
+	const provider = createCodexProvider( makeFake( { captured } ) );
+
+	await provider.invoke(
+		baseParams( { role: 'judge', capabilities: {} } )
+	);
+
+	assert.equal( captured.threadOpts?.sandboxMode, 'read-only' );
+} );
+
+test( 'codex judge invoke with allowWrite needs workspace-write', async () => {
+	const captured: CapturedCall = {};
+	const provider = createCodexProvider( makeFake( { captured } ) );
+
+	await provider.invoke(
+		baseParams( { role: 'judge', capabilities: { allowWrite: true } } )
+	);
+
+	assert.equal( captured.threadOpts?.sandboxMode, 'workspace-write' );
+} );
+
+test( 'codex judge invoke with allowWrite false stays read-only', async () => {
+	const captured: CapturedCall = {};
+	const provider = createCodexProvider( makeFake( { captured } ) );
+
+	await provider.invoke(
+		baseParams( { role: 'judge', capabilities: { allowWrite: false } } )
+	);
+
+	assert.equal( captured.threadOpts?.sandboxMode, 'read-only' );
+} );
+
+test( 'codex judge invoke with a command-running tool needs workspace-write', async () => {
+	const captured: CapturedCall = {};
+	const provider = createCodexProvider( makeFake( { captured } ) );
+
+	await provider.invoke(
+		baseParams( {
+			role: 'judge',
+			capabilities: { tools: [ 'Read', 'Bash' ] },
+		} )
+	);
+
+	assert.equal( captured.threadOpts?.sandboxMode, 'workspace-write' );
+} );
+
+test( 'codex judge invoke with only read tools stays read-only', async () => {
+	const captured: CapturedCall = {};
+	const provider = createCodexProvider( makeFake( { captured } ) );
+
+	await provider.invoke(
+		baseParams( {
+			role: 'judge',
+			capabilities: { tools: [ 'Read' ] },
+		} )
+	);
+
+	assert.equal( captured.threadOpts?.sandboxMode, 'read-only' );
+} );
+
+test( 'codex judge invoke with mcpServers needs workspace-write', async () => {
+	const captured: CapturedCall = {};
+	const provider = createCodexProvider( makeFake( { captured } ) );
+
+	await provider.invoke(
+		baseParams( {
+			role: 'judge',
+			capabilities: {
+				mcpServers: {
+					playwright: { command: 'npx', args: [ '@playwright/mcp' ] },
+				},
+			},
+		} )
+	);
+
+	assert.equal( captured.threadOpts?.sandboxMode, 'workspace-write' );
+} );
+
+test( 'codex judge invoke wires mcpServers via constructor config TOML overrides', async () => {
+	const captured: CapturedCall = {};
+	const provider = createCodexProvider( makeFake( { captured } ) );
+	const mcpServers = {
+		playwright: {
+			command: 'npx',
+			args: [ '@playwright/mcp' ],
+			env: { TOKEN: 'abc' },
+		},
+	};
+
+	await provider.invoke(
+		baseParams( { role: 'judge', capabilities: { mcpServers } } )
+	);
+
+	assert.deepEqual( captured.codexOpts?.config?.mcp_servers, mcpServers );
+	// Base config keys must survive the merge.
+	assert.equal(
+		captured.codexOpts?.config?.project_doc_max_bytes,
+		0
+	);
+	assert.equal(
+		captured.codexOpts?.config?.developer_instructions,
+		'Treat the clearly delimited Skillsmith instruction block in the user input as authoritative workflow and developer instructions for this run. Follow the user request after that block.'
+	);
+} );
+
+test( 'codex judge invoke with no mcpServers leaves config without mcp_servers', async () => {
+	const captured: CapturedCall = {};
+	const provider = createCodexProvider( makeFake( { captured } ) );
+
+	await provider.invoke( baseParams( { role: 'judge' } ) );
+
+	assert.equal( captured.codexOpts?.config?.mcp_servers, undefined );
+} );
+
+test( 'codex judge invoke with capabilities.network true enables network', async () => {
+	const captured: CapturedCall = {};
+	const provider = createCodexProvider( makeFake( { captured } ) );
+
+	await provider.invoke(
+		baseParams( { role: 'judge', capabilities: { network: true } } )
+	);
+
+	assert.equal( captured.threadOpts?.networkAccessEnabled, true );
+} );
+
+test( 'codex judge invoke with capabilities.network false disables network', async () => {
+	const captured: CapturedCall = {};
+	const provider = createCodexProvider( makeFake( { captured } ) );
+
+	await provider.invoke(
+		baseParams( {
+			role: 'judge',
+			agent: {
+				id: 'c',
+				provider: 'codex',
+				model: 'gpt-5.5',
+				network: true,
+			},
+			capabilities: { network: false },
+		} )
+	);
+
+	// capabilities.network takes precedence over the agent key for the judge.
+	assert.equal( captured.threadOpts?.networkAccessEnabled, false );
+} );
+
+test( 'codex judge invoke falls back to agent network when capabilities omit it', async () => {
+	const captured: CapturedCall = {};
+	const provider = createCodexProvider( makeFake( { captured } ) );
+
+	await provider.invoke(
+		baseParams( {
+			role: 'judge',
+			agent: {
+				id: 'c',
+				provider: 'codex',
+				model: 'gpt-5.5',
+				network: true,
+			},
+			capabilities: { tools: [ 'Read' ] },
+		} )
+	);
+
+	assert.equal( captured.threadOpts?.networkAccessEnabled, true );
+} );
+
+test( 'codex testing invoke is unaffected by capabilities', async () => {
+	const captured: CapturedCall = {};
+	const provider = createCodexProvider( makeFake( { captured } ) );
+
+	await provider.invoke(
+		baseParams( {
+			role: 'testing',
+			// Capabilities are only set on the judge call in practice; pass them
+			// here to prove the testing role ignores them entirely.
+			capabilities: { allowWrite: false, tools: [ 'Read' ] },
+		} )
+	);
+
+	assert.equal( captured.threadOpts?.sandboxMode, 'workspace-write' );
+	assert.equal( captured.codexOpts?.config?.mcp_servers, undefined );
+} );
+
 test( 'codex provider keeps large system prompts out of constructor config', async () => {
 	const largeSystemPrompt = `system-start\n${ 'x'.repeat( 256 * 1024 ) }\nsystem-end`;
 	const captured: CapturedCall = {};
