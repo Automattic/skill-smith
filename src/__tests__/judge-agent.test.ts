@@ -40,9 +40,10 @@ const judge: AgentDefinition = {
 
 /**
  * Minimal config carrying an optional `roles.judge.prompt` so tests can
- * toggle the role-instructions section on and off.
+ * toggle the role-instructions section on and off. `rubricsDir`, when
+ * given, becomes `paths.rubrics` so tests can opt into rubric resolution.
  */
-function makeConfig( judgePrompt?: string ): SkillsmithConfig {
+function makeConfig( judgePrompt?: string, rubricsDir?: string ): SkillsmithConfig {
 	return {
 		mode: 'test-only',
 		agents: { [ judge.id ]: judge },
@@ -51,7 +52,12 @@ function makeConfig( judgePrompt?: string ): SkillsmithConfig {
 			judge: { agent: judge, concurrency: 'parallel', prompt: judgePrompt },
 			improver: { agent: judge },
 		},
-		paths: { base: '.skillsmith', skills: 'skills', scenarios: 'scenarios' },
+		paths: {
+			base: '.skillsmith',
+			skills: 'skills',
+			scenarios: 'scenarios',
+			...( rubricsDir !== undefined ? { rubrics: rubricsDir } : {} ),
+		},
 	};
 }
 
@@ -158,6 +164,67 @@ test( 'buildJudgeSystemPrompt omits the Role instructions section when no role p
 	assert.ok(
 		! prompt.includes( '# Role instructions' ),
 		'no Role instructions heading appears without a role prompt'
+	);
+} );
+
+test( 'buildJudgeSystemPrompt injects a non-empty rubricBlob under a Grading rubrics heading', () => {
+	const blob = 'RUBRIC_BLOB_SENTINEL: prefer accessible markup.';
+	const prompt = buildJudgeSystemPrompt(
+		makeScenario( 'grade it' ),
+		makeConfig(),
+		blob
+	);
+	assert.ok(
+		prompt.includes( '# Grading rubrics' ) && prompt.includes( blob ),
+		'the rubric blob is injected under a Grading rubrics heading'
+	);
+} );
+
+test( 'buildJudgeSystemPrompt omits the Grading rubrics section when no blob is passed or it is empty', () => {
+	const noBlob = buildJudgeSystemPrompt(
+		makeScenario( 'grade it' ),
+		makeConfig()
+	);
+	const emptyBlob = buildJudgeSystemPrompt(
+		makeScenario( 'grade it' ),
+		makeConfig(),
+		''
+	);
+	assert.ok(
+		! noBlob.includes( '# Grading rubrics' ),
+		'no Grading rubrics heading appears when no blob is passed'
+	);
+	assert.ok(
+		! emptyBlob.includes( '# Grading rubrics' ),
+		'no Grading rubrics heading appears for an empty blob'
+	);
+} );
+
+test( 'buildJudgeSystemPrompt keeps the other sections intact alongside the rubric blob', () => {
+	const rolePrompt = 'ROLE_PROMPT_SENTINEL: prefer the live environment.';
+	const blob = 'RUBRIC_BLOB_SENTINEL: prefer accessible markup.';
+	const brief = 'JUDGE_BRIEF_SENTINEL: confirm the counter increments.';
+	const prompt = buildJudgeSystemPrompt(
+		makeScenario( brief ),
+		makeConfig( rolePrompt ),
+		blob
+	);
+	assert.ok( prompt.includes( brief ), 'the judgeBrief is retained verbatim' );
+	assert.ok(
+		prompt.includes( '# Output format' ),
+		'the Output format section is unchanged'
+	);
+	assert.ok(
+		prompt.includes( '# Recursion guard' ),
+		'the Recursion guard section is unchanged'
+	);
+	assert.ok(
+		prompt.includes( '# Role instructions' ) && prompt.includes( rolePrompt ),
+		'the Role instructions section is unchanged'
+	);
+	assert.ok(
+		prompt.includes( '# Grading rubrics' ) && prompt.includes( blob ),
+		'the Grading rubrics section is present and distinct from the others'
 	);
 } );
 
@@ -456,6 +523,115 @@ test( 'runJudgeAgent degrades to an error payload when the verdict is unparseabl
 		error: 'unparseable',
 		raw: 'totally not json',
 	} );
+} );
+
+test( 'runJudgeAgent resolves scenario rubrics under paths.rubrics into the judge system prompt', async () => {
+	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const projectRoot = mkdtempSync( join( tmpdir(), 'judge-proj-' ) );
+	mkdirSync( join( projectRoot, 'rubrics' ), { recursive: true } );
+	writeFileSync(
+		join( projectRoot, 'rubrics', 'a11y.md' ),
+		'RUBRIC_A11Y_SENTINEL: keyboard reachable.'
+	);
+	writeFileSync(
+		join( projectRoot, 'rubrics', 'perf.md' ),
+		'RUBRIC_PERF_SENTINEL: no layout thrash.'
+	);
+	const scenario = makeScenario( 'grade it' );
+	scenario.rubrics = [ 'a11y', 'perf' ];
+
+	const captured = await captureInvoke( () =>
+		runJudgeAgent( {
+			scenario,
+			judge,
+			agentDirectory: judgeWorkspace,
+			agentWorkspace,
+			judgeWorkspace,
+			projectRoot,
+			config: makeConfig( undefined, 'rubrics' ),
+			log: new RunLog(),
+			testingResult: {
+				finalText: '',
+				toolUseCount: 0,
+				filesWritten: [ 'result.txt' ],
+			},
+		} )
+	);
+
+	assert.ok( captured, 'provider.invoke must be called' );
+	assert.ok(
+		captured.systemPrompt.includes( '# Grading rubrics' ),
+		'the resolved rubrics appear under a Grading rubrics heading'
+	);
+	assert.ok(
+		captured.systemPrompt.includes( 'RUBRIC_A11Y_SENTINEL: keyboard reachable.' ) &&
+			captured.systemPrompt.includes( 'RUBRIC_PERF_SENTINEL: no layout thrash.' ),
+		'each referenced rubric body reaches the judge prompt verbatim'
+	);
+} );
+
+test( 'runJudgeAgent omits the Grading rubrics section when the scenario references no rubrics', async () => {
+	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const projectRoot = mkdtempSync( join( tmpdir(), 'judge-proj-' ) );
+	mkdirSync( join( projectRoot, 'rubrics' ), { recursive: true } );
+	writeFileSync(
+		join( projectRoot, 'rubrics', 'a11y.md' ),
+		'RUBRIC_A11Y_SENTINEL: keyboard reachable.'
+	);
+
+	const captured = await captureInvoke( () =>
+		runJudgeAgent( {
+			scenario: makeScenario( 'grade it' ),
+			judge,
+			agentDirectory: judgeWorkspace,
+			agentWorkspace,
+			judgeWorkspace,
+			projectRoot,
+			config: makeConfig( undefined, 'rubrics' ),
+			log: new RunLog(),
+			testingResult: {
+				finalText: '',
+				toolUseCount: 0,
+				filesWritten: [ 'result.txt' ],
+			},
+		} )
+	);
+
+	assert.ok( captured, 'provider.invoke must be called' );
+	assert.ok(
+		! captured.systemPrompt.includes( '# Grading rubrics' ),
+		'no Grading rubrics heading appears when the scenario references no rubrics'
+	);
+} );
+
+test( 'runJudgeAgent omits the Grading rubrics section when paths.rubrics is unset, even with scenario rubrics', async () => {
+	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const scenario = makeScenario( 'grade it' );
+	scenario.rubrics = [ 'a11y' ];
+
+	const captured = await captureInvoke( () =>
+		runJudgeAgent( {
+			scenario,
+			judge,
+			agentDirectory: judgeWorkspace,
+			agentWorkspace,
+			judgeWorkspace,
+			projectRoot: judgeWorkspace,
+			config: makeConfig(),
+			log: new RunLog(),
+			testingResult: {
+				finalText: '',
+				toolUseCount: 0,
+				filesWritten: [ 'result.txt' ],
+			},
+		} )
+	);
+
+	assert.ok( captured, 'provider.invoke must be called' );
+	assert.ok(
+		! captured.systemPrompt.includes( '# Grading rubrics' ),
+		'no Grading rubrics heading appears when paths.rubrics is unset'
+	);
 } );
 
 test( 'runJudgeAgent parses a prose-wrapped verdict via the lenient fallback', async () => {
