@@ -31,6 +31,48 @@ test( 'failing rubric + acceptance lists every failure', () => {
 	] );
 } );
 
+test( 'pass:false with notes → FAIL surfacing the notes', () => {
+	const cell = classifyVerdict( { pass: false, notes: 'reason' } );
+	assert.equal( cell.kind, 'FAIL' );
+	if ( cell.kind !== 'FAIL' ) return;
+	assert.deepEqual( cell.failures, [ 'reason' ] );
+} );
+
+test( 'pass:false with no detail → FAIL with the generic fallback', () => {
+	const cell = classifyVerdict( { pass: false } );
+	assert.equal( cell.kind, 'FAIL' );
+	if ( cell.kind !== 'FAIL' ) return;
+	assert.deepEqual( cell.failures, [ 'verdict failed without detail' ] );
+} );
+
+test( 'pass:true with notes → PASS', () => {
+	const cell = classifyVerdict( { pass: true, notes: 'ok' } );
+	assert.equal( cell.kind, 'PASS' );
+} );
+
+test( 'pass:false with error → FAIL with that error (notes branch unchanged)', () => {
+	const cell = classifyVerdict( { pass: false, error: 'boom' } );
+	assert.equal( cell.kind, 'FAIL' );
+	if ( cell.kind !== 'FAIL' ) return;
+	assert.deepEqual( cell.failures, [ 'boom' ] );
+} );
+
+test( 'pass:false with failures[] → FAIL listing each failure (notes branch unchanged)', () => {
+	const cell = classifyVerdict( {
+		pass: false,
+		failures: [
+			{ kind: 'rubric', id: 'r1', notes: 'too slow' },
+			{ kind: 'acceptance', id: 'a1' },
+		],
+	} );
+	assert.equal( cell.kind, 'FAIL' );
+	if ( cell.kind !== 'FAIL' ) return;
+	assert.deepEqual( cell.failures, [
+		'rubric r1 — too slow',
+		'acceptance a1',
+	] );
+} );
+
 test( 'skipped string → SKIPPED with reason', () => {
 	const cell = classifyVerdict( { skipped: 'no agents' } );
 	assert.equal( cell.kind, 'SKIPPED' );
