@@ -3,6 +3,79 @@ import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { Paths, Scenario } from '../config/types';
 
+/** Matches a heading line, capturing its depth (`#` run) and trailing text. */
+const HEADING_RE = /^(#{1,6})\s+(.*?)\s*$/;
+/** Matches the heading text of the `# Skills` section (case-insensitive). */
+const SKILLS_HEADING_RE = /^Skills$/i;
+/** Matches a list item, capturing its content. */
+const LIST_ITEM_RE = /^\s*[-*]\s+(.+?)\s*$/;
+/** Matches a Markdown link, capturing its link text. */
+const SKILL_LINK_RE = /^\[([^\]]*)\]\([^)]*\)$/;
+
+/**
+ * Extract skill ids from the `# Skills` section of a testing brief.
+ *
+ * The first heading whose text is exactly `Skills` (case-insensitive, any
+ * heading depth) opens the section. Lines are collected until the next
+ * heading of the same-or-shallower depth, or end of input; deeper
+ * sub-headings stay inside the section. Within the collected block, only
+ * Markdown list items contribute ids — each is unwrapped from surrounding
+ * backticks and from a `[id](...)` link, then trimmed. Prose and blank
+ * lines are ignored.
+ *
+ * @param testingBrief - Raw brief text. `\r\n` and `\r` line endings are
+ *   normalized before matching.
+ * @returns The ordered skill ids, `[]` when the section exists but holds no
+ *   list items, or `undefined` when the brief has no `# Skills` heading.
+ *
+ * @example
+ * parseSkillsSection( '# Skills\n- wp-interactivity-api' );
+ * // => [ 'wp-interactivity-api' ]
+ * @example
+ * parseSkillsSection( '# Overview\n' ); // => undefined (absent)
+ */
+export function parseSkillsSection(
+	testingBrief: string
+): string[] | undefined {
+	const lines = testingBrief.replace( /\r\n?/g, '\n' ).split( '\n' );
+
+	let depth: number | undefined;
+	let start = -1;
+	for ( let i = 0; i < lines.length; i++ ) {
+		const heading = HEADING_RE.exec( lines[ i ] ?? '' );
+		if ( heading && SKILLS_HEADING_RE.test( heading[ 2 ] ?? '' ) ) {
+			depth = heading[ 1 ]?.length;
+			start = i + 1;
+			break;
+		}
+	}
+
+	if ( depth === undefined ) return undefined;
+
+	const ids: string[] = [];
+	for ( let i = start; i < lines.length; i++ ) {
+		const line = lines[ i ] ?? '';
+		const heading = HEADING_RE.exec( line );
+		if ( heading && ( heading[ 1 ]?.length ?? 0 ) <= depth ) break;
+
+		const item = LIST_ITEM_RE.exec( line );
+		if ( item ) ids.push( normalizeSkillId( item[ 1 ] ?? '' ) );
+	}
+
+	return ids;
+}
+
+/** Strip surrounding backticks and unwrap a Markdown link to a bare id. */
+function normalizeSkillId( raw: string ): string {
+	let id = raw.trim();
+	if ( id.startsWith( '`' ) && id.endsWith( '`' ) && id.length >= 2 ) {
+		id = id.slice( 1, -1 ).trim();
+	}
+	const link = SKILL_LINK_RE.exec( id );
+	if ( link ) id = ( link[ 1 ] ?? '' ).trim();
+	return id;
+}
+
 /**
  * Provenance for an enumerated scenario's `scenario.name` value.
  * Configured names come from a valid `scenario.yaml`; synthetic names are
