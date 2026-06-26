@@ -546,9 +546,26 @@ async function runScenario(
 	};
 }
 
-function checkPaths( config: SkillsmithConfig, projectRoot: string ): void {
+/**
+ * Validate that the required project directories exist before a run starts.
+ *
+ * Each entry in `config.paths` for `skills` and `scenarios` must resolve to an
+ * existing directory under `projectRoot`, and `paths.base` must be non-empty.
+ * Any missing or non-directory path, or an empty `base`, is collected and
+ * reported together. There is no `rubrics` precondition: a project with no
+ * `rubrics/` directory runs cleanly.
+ *
+ * @param config      - Resolved harness config whose `paths` are checked.
+ * @param projectRoot - Absolute root the relative `paths` are resolved against.
+ * @throws {PreconditionError} When any required path is missing or not a
+ *   directory, or when `paths.base` is empty.
+ */
+export function checkPaths(
+	config: SkillsmithConfig,
+	projectRoot: string
+): void {
 	const missing: string[] = [];
-	for ( const key of [ 'skills', 'scenarios', 'rubrics' ] as const ) {
+	for ( const key of [ 'skills', 'scenarios' ] as const ) {
 		const dir = resolve( projectRoot, config.paths[ key ] );
 		if ( ! existsSync( dir ) ) {
 			missing.push( `paths.${ key } → ${ dir } (does not exist)` );
