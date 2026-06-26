@@ -221,17 +221,34 @@ export default defineConfig( {
 	// harness consumes (see README for the full lifecycle table).
 	//
 	// Skillsmith never starts or stops a server, browser, or container —
-	// the project owns its environment. When the judge needs a live
-	// environment to verify against, the project stands it up per pair in
-	// `beforeJudgeAgent` and tears it down in `afterJudgeAgent`. That is
-	// the verification mechanism now: the judge exercises the running
-	// environment per its `JUDGE.md` brief. (There is no bundled e2e gate.
-	// `afterAllScenarios` still exists as an optional, generic
+	// the project owns its environment. The hooks split that ownership
+	// along a line: the project keeps the deterministic, infrastructural
+	// setup, while the judge performs the live behavioral checks per its
+	// `JUDGE.md` brief. Anything shared across the whole sweep — a server
+	// or container the judge verifies against — boots once in the run-level
+	// `beforeAllScenarios` and stops in `afterAllScenarios`, kept warm in
+	// between rather than booted per pair. The per-pair `beforeJudgeAgent` /
+	// `afterJudgeAgent` hooks then ready (and clean up) just what each pair
+	// needs on that warm environment and export the facts the judge reads to
+	// reach it. (There is no bundled e2e gate: live verification is the
+	// judge's job. `afterAllScenarios` still exists as an optional, generic
 	// post-sweep gate for any extra check you want across the whole
 	// iteration — most projects can leave it unset.)
 	hooks: {
 		beforeAll: ( { runDirectory } ) => {
 			console.log( `run directory: ${ runDirectory }` );
+		},
+		// Boot anything shared across the sweep once and keep it warm — e.g.
+		// start a server or container the judge will verify against. Stop it
+		// in `afterAllScenarios`. Booting here (not per pair) avoids paying
+		// the start-up cost for every (scenario, agent) pair.
+		beforeAllScenarios: () => {
+			// e.g. start one server / container for the whole run.
+		},
+		afterAllScenarios: () => {
+			// e.g. stop that shared environment and clear the host state it
+			// owns. (Return a verdict here only if you want a post-sweep gate;
+			// returning nothing folds the run back as a pass.)
 		},
 		beforeTestAgent: ( { scenario, agent, agentWorkspace } ) => {
 			// Scaffold project-specific fixtures into the workspace here.
@@ -240,22 +257,27 @@ export default defineConfig( {
 			void agentWorkspace;
 		},
 		// `beforeJudgeAgent` is the first lifecycle point where the produced
-		// artifact exists AND the environment can be up before the judge
-		// grades. Build the project's live environment here, from
-		// `judgeWorkspace` (the isolated copy the judge runs against, never
-		// the canonical artifact), and export any per-pair facts the
-		// `JUDGE.md` brief needs to reach it — e.g. a URL or slug as
-		// environment variables.
+		// artifact exists AND the environment can be readied before the judge
+		// grades. Do the deterministic setup here, from `judgeWorkspace` (the
+		// isolated copy the judge runs against, never the canonical artifact):
+		// build the artifact, install it into the warm environment, give the
+		// pair a clean slate, and export the per-pair facts the `JUDGE.md`
+		// brief needs to reach it (e.g. a base URL or slug as environment
+		// variables). Leave the live behavioral checks — exercising the
+		// running environment and verifying the result — to the judge.
 		beforeJudgeAgent: ( { judgeWorkspace } ) => {
-			// e.g. build the artifact from `judgeWorkspace`, boot a server,
-			// and set process.env facts the JUDGE.md brief references.
+			// e.g. build the artifact from `judgeWorkspace`, install it into
+			// the warm environment, and set the process.env facts the
+			// JUDGE.md brief references.
 			void judgeWorkspace;
 		},
-		// Tear that same environment back down once the judge has graded
-		// this pair. Pair this with `roles.judge.concurrency: 'serial'`
-		// above when the environment is shared and cannot run concurrently.
+		// Clean this pair off the shared environment once the judge has graded
+		// it — leaving the environment warm for the next pair, not torn down.
+		// Pair this with `roles.judge.concurrency: 'serial'` above when the
+		// environment is shared and cannot grade two pairs at once.
 		afterJudgeAgent: ( { judgeWorkspace } ) => {
-			// e.g. stop the server and clear the per-pair env vars.
+			// e.g. uninstall this pair's artifact and clear its per-pair env
+			// vars; the shared environment stays up.
 			void judgeWorkspace;
 		},
 	},
