@@ -6,7 +6,11 @@ BREAKING: Redefine scenarios as `TESTING-AGENT.md` + `JUDGE.md` and run the judg
 isolated workspace copy. A scenario is now a folder containing `TESTING-AGENT.md` (the testing
 agent's instructions, which MUST include a `# Skills` section) and `JUDGE.md` (the judge's
 instructions); the old `scenario.yaml` is gone. The `Scenario` type drops `description`, `prompt`,
-`acceptance`, and `rubrics`, and the `Paths` type drops `paths.rubrics`. The judge no longer returns
+and `acceptance`, and regains an optional `rubrics` field (a list of rubric ids referenced from
+`JUDGE.md`); the `Paths` type drops then restores `paths.rubrics` as an optional location. A
+`JUDGE.md` may reference reusable rubrics by id under a `# Rubrics` section: each id is resolved from
+the optional `paths.rubrics` location and the rubric body is injected into the judge's grading
+material (the `{ pass, notes }` verdict is unchanged). The judge no longer returns
 a numeric/rubric score: its verdict is now `{ pass, notes }`. Before grading, the harness copies each
 agent's `workspace/` to a sibling `judge-workspace/` and runs the judge against that copy with the
 project-configured `capabilities` (`tools` / `mcpServers` / `allowWrite` / `network`); the
