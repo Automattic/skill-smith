@@ -11,10 +11,62 @@ const JUDGE_BRIEF_FILE = 'JUDGE.md';
 const HEADING_RE = /^(#{1,6})\s+(.*?)\s*$/;
 /** Matches the heading text of the `# Skills` section (case-insensitive). */
 const SKILLS_HEADING_RE = /^Skills$/i;
+/** Matches the heading text of the `# Rubrics` section (case-insensitive). */
+const RUBRICS_HEADING_RE = /^Rubrics$/i;
 /** Matches a list item, capturing its content. */
 const LIST_ITEM_RE = /^\s*[-*]\s+(.+?)\s*$/;
 /** Matches a Markdown link, capturing its link text. */
 const SKILL_LINK_RE = /^\[([^\]]*)\]\([^)]*\)$/;
+
+/**
+ * Extract the ordered list-item ids of a single brief section.
+ *
+ * The first heading whose text the `isHeading` predicate accepts (at any
+ * heading depth) opens the section. Lines are collected until the next
+ * heading of the same-or-shallower depth, or end of input; deeper
+ * sub-headings stay inside the section. Within the collected block, only
+ * Markdown list items contribute ids — each is unwrapped from surrounding
+ * backticks and from a `[id](...)` link, then trimmed. Prose and blank
+ * lines are ignored.
+ *
+ * @param brief - Raw brief text. `\r\n` and `\r` line endings are normalized
+ *   before matching.
+ * @param isHeading - Predicate over a heading's trailing text that decides
+ *   whether it opens the section.
+ * @returns The ordered ids, `[]` when the section exists but holds no list
+ *   items, or `undefined` when no heading matches `isHeading`.
+ */
+function parseListSection(
+	brief: string,
+	isHeading: ( text: string ) => boolean
+): string[] | undefined {
+	const lines = brief.replace( /\r\n?/g, '\n' ).split( '\n' );
+
+	let depth: number | undefined;
+	let start = -1;
+	for ( let i = 0; i < lines.length; i++ ) {
+		const heading = HEADING_RE.exec( lines[ i ] ?? '' );
+		if ( heading && isHeading( heading[ 2 ] ?? '' ) ) {
+			depth = heading[ 1 ]?.length;
+			start = i + 1;
+			break;
+		}
+	}
+
+	if ( depth === undefined ) return undefined;
+
+	const ids: string[] = [];
+	for ( let i = start; i < lines.length; i++ ) {
+		const line = lines[ i ] ?? '';
+		const heading = HEADING_RE.exec( line );
+		if ( heading && ( heading[ 1 ]?.length ?? 0 ) <= depth ) break;
+
+		const item = LIST_ITEM_RE.exec( line );
+		if ( item ) ids.push( normalizeSkillId( item[ 1 ] ?? '' ) );
+	}
+
+	return ids;
+}
 
 /**
  * Extract skill ids from the `# Skills` section of a testing brief.
@@ -41,32 +93,38 @@ const SKILL_LINK_RE = /^\[([^\]]*)\]\([^)]*\)$/;
 export function parseSkillsSection(
 	testingBrief: string
 ): string[] | undefined {
-	const lines = testingBrief.replace( /\r\n?/g, '\n' ).split( '\n' );
+	return parseListSection( testingBrief, ( text ) =>
+		SKILLS_HEADING_RE.test( text )
+	);
+}
 
-	let depth: number | undefined;
-	let start = -1;
-	for ( let i = 0; i < lines.length; i++ ) {
-		const heading = HEADING_RE.exec( lines[ i ] ?? '' );
-		if ( heading && SKILLS_HEADING_RE.test( heading[ 2 ] ?? '' ) ) {
-			depth = heading[ 1 ]?.length;
-			start = i + 1;
-			break;
-		}
-	}
-
-	if ( depth === undefined ) return undefined;
-
-	const ids: string[] = [];
-	for ( let i = start; i < lines.length; i++ ) {
-		const line = lines[ i ] ?? '';
-		const heading = HEADING_RE.exec( line );
-		if ( heading && ( heading[ 1 ]?.length ?? 0 ) <= depth ) break;
-
-		const item = LIST_ITEM_RE.exec( line );
-		if ( item ) ids.push( normalizeSkillId( item[ 1 ] ?? '' ) );
-	}
-
-	return ids;
+/**
+ * Extract rubric ids from the `# Rubrics` section of a judge brief.
+ *
+ * Grammar is identical to {@link parseSkillsSection}: the first heading whose
+ * text is exactly `Rubrics` (case-insensitive, any heading depth) opens the
+ * section. Lines are collected until the next heading of the same-or-shallower
+ * depth, or end of input; deeper sub-headings stay inside the section. Within
+ * the collected block, only Markdown list items contribute ids — each is
+ * unwrapped from surrounding backticks and from a `[id](...)` link, then
+ * trimmed. Prose and blank lines are ignored.
+ *
+ * @param judgeBrief - Raw brief text. `\r\n` and `\r` line endings are
+ *   normalized before matching.
+ * @returns The ordered rubric ids, `[]` when the section exists but holds no
+ *   list items, or `undefined` when the brief has no `# Rubrics` heading.
+ *
+ * @example
+ * parseRubricsSection( '# Rubrics\n- correctness' ); // => [ 'correctness' ]
+ * @example
+ * parseRubricsSection( '# Judge\n' ); // => undefined (absent)
+ */
+export function parseRubricsSection(
+	judgeBrief: string
+): string[] | undefined {
+	return parseListSection( judgeBrief, ( text ) =>
+		RUBRICS_HEADING_RE.test( text )
+	);
 }
 
 /** Strip surrounding backticks and unwrap a Markdown link to a bare id. */
