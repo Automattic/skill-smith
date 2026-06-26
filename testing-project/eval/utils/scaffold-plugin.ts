@@ -4,7 +4,21 @@ import { join } from 'node:path';
 const BLOCK_NAME = 'skillsmith/testing-block';
 const SLUG_PATTERN = /^[a-z0-9-]+$/;
 
-function pluginSlug( scenarioName: string, agentId: string ): string {
+/**
+ * Derive the unique plugin slug for one (scenario, agent) pair:
+ * `plugin-<scenarioName>-<agentId>`. The slug is the directory name the
+ * scaffold writes under the agent workspace and is reused by the judge-env
+ * helper to locate that plugin inside the judge copy, so both sides agree
+ * on the path without hard-coding it.
+ *
+ * @param scenarioName - Slug-safe scenario name (`[a-z0-9-]+`).
+ * @param agentId - Slug-safe agent id (`[a-z0-9-]+`).
+ * @returns The plugin directory slug.
+ * @throws If either argument is not slug-safe.
+ * @example
+ * pluginSlug( 'counter', 'haiku' ); // 'plugin-counter-haiku'
+ */
+export function pluginSlug( scenarioName: string, agentId: string ): string {
 	if ( ! SLUG_PATTERN.test( scenarioName ) ) {
 		throw new Error(
 			`scenario name must match ${ SLUG_PATTERN }, got: ${ JSON.stringify( scenarioName ) }`
