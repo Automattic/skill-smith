@@ -72,10 +72,23 @@ export default defineConfig( {
 		},
 
 		// The judge agent verifies each artifact against the scenario's
-		// JUDGE.md brief. It can carry its own capabilities: `tools` names
-		// the tools it is allowed to use while grading, and `mcpServers`
-		// declares MCP servers it can call (e.g. to drive a browser or
-		// query a database as part of verification).
+		// JUDGE.md brief — live, against the environment the project stands
+		// up (see `hooks` below), not by reading files alone. It carries its
+		// own capabilities, declared right here on the agent definition.
+		// Absent these keys the judge defaults to read-only file access; set
+		// them to widen what it may do while grading:
+		//   - `tools`      — built-in tools it may use (e.g. `Bash` to curl a
+		//                    page or run a CLI as part of verification).
+		//   - `mcpServers` — MCP servers it can call (e.g. to drive a browser
+		//                    or query a database).
+		//   - `allowWrite` — whether it may write to its workspace
+		//                    (default false; the judge grades a throwaway copy
+		//                    of the artifact, so it can never alter the real
+		//                    one regardless of this knob).
+		//   - `network`    — whether it may reach the network.
+		// These are generic knobs: Skillsmith core assumes no WordPress or
+		// browser toolset. Any project-specific vocabulary (which MCP server,
+		// which CLI) lives here in the project's config, never in core.
 		'codex-judge': {
 			provider: 'codex',
 			model: 'gpt-5.5',
@@ -87,6 +100,8 @@ export default defineConfig( {
 					args: [ '@playwright/mcp@latest' ],
 				},
 			},
+			allowWrite: false,
+			network: false,
 		},
 
 		// Google Gemini via the public API (uses GEMINI_API_KEY).
@@ -115,13 +130,17 @@ export default defineConfig( {
 		},
 
 		// The judge grades each artifact against the scenario's JUDGE.md
-		// brief. The object form lets you pin a project-specific prompt and
-		// set `concurrency`:
+		// brief, verifying behavior on the live environment the project
+		// stood up. The object form lets you pin a project-specific prompt
+		// and set `concurrency`:
 		//   - "parallel" (default) — every (scenario, agent) pair may grade
 		//     at once.
-		//   - "serial" — a run-wide lock serializes the judge bracket so no
-		//     two pairs grade simultaneously, e.g. when each grade boots a
-		//     shared, non-reentrant environment such as `wp-env start`.
+		//   - "serial" — a run-wide lock serializes the whole judge bracket
+		//     (beforeJudgeAgent → judge → afterJudgeAgent), so no two pairs
+		//     stand up / grade / tear down at the same time. Use it when each
+		//     grade boots a shared, non-reentrant environment such as a
+		//     single `wp-env start` on a fixed port. The testing phase stays
+		//     fully parallel either way.
 		judge: { agent: 'codex-judge', concurrency: 'serial' },
 
 		// Single-agent roles also accept a string shorthand. For `improver`,
@@ -134,7 +153,9 @@ export default defineConfig( {
 	// `base` is where it writes run artifacts. Each scenario under
 	// `scenarios` is a directory holding a `TESTING-AGENT.md` (the brief
 	// handed to the test agents, including a `# Skills` section) and a
-	// `JUDGE.md` (the brief handed to the judge).
+	// `JUDGE.md` (the brief handed to the judge). There is no rubrics
+	// directory: whatever the judge should check goes straight into each
+	// `JUDGE.md` as prose, so `paths` is just these three keys.
 	paths: {
 		base: './.skillsmith',
 		skills: './skills',
@@ -163,6 +184,16 @@ export default defineConfig( {
 	// Hooks fire at well-defined points in the lifecycle. Every hook is
 	// fire-and-forget except `afterAllScenarios`, whose return value the
 	// harness consumes (see README for the full lifecycle table).
+	//
+	// Skillsmith never starts or stops a server, browser, or container —
+	// the project owns its environment. When the judge needs a live
+	// environment to verify against, the project stands it up per pair in
+	// `beforeJudgeAgent` and tears it down in `afterJudgeAgent`. That is
+	// the verification mechanism now: the judge exercises the running
+	// environment per its `JUDGE.md` brief. (There is no bundled e2e gate.
+	// `afterAllScenarios` still exists as an optional, generic
+	// post-sweep gate for any extra check you want across the whole
+	// iteration — most projects can leave it unset.)
 	hooks: {
 		beforeAll: ( { runDirectory } ) => {
 			console.log( `run directory: ${ runDirectory }` );
@@ -173,10 +204,23 @@ export default defineConfig( {
 			void agent;
 			void agentWorkspace;
 		},
+		// `beforeJudgeAgent` is the first lifecycle point where the produced
+		// artifact exists AND the environment can be up before the judge
+		// grades. Build the project's live environment here, from
+		// `judgeWorkspace` (the isolated copy the judge runs against, never
+		// the canonical artifact), and export any per-pair facts the
+		// `JUDGE.md` brief needs to reach it — e.g. a URL or slug as
+		// environment variables.
 		beforeJudgeAgent: ( { judgeWorkspace } ) => {
-			// The judge runs against an isolated copy of the artifact at
-			// `judgeWorkspace`; build any environment it needs here (e.g.
-			// boot a server) and tear it down in `afterJudgeAgent`.
+			// e.g. build the artifact from `judgeWorkspace`, boot a server,
+			// and set process.env facts the JUDGE.md brief references.
+			void judgeWorkspace;
+		},
+		// Tear that same environment back down once the judge has graded
+		// this pair. Pair this with `roles.judge.concurrency: 'serial'`
+		// above when the environment is shared and cannot run concurrently.
+		afterJudgeAgent: ( { judgeWorkspace } ) => {
+			// e.g. stop the server and clear the per-pair env vars.
 			void judgeWorkspace;
 		},
 	},
