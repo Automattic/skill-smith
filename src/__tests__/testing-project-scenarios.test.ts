@@ -9,11 +9,15 @@ import { enumerateScenarios } from '../scenarios/enumerate';
 /**
  * Conversion contract for the bundled `testing-project` scenarios.
  *
- * Task 16 converts all 11 scenarios from the legacy structured model
- * (`scenario.yaml` + Playwright `e2e.spec.mjs`) to the two-file model
- * (`TESTING-AGENT.md` + `JUDGE.md`). These tests assert the conversion
- * holds for the on-disk scenarios — discovery cleanliness, prompt
- * preservation, and the judge-brief content contract.
+ * All 11 scenarios use the two-file model (`TESTING-AGENT.md` +
+ * `JUDGE.md`) rather than the legacy structured model (`scenario.yaml` +
+ * Playwright `e2e.spec.mjs`). Each `JUDGE.md` references the shared
+ * best-practices rubric by id (a `# Rubrics` section listing
+ * `wp-interactivity-api-best-practices`) instead of inlining its text,
+ * and describes judge-driven human-language setup rather than the
+ * removed per-post env-var bridge. These tests assert that contract for
+ * the on-disk scenarios — discovery cleanliness, prompt preservation,
+ * and the judge-brief content contract.
  */
 
 const here = dirname( fileURLToPath( import.meta.url ) );
@@ -52,12 +56,15 @@ function readScenarioFile( id: string, file: string ): string {
 }
 
 /**
- * A distinctive sentence from the shared best-practices rubric. Its
- * presence in a `JUDGE.md` proves the full rubric text was inlined
- * rather than referenced.
+ * A distinctive sentence from the shared best-practices rubric. A
+ * `JUDGE.md` that references the rubric by id must NOT contain this
+ * sentence — its absence proves the rubric text was not inlined.
  */
 const RUBRIC_SENTINEL =
 	'`block.json` declares the view module as `viewScriptModule` (NOT `viewScript`).';
+
+/** The rubric id every converted `JUDGE.md` references in its `# Rubrics` section. */
+const RUBRIC_ID = 'wp-interactivity-api-best-practices';
 
 /**
  * Per-scenario anchors. `prompt` is a verbatim fragment of the original
@@ -185,31 +192,43 @@ test( 'each TESTING-AGENT.md preserves the prompt and has a Skills section', () 
 	}
 } );
 
-test( 'each JUDGE.md inlines the full rubric, the env-var convention, and live checks', () => {
+test( 'each JUDGE.md references the rubric by id, drops the removed env vars, and keeps live checks', () => {
 	for ( const [ id, anchor ] of Object.entries( ANCHORS ) ) {
 		const brief = readScenarioFile( id, 'JUDGE.md' );
 
-		// Full rubric is stamped in, not referenced.
-		assert.ok(
-			brief.includes( RUBRIC_SENTINEL ),
-			`${ id } JUDGE.md does not inline the shared rubric text`
+		// The rubric is referenced by id, not stamped in. A `# Rubrics`
+		// section lists the shared rubric id; the inlined rubric text
+		// (the sentinel sentence) must NOT appear in the brief.
+		assert.match(
+			brief,
+			/^#+\s+Rubrics$/im,
+			`${ id } JUDGE.md has no # Rubrics heading`
+		);
+		assert.match(
+			brief,
+			new RegExp( `^\\s*-\\s+${ RUBRIC_ID }\\s*$`, 'm' ),
+			`${ id } JUDGE.md does not list the ${ RUBRIC_ID } rubric id`
 		);
 		assert.ok(
-			! /wp-interactivity-api-best-practices\.md/.test( brief ),
-			`${ id } JUDGE.md references the rubric file instead of inlining it`
+			! brief.includes( RUBRIC_SENTINEL ),
+			`${ id } JUDGE.md still inlines the shared rubric text`
 		);
 
-		// Env-var convention near the top.
-		for ( const envVar of [
+		// The removed bridge env vars must no longer be named; only
+		// retained bridge facts (the plugin slug) may appear.
+		for ( const removed of [
 			'$SKILLSMITH_JUDGE_URL',
 			'$SKILLSMITH_POST_ID',
-			'$SKILLSMITH_PLUGIN_SLUG',
 		] ) {
 			assert.ok(
-				brief.includes( envVar ),
-				`${ id } JUDGE.md does not state the ${ envVar } convention`
+				! brief.includes( removed ),
+				`${ id } JUDGE.md still names the removed ${ removed } env var`
 			);
 		}
+		assert.ok(
+			brief.includes( '$SKILLSMITH_PLUGIN_SLUG' ),
+			`${ id } JUDGE.md does not reference the retained $SKILLSMITH_PLUGIN_SLUG bridge fact`
+		);
 
 		// Plain-language live checks derived from the old e2e spec.
 		for ( const fragment of anchor.liveChecks ) {
