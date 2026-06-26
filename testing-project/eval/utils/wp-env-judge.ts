@@ -7,13 +7,13 @@ import { pluginSlug } from './scaffold-plugin';
 
 // This file lives at `<projectRoot>/eval/utils/wp-env-judge.ts`, so the
 // project root — where `node_modules`, `.wp-env.json`, and the npm scripts
-// live — is two directories up (matching `wp-cli.mjs` and `verify-e2e.ts`).
+// live — is two directories up (matching the sibling `wp-cli.mjs`).
 const PROJECT_ROOT = resolve(
 	dirname( fileURLToPath( import.meta.url ) ),
 	'../..'
 );
 
-/** Fixed port the per-pair wp-env listens on (matches `playwright.config.ts`). */
+/** Fixed port the per-pair wp-env listens on; the judge loads URLs on it. */
 const WP_ENV_PORT = 8987;
 
 /** Block name the scaffold registers; embedded in every test post. */
