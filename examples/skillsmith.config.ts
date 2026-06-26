@@ -20,6 +20,12 @@ const testingAgentPrompt = readFileSync(
 	resolve( here, 'prompts/testing-agent.md' ),
 	'utf8'
 );
+// The judge prompt is the project's reusable "environment manual" — see
+// `roles.judge` below for what belongs in it.
+const judgePrompt = readFileSync(
+	resolve( here, 'prompts/judge.md' ),
+	'utf8'
+);
 const improverPrompt = readFileSync(
 	resolve( here, 'prompts/improver.md' ),
 	'utf8'
@@ -133,15 +139,34 @@ export default defineConfig( {
 		// brief, verifying behavior on the live environment the project
 		// stood up. The object form lets you pin a project-specific prompt
 		// and set `concurrency`:
-		//   - "parallel" (default) — every (scenario, agent) pair may grade
-		//     at once.
-		//   - "serial" — a run-wide lock serializes the whole judge bracket
-		//     (beforeJudgeAgent → judge → afterJudgeAgent), so no two pairs
-		//     stand up / grade / tear down at the same time. Use it when each
-		//     grade boots a shared, non-reentrant environment such as a
-		//     single `wp-env start` on a fixed port. The testing phase stays
-		//     fully parallel either way.
-		judge: { agent: 'codex-judge', concurrency: 'serial' },
+		//   - `prompt` — a reusable "environment manual" the judge memorizes
+		//     for every scenario. Keep the per-scenario `JUDGE.md` briefs
+		//     short and behavior-focused (what to exercise and what counts
+		//     as correct); put the shared runtime mechanics here once: how
+		//     to reach the live environment the `hooks` stood up (a CLI
+		//     bridge, a base URL, the env vars the hooks export), how to
+		//     discover what the test agent produced (e.g. read a manifest
+		//     file rather than assume a fixed name), and how to drive the
+		//     environment to exercise it. Like `test`, this prompt is
+		//     appended to the harness-built judge prompt — it augments, not
+		//     replaces. This is also where project-specific command strings
+		//     live (the exact CLI invocations, URL shapes, and file globs
+		//     for your stack), keeping that vocabulary out of Skillsmith
+		//     core and out of the per-scenario briefs.
+		//   - `concurrency`:
+		//     - "parallel" (default) — every (scenario, agent) pair may grade
+		//       at once.
+		//     - "serial" — a run-wide lock serializes the whole judge bracket
+		//       (beforeJudgeAgent → judge → afterJudgeAgent), so no two pairs
+		//       stand up / grade / tear down at the same time. Use it when
+		//       each grade shares a single non-reentrant environment (e.g. one
+		//       server on a fixed port). The testing phase stays fully
+		//       parallel either way.
+		judge: {
+			agent: 'codex-judge',
+			prompt: judgePrompt,
+			concurrency: 'serial',
+		},
 
 		// Single-agent roles also accept a string shorthand. For `improver`,
 		// the prompt REPLACES the built-in instructions entirely (different
@@ -153,13 +178,23 @@ export default defineConfig( {
 	// `base` is where it writes run artifacts. Each scenario under
 	// `scenarios` is a directory holding a `TESTING-AGENT.md` (the brief
 	// handed to the test agents, including a `# Skills` section) and a
-	// `JUDGE.md` (the brief handed to the judge). There is no rubrics
-	// directory: whatever the judge should check goes straight into each
-	// `JUDGE.md` as prose, so `paths` is just these three keys.
+	// `JUDGE.md` (the brief handed to the judge).
 	paths: {
 		base: './.skillsmith',
 		skills: './skills',
 		scenarios: './eval/scenarios',
+
+		// Optional. Point this at a directory of reusable rubric files
+		// (`<id>.md` each) to share grading criteria across scenarios
+		// instead of re-pasting them into every `JUDGE.md`. A scenario
+		// opts in by listing rubric ids under a `# Rubrics` heading in its
+		// `JUDGE.md`; the harness loads each `<rubrics>/<id>.md` into the
+		// judge's prompt as grading material. Omit this key entirely if no
+		// scenario references a rubric — it is required to exist only when
+		// a project uses it. (An id with no matching file fails that
+		// scenario with a clear per-scenario error, the same way an
+		// unknown skill id does.)
+		rubrics: './eval/rubrics',
 	},
 
 	// Behavior of the self-improvement loop. Only consulted when
