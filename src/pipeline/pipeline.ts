@@ -40,7 +40,6 @@ import {
 import {
 	normalizeScenarioFilters,
 	selectScenariosByNormalizedFilters,
-	validateConfiguredScenarioNamesAreUnique,
 } from '../scenarios/selection';
 import { tryHook } from '../util/hooks';
 import { RunLog } from '../util/run-log';
@@ -90,7 +89,6 @@ export async function runPipeline( params: PipelineParams ): Promise< number > {
 	const normalizedScenarioFilters = normalizeScenarioFilters(
 		params.scenarios ?? []
 	);
-	validateConfiguredScenarioNamesAreUnique( enumeratedScenarios );
 	const allScenarios = selectScenariosByNormalizedFilters(
 		enumeratedScenarios,
 		normalizedScenarioFilters
