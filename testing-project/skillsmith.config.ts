@@ -3,11 +3,20 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@automattic/skillsmith';
 import { scaffoldPlugin } from './eval/utils/scaffold-plugin';
-import { setUpJudgeEnv, tearDownJudgeEnv } from './eval/utils/wp-env-judge';
+import {
+	bootJudgeEnv,
+	cleanUpPair,
+	installPluginForPair,
+	stopJudgeEnv,
+} from './eval/utils/wp-env-judge';
 
 const here = dirname( fileURLToPath( import.meta.url ) );
 const testingAgentPrompt = readFileSync(
 	resolve( here, 'eval/prompts/testing-agent.md' ),
+	'utf8'
+);
+const judgePrompt = readFileSync(
+	resolve( here, 'eval/prompts/judge.md' ),
 	'utf8'
 );
 const improverPrompt = readFileSync(
@@ -48,9 +57,13 @@ export default defineConfig( {
 			prompt: testingAgentPrompt,
 		},
 		// Serialize the whole beforeJudgeAgent -> judge -> afterJudgeAgent
-		// bracket: each pair boots a single shared wp-env on a fixed port, and
-		// vanilla wp-env cannot run two instances at once.
-		judge: { agent: 'opus', concurrency: 'serial' },
+		// bracket: every pair stages its plugin onto a single shared wp-env on a
+		// fixed port, and vanilla wp-env cannot run two instances at once. The
+		// judge prompt is the reusable "environment manual" carrying the runtime
+		// mechanics (the WP-CLI bridge, the post-create template, the post URL
+		// shape, and block discovery) that the per-scenario JUDGE.md briefs build
+		// on.
+		judge: { agent: 'opus', prompt: judgePrompt, concurrency: 'serial' },
 		improver: { agent: 'opus', prompt: improverPrompt },
 	},
 	selfImprovement: {
@@ -58,18 +71,32 @@ export default defineConfig( {
 		scope: 'failed-scenarios',
 	},
 
+	// Reusable rubric definitions a scenario's JUDGE.md can reference by id.
+	paths: {
+		rubrics: './eval/rubrics',
+	},
+
 	hooks: {
+		// Boot the single warm WordPress environment once before the scenario
+		// sweep begins.
+		beforeAllScenarios: () => bootJudgeEnv(),
+
+		// Stop the warm environment and clear the host state it owns once the
+		// whole sweep has been graded. Returns nothing, so the harness folds the
+		// run back as a pass.
+		afterAllScenarios: () => stopJudgeEnv(),
+
 		// Scaffold the WordPress plugin each testing agent works inside.
 		beforeTestAgent: ( { scenario, agent, agentWorkspace } ) =>
 			scaffoldPlugin( agentWorkspace, scenario.name, agent.id ),
 
-		// Stand the live WordPress environment up for this pair, built from the
-		// judge copy: build the plugin, boot wp-env, activate the plugin, create
-		// a test post, and export the per-pair facts the JUDGE.md briefs read.
-		beforeJudgeAgent: ( ctx ) => setUpJudgeEnv( ctx ),
+		// Stage this pair's produced plugin onto the warm environment, built from
+		// the judge copy, and export the per-pair facts the JUDGE.md briefs read.
+		beforeJudgeAgent: ( ctx ) => installPluginForPair( ctx ),
 
-		// Tear the environment back down and clear the per-pair env vars once
-		// the judge has graded this pair.
-		afterJudgeAgent: ( ctx ) => tearDownJudgeEnv( ctx ),
+		// Tear this pair off the warm environment and clear its per-pair env vars
+		// once the judge has graded the pair; the environment stays up for the
+		// next pair.
+		afterJudgeAgent: ( ctx ) => cleanUpPair( ctx ),
 	},
 } );

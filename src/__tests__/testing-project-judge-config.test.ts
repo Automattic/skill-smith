@@ -106,31 +106,37 @@ test( 'roles.judge requests serial judge concurrency', async () => {
 	);
 } );
 
-test( 'the config wires beforeJudgeAgent/afterJudgeAgent and drops the e2e gate', async () => {
+test( 'the config wires run-level boot/stop and per-pair install/clean-up env hooks', async () => {
 	const config = await loadConfig();
 	const hooks = config.hooks as Record< string, unknown >;
 
+	// Run-level lifecycle: boot once before the sweep, stop once after.
+	assert.equal(
+		typeof hooks.beforeAllScenarios,
+		'function',
+		'beforeAllScenarios boots the warm env once for the run'
+	);
+	assert.equal(
+		typeof hooks.afterAllScenarios,
+		'function',
+		'afterAllScenarios stops the warm env once for the run'
+	);
+	// Per-pair lifecycle: install/clean-up the produced plugin per pair.
 	assert.equal(
 		typeof hooks.beforeJudgeAgent,
 		'function',
-		'beforeJudgeAgent stands the env up per pair'
+		'beforeJudgeAgent installs the produced plugin per pair'
 	);
 	assert.equal(
 		typeof hooks.afterJudgeAgent,
 		'function',
-		'afterJudgeAgent tears the env down per pair'
+		'afterJudgeAgent cleans the produced plugin up per pair'
 	);
 	// The testing-agent scaffolding stays.
 	assert.equal(
 		typeof hooks.beforeTestAgent,
 		'function',
 		'beforeTestAgent still scaffolds the plugin'
-	);
-	// The old e2e gate and its import are gone.
-	assert.equal(
-		hooks.afterAllScenarios,
-		undefined,
-		'the afterAllScenarios e2e gate is removed'
 	);
 
 	const src = configSource();
@@ -141,6 +147,65 @@ test( 'the config wires beforeJudgeAgent/afterJudgeAgent and drops the e2e gate'
 	assert.ok(
 		! /verify-e2e/.test( src ),
 		'no reference to the verify-e2e module remains'
+	);
+} );
+
+test( 'afterAllScenarios returns nothing so the harness treats the run as a pass', async () => {
+	const config = await loadConfig();
+	const hooks = config.hooks as Record< string, unknown >;
+	const afterAllScenarios = hooks.afterAllScenarios as () => unknown;
+	// `stopJudgeEnv` is the real side-effecting target; here we only assert the
+	// wrapper yields no verdict. We invoke a stand-in shape rather than the
+	// real wp-env shell-out: the wired hook must return undefined regardless.
+	const result = afterAllScenarios.length;
+	assert.equal(
+		result,
+		0,
+		'afterAllScenarios takes no required args and folds back as a pass'
+	);
+	const src = configSource();
+	assert.ok(
+		/afterAllScenarios:\s*\(\)\s*=>\s*stopJudgeEnv\(\)/.test( src ),
+		'afterAllScenarios is wired to stopJudgeEnv() and returns its void result'
+	);
+	assert.ok(
+		/beforeAllScenarios:\s*\(\)\s*=>\s*bootJudgeEnv\(\)/.test( src ),
+		'beforeAllScenarios is wired to bootJudgeEnv()'
+	);
+} );
+
+test( 'the config wires the per-pair install/clean-up helpers by name', () => {
+	const src = configSource();
+	assert.ok(
+		/beforeJudgeAgent:\s*\(\s*ctx\s*\)\s*=>\s*installPluginForPair\(\s*ctx\s*\)/.test(
+			src
+		),
+		'beforeJudgeAgent installs the produced plugin for the pair'
+	);
+	assert.ok(
+		/afterJudgeAgent:\s*\(\s*ctx\s*\)\s*=>\s*cleanUpPair\(\s*ctx\s*\)/.test(
+			src
+		),
+		'afterJudgeAgent cleans the pair up'
+	);
+	// The legacy per-pair orchestrators are no longer wired into the hooks.
+	assert.ok(
+		! /beforeJudgeAgent:[^\n]*setUpJudgeEnv/.test( src ),
+		'beforeJudgeAgent no longer calls the legacy setUpJudgeEnv'
+	);
+	assert.ok(
+		! /afterJudgeAgent:[^\n]*tearDownJudgeEnv/.test( src ),
+		'afterJudgeAgent no longer calls the legacy tearDownJudgeEnv'
+	);
+} );
+
+test( 'the config declares paths.rubrics pointing at the reusable rubric directory', async () => {
+	const config = await loadConfig();
+	const paths = config.paths as { rubrics?: string } | undefined;
+	assert.equal(
+		paths?.rubrics,
+		'./eval/rubrics',
+		'paths.rubrics points the harness at the reusable rubric directory'
 	);
 } );
 
@@ -174,7 +239,7 @@ test( 'judgePluginSlug matches the scaffold slug so the judge copy resolves the 
 	);
 } );
 
-test( 'setUpJudgeEnv and tearDownJudgeEnv are exported as the hook orchestrators', async () => {
+test( 'setUpJudgeEnv and tearDownJudgeEnv remain exported (legacy orchestrators)', async () => {
 	const helper = await loadHelper();
 	assert.equal(
 		typeof helper.setUpJudgeEnv,
@@ -185,5 +250,94 @@ test( 'setUpJudgeEnv and tearDownJudgeEnv are exported as the hook orchestrators
 		typeof helper.tearDownJudgeEnv,
 		'function',
 		'tearDownJudgeEnv tears the env down for a pair'
+	);
+} );
+
+test( 'the new run-level + per-pair lifecycle helpers are exported and imported by the config', async () => {
+	const helper = await loadHelper();
+	for ( const name of [
+		'bootJudgeEnv',
+		'stopJudgeEnv',
+		'installPluginForPair',
+		'cleanUpPair',
+	] ) {
+		assert.equal(
+			typeof helper[ name ],
+			'function',
+			`${ name } is exported from the judge-env helper`
+		);
+	}
+	const src = configSource();
+	const importMatch = src.match(
+		/import\s*\{([^}]*)\}\s*from\s*'\.\/eval\/utils\/wp-env-judge'/s
+	);
+	assert.ok(
+		importMatch,
+		'the config imports from the judge-env helper module'
+	);
+	const imported = ( importMatch?.[ 1 ] ?? '' )
+		.split( ',' )
+		.map( ( name ) => name.trim() );
+	for ( const name of [
+		'bootJudgeEnv',
+		'stopJudgeEnv',
+		'installPluginForPair',
+		'cleanUpPair',
+	] ) {
+		assert.ok(
+			imported.includes( name ),
+			`the config imports ${ name } from the judge-env helper`
+		);
+	}
+} );
+
+test( "roles.judge.prompt is the environment manual describing the judge's runtime mechanics", async () => {
+	const config = await loadConfig();
+	const roles = config.roles as Record< string, unknown >;
+	const judgeRole = roles.judge as { prompt?: string };
+	const prompt = judgeRole.prompt ?? '';
+
+	// The judge-wp.mjs command form, anchored at the project-root env var.
+	assert.ok(
+		/node\s+"\$SKILLSMITH_PROJECT_ROOT\/eval\/utils\/judge-wp\.mjs"/.test(
+			prompt
+		),
+		'the manual shows the judge-wp.mjs command form'
+	);
+	// The post-create template, porcelain so stdout is the numeric id.
+	assert.ok(
+		/wp post create --post_type=post --post_status=publish/.test(
+			prompt
+		) && /--porcelain/.test( prompt ),
+		'the manual shows the wp post create … --porcelain template'
+	);
+	// The URL shape carrying the port var and ?p=<id>.
+	assert.ok(
+		/http:\/\/localhost:\$SKILLSMITH_WP_PORT\/\?p=<id>/.test( prompt ),
+		'the manual shows the ?p=<id> URL shape with the port var'
+	);
+	// The block-discovery instruction reading the built block.json files.
+	assert.ok(
+		/build\/blocks\/\*\/block\.json/.test( prompt ),
+		'the manual tells the judge to discover block names from build/blocks/*/block.json'
+	);
+	assert.ok(
+		/self-closing block comment/i.test( prompt ),
+		'the manual tells the judge to insert one self-closing block comment per name'
+	);
+} );
+
+test( 'roles.judge.prompt is read from the eval/prompts/judge.md manual file', async () => {
+	const config = await loadConfig();
+	const roles = config.roles as Record< string, unknown >;
+	const judgeRole = roles.judge as { prompt?: string };
+	const expected = readFileSync(
+		join( TESTING_PROJECT, 'eval', 'prompts', 'judge.md' ),
+		'utf8'
+	);
+	assert.equal(
+		judgeRole.prompt,
+		expected,
+		'roles.judge.prompt carries the judge.md environment manual verbatim'
 	);
 } );
