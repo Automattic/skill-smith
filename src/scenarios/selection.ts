@@ -153,23 +153,16 @@ export function selectScenariosByFilters(
 }
 
 /**
- * Validate that configured scenario names are unique across all discovered
- * scenarios.
- *
- * Only names with configured provenance are checked. Synthetic placeholder
- * names created for malformed YAML or shape-invalid scenarios are ignored so
- * invalid stubs do not hide the original enumeration error behind a duplicate
- * name failure.
+ * Validate that scenario names are unique across all discovered scenarios.
  *
  * @param scenarios - Enumerated scenarios to validate before filtering or running.
- * @throws UserFacingError when two or more configured scenarios share a name.
+ * @throws UserFacingError when two or more scenarios share a name.
  */
 export function validateConfiguredScenarioNamesAreUnique(
 	scenarios: EnumeratedScenario[]
 ): void {
 	const idsByName = new Map< string, string[] >();
 	for ( const scenario of scenarios ) {
-		if ( scenario.nameSource !== 'configured' ) continue;
 		const ids = idsByName.get( scenario.scenario.name ) ?? [];
 		ids.push( scenario.id );
 		idsByName.set( scenario.scenario.name, ids );

@@ -1,7 +1,11 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parse as parseYaml } from 'yaml';
 import type { Paths, Scenario } from '../config/types';
+
+/** Filename of the testing brief that, together with {@link JUDGE_BRIEF_FILE}, marks a directory as a scenario. */
+const TESTING_BRIEF_FILE = 'TESTING-AGENT.md';
+/** Filename of the judge brief that, together with {@link TESTING_BRIEF_FILE}, marks a directory as a scenario. */
+const JUDGE_BRIEF_FILE = 'JUDGE.md';
 
 /** Matches a heading line, capturing its depth (`#` run) and trailing text. */
 const HEADING_RE = /^(#{1,6})\s+(.*?)\s*$/;
@@ -77,17 +81,20 @@ function normalizeSkillId( raw: string ): string {
 }
 
 /**
- * Provenance for an enumerated scenario's `scenario.name` value.
- * Configured names come from a valid `scenario.yaml`; synthetic names are
- * generated from the scenario id when the file cannot provide a valid name.
- */
-export type EnumeratedScenarioNameSource = 'configured' | 'synthetic';
-
-/**
  * Scenario record produced by filesystem enumeration before run selection.
+ *
+ * Every discovered scenario directory yields exactly one of these — including
+ * directories that fail enumeration validation, which carry an {@link error}
+ * and a minimal stub {@link scenario}. Errored entries survive selection so
+ * they can be reported as skipped rather than silently dropped.
  */
 export interface EnumeratedScenario {
-	/** Parsed scenario definition, or a minimal placeholder for invalid YAML. */
+	/**
+	 * Parsed scenario definition. For a valid scenario this holds both briefs
+	 * read verbatim and the skills parsed from `# Skills`. For an errored
+	 * scenario this is a stub carrying whatever briefs were readable (or empty
+	 * strings), `name` equal to {@link id}, and an empty `skills` list.
+	 */
 	scenario: Scenario;
 	/**
 	 * Stable scenario directory identifier, relative to `paths.scenarios` and
@@ -100,19 +107,31 @@ export interface EnumeratedScenario {
 	id: string;
 	/** Compatibility alias for `id`. This value must always equal `id`. */
 	dirName: string;
-	/** Indicates whether `scenario.name` came from YAML or from the scenario id. */
-	nameSource: EnumeratedScenarioNameSource;
 	/** Enumeration-time validation error, if the scenario cannot run as-is. */
 	error?: string;
 }
 
 /**
- * Walk `paths.scenarios` recursively, parse every discovered `scenario.yaml`,
- * and validate that `skills[*]` and `rubrics[*]` references resolve under
- * `paths.skills/` and `paths.rubrics/` respectively.
+ * Walk `paths.scenarios` recursively and discover scenarios by the two-file
+ * model: a directory is a scenario iff it contains both a testing brief
+ * (`TESTING-AGENT.md`) and a judge brief (`JUDGE.md`). Both briefs are read
+ * verbatim, and the testing brief's `# Skills` section is parsed and validated
+ * against `paths.skills/`.
  *
- * Bad refs or malformed YAML → fail that scenario with an `error`,
- * others continue.
+ * A directory with neither brief is not a scenario; enumeration keeps walking
+ * its children so grouping folders may nest scenarios. A directory with exactly
+ * one of the two briefs is an errored scenario whose `error` names the missing
+ * file.
+ *
+ * Enumeration never throws. Validation problems (a missing brief, an absent
+ * `# Skills` section, or unresolved skill references) are reported as a
+ * per-scenario `error` string; valid scenarios alongside an errored one are
+ * still returned. Results are sorted by {@link EnumeratedScenario.id}.
+ *
+ * @param paths - Resolved config paths; `scenarios` and `skills` are joined
+ *   under `projectRoot`.
+ * @param projectRoot - Absolute root the paths resolve against.
+ * @returns Every discovered scenario, errored or not, sorted by `id`.
  */
 export function enumerateScenarios(
 	paths: Paths,
@@ -120,7 +139,6 @@ export function enumerateScenarios(
 ): EnumeratedScenario[] {
 	const scenariosRoot = join( projectRoot, paths.scenarios );
 	const skillsRoot = join( projectRoot, paths.skills );
-	const rubricsRoot = join( projectRoot, paths.rubrics );
 
 	const out: EnumeratedScenario[] = [];
 
@@ -128,64 +146,30 @@ export function enumerateScenarios(
 
 	function visit( dir: string, segments: string[] ): void {
 		const id = segments.join( '/' );
-		const yamlPath = join( dir, 'scenario.yaml' );
+		const testingPath = join( dir, TESTING_BRIEF_FILE );
+		const judgePath = join( dir, JUDGE_BRIEF_FILE );
+		const hasTesting = existsSync( testingPath );
+		const hasJudge = existsSync( judgePath );
 
-		if ( existsSync( yamlPath ) ) {
-			let parsed: unknown;
-			try {
-				parsed = parseYaml( readFileSync( yamlPath, 'utf8' ) );
-			} catch ( err ) {
-				const msg = err instanceof Error ? err.message : String( err );
-				out.push( {
-					scenario: stubScenario( id ),
-					id,
-					dirName: id,
-					nameSource: 'synthetic',
-					error: `scenario.yaml parse error: ${ msg }`,
-				} );
-				visitChildren( dir, segments );
-				return;
-			}
+		if ( hasTesting || hasJudge ) {
+			const testingBrief = hasTesting
+				? readFileSync( testingPath, 'utf8' )
+				: '';
+			const judgeBrief = hasJudge
+				? readFileSync( judgePath, 'utf8' )
+				: '';
 
-			if ( ! isScenarioShape( parsed ) ) {
-				out.push( {
-					scenario: stubScenario( id ),
-					id,
-					dirName: id,
-					nameSource: 'synthetic',
-					error: 'scenario.yaml malformed: expected name/description/skills/prompt/acceptance/rubrics',
-				} );
-				visitChildren( dir, segments );
-				return;
-			}
-
-			const scenario = parsed;
-			const missing: string[] = [];
-			for ( const id of scenario.skills ) {
-				if ( ! existsSync( join( skillsRoot, id, 'SKILL.md' ) ) ) {
-					missing.push( `skill "${ id }"` );
-				}
-			}
-			for ( const id of scenario.rubrics ) {
-				if ( ! existsSync( join( rubricsRoot, `${ id }.md` ) ) ) {
-					missing.push( `rubric "${ id }"` );
-				}
-			}
-
-			if ( missing.length > 0 ) {
-				out.push( {
-					scenario,
-					id,
-					dirName: id,
-					nameSource: 'configured',
-					error: `unresolved reference: ${ missing.join( ', ' ) }`,
-				} );
+			if ( hasTesting && hasJudge ) {
+				out.push( scenarioFromBriefs( id, testingBrief, judgeBrief, skillsRoot ) );
 			} else {
+				const missingFile = hasTesting
+					? JUDGE_BRIEF_FILE
+					: TESTING_BRIEF_FILE;
 				out.push( {
-					scenario,
+					scenario: stubScenario( id, testingBrief, judgeBrief ),
 					id,
 					dirName: id,
-					nameSource: 'configured',
+					error: `missing required file: ${ missingFile }`,
 				} );
 			}
 		}
@@ -205,30 +189,77 @@ export function enumerateScenarios(
 	return out.sort( ( a, b ) => ( a.id < b.id ? -1 : a.id > b.id ? 1 : 0 ) );
 }
 
-function stubScenario( dirName: string ): Scenario {
-	return {
-		name: dirName,
-		description: '',
-		skills: [],
-		prompt: '',
-		acceptance: [],
-		rubrics: [],
+/**
+ * Build an {@link EnumeratedScenario} from a scenario directory that has both
+ * briefs. Parses `# Skills` from the testing brief and validates each id
+ * against `<skillsRoot>/<id>/SKILL.md`, concatenating a missing-section and any
+ * unresolved-reference problems into a single `error` string.
+ *
+ * @param id - Normalized scenario id (slash-joined path segments).
+ * @param testingBrief - Raw testing brief contents.
+ * @param judgeBrief - Raw judge brief contents.
+ * @param skillsRoot - Absolute path skill references resolve against.
+ * @returns A runnable scenario, or one carrying a validation `error`.
+ */
+function scenarioFromBriefs(
+	id: string,
+	testingBrief: string,
+	judgeBrief: string,
+	skillsRoot: string
+): EnumeratedScenario {
+	const parsedSkills = parseSkillsSection( testingBrief );
+	const skills = parsedSkills ?? [];
+
+	const problems: string[] = [];
+	if ( parsedSkills === undefined ) {
+		problems.push(
+			`missing required # Skills section in ${ TESTING_BRIEF_FILE }`
+		);
+	}
+
+	const missing = skills.filter(
+		( skill ) => ! existsSync( join( skillsRoot, skill, 'SKILL.md' ) )
+	);
+	if ( missing.length > 0 ) {
+		problems.push(
+			`unresolved reference: ${ missing
+				.map( ( skill ) => `skill "${ skill }"` )
+				.join( ', ' ) }`
+		);
+	}
+
+	const scenario: Scenario = {
+		name: id,
+		skills,
+		testingBrief,
+		judgeBrief,
 	};
+
+	if ( problems.length === 0 ) {
+		return { scenario, id, dirName: id };
+	}
+	return { scenario, id, dirName: id, error: problems.join( '; ' ) };
 }
 
-function isScenarioShape( raw: unknown ): raw is Scenario {
-	if ( raw === null || typeof raw !== 'object' ) return false;
-	const r = raw as Record< string, unknown >;
-	return (
-		typeof r.name === 'string' &&
-		r.name.length > 0 &&
-		typeof r.description === 'string' &&
-		Array.isArray( r.skills ) &&
-		r.skills.every( ( s ) => typeof s === 'string' ) &&
-		typeof r.prompt === 'string' &&
-		Array.isArray( r.acceptance ) &&
-		r.acceptance.every( ( s ) => typeof s === 'string' ) &&
-		Array.isArray( r.rubrics ) &&
-		r.rubrics.every( ( s ) => typeof s === 'string' )
-	);
+/**
+ * Build a minimal stub scenario for a directory that failed enumeration. Its
+ * `name` equals the scenario id, `skills` is empty, and the briefs hold
+ * whatever was readable (empty strings for a missing file).
+ *
+ * @param id - Normalized scenario id used as the stub `name`.
+ * @param testingBrief - Readable testing brief, or `''` when absent.
+ * @param judgeBrief - Readable judge brief, or `''` when absent.
+ * @returns A stub {@link Scenario} safe to carry through selection.
+ */
+function stubScenario(
+	id: string,
+	testingBrief: string,
+	judgeBrief: string
+): Scenario {
+	return {
+		name: id,
+		skills: [],
+		testingBrief,
+		judgeBrief,
+	};
 }
