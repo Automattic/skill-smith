@@ -159,55 +159,6 @@ test( 'the config keeps the shared testing-agent prompt on roles.test', async ()
 	);
 } );
 
-test( 'judgeUrl builds a localhost permalink for the test post on port 8987', async () => {
-	const { judgeUrl } = await loadHelper();
-	assert.equal(
-		( judgeUrl as ( port: number, postId: number ) => string )(
-			8987,
-			42
-		),
-		'http://localhost:8987/?p=42'
-	);
-} );
-
-test( 'judgeEnvVars exports the three per-pair facts the JUDGE.md briefs reference', async () => {
-	const { judgeEnvVars } = await loadHelper();
-	const vars = (
-		judgeEnvVars as (
-			port: number,
-			postId: number,
-			slug: string
-		) => Record< string, string >
-	)( 8987, 42, 'plugin-counter-haiku' );
-	assert.deepEqual( vars, {
-		SKILLSMITH_JUDGE_URL: 'http://localhost:8987/?p=42',
-		SKILLSMITH_POST_ID: '42',
-		SKILLSMITH_PLUGIN_SLUG: 'plugin-counter-haiku',
-	} );
-} );
-
-test( 'wpEnvConfig points wp-env at exactly the one judge-copy plugin on the given port', async () => {
-	const { wpEnvConfig } = await loadHelper();
-	const config = (
-		wpEnvConfig as (
-			pluginPath: string,
-			port: number
-		) => Record< string, unknown >
-	)( '/judge/plugin-counter-haiku', 8987 );
-	assert.deepEqual( config.plugins, [ '/judge/plugin-counter-haiku' ] );
-	assert.equal( config.port, 8987 );
-} );
-
-test( 'testPostContent embeds the fixed testing-block so the rendered post exercises it', async () => {
-	const { testPostContent } = await loadHelper();
-	const content = ( testPostContent as () => string )();
-	assert.match(
-		content,
-		/wp:skillsmith\/testing-block/,
-		'the post content must contain the scaffolded block'
-	);
-} );
-
 test( 'judgePluginSlug matches the scaffold slug so the judge copy resolves the right plugin', async () => {
 	const { judgePluginSlug } = await loadHelper();
 	const { pluginSlug } = ( await import(

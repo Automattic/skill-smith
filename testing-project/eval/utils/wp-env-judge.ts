@@ -1,5 +1,5 @@
 import { execFileSync, execSync } from 'node:child_process';
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentContext } from '@automattic/skillsmith';
@@ -13,22 +13,27 @@ const PROJECT_ROOT = resolve(
 	'../..'
 );
 
-/** Fixed port the per-pair wp-env listens on; the judge loads URLs on it. */
+/** Fixed port the warm wp-env listens on; the judge loads URLs on it. */
 const WP_ENV_PORT = 8987;
 
-/** Block name the scaffold registers; embedded in every test post. */
-const TESTING_BLOCK_NAME = 'skillsmith/testing-block';
-
 /**
- * `.wp-env.json` is gitignored and owned by these hooks: it lives only for
- * the duration of one pair's judge bracket and is removed in teardown.
+ * `.wp-env.json` is gitignored and owned by these hooks: a single warm
+ * environment is described here for the whole run and the file is removed when
+ * the run-level environment stops.
  */
 const WP_ENV_CONFIG_PATH = join( PROJECT_ROOT, '.wp-env.json' );
 
+/**
+ * Host directory live-mounted into the warm wp-env at `wp-content/plugins`.
+ * Each pair stages its built plugin under `<STAGING_DIR>/<slug>/`; the bind
+ * mount makes additions and removals visible to WordPress without a restart.
+ */
+const STAGING_DIR = join( PROJECT_ROOT, '.wp-env-plugins' );
+
 /** The per-pair runtime facts the judge reads from its environment. */
 const ENV_VAR_NAMES = [
-	'SKILLSMITH_JUDGE_URL',
-	'SKILLSMITH_POST_ID',
+	'SKILLSMITH_PROJECT_ROOT',
+	'SKILLSMITH_WP_PORT',
 	'SKILLSMITH_PLUGIN_SLUG',
 ] as const;
 
@@ -40,101 +45,277 @@ const ENV_VAR_NAMES = [
 export const judgePluginSlug = pluginSlug;
 
 /**
- * Build the permalink of the published test post on the local wp-env. Uses the
- * `?p=<id>` form so it works regardless of the site's permalink structure.
- *
- * @param port - Port wp-env is listening on.
- * @param postId - Numeric ID of the published test post.
- * @returns The fully-qualified URL the judge loads to exercise the block.
- * @example
- * judgeUrl( 8987, 42 ); // 'http://localhost:8987/?p=42'
+ * Whether the run-level warm wp-env has been booted. Module-level so a re-entry
+ * of {@link bootJudgeEnv} (for example a retried first pair) does not boot a
+ * second environment on the shared port.
  */
-export function judgeUrl( port: number, postId: number ): string {
-	return `http://localhost:${ port }/?p=${ postId }`;
+let booted = false;
+
+/**
+ * The shell-outs the lifecycle functions perform, behind one injectable seam.
+ * Defaults run the real commands; tests pass stubs to exercise the filesystem
+ * and environment behaviour without booting wp-env. Each member is invoked by
+ * exactly one lifecycle stage and is named for that stage.
+ */
+export interface JudgeEnvCommands {
+	/** Run `wp-scripts build` against a plugin in the judge copy. */
+	buildPlugin( pluginPath: string ): void;
+	/** Run `wp-env start` against the warm-env config. */
+	startWpEnv(): void;
+	/** Run `wp-env stop` against the warm-env config. */
+	stopWpEnv(): void;
+	/** Run a WP-CLI command inside the warm environment. */
+	wpCli( args: string[] ): void;
 }
 
 /**
- * Build the per-pair environment facts the `JUDGE.md` briefs reference. These
- * are exported to the judge child process so a static brief can name them by
- * convention.
+ * Run a WP-CLI command inside the running wp-env. Pinned to the warm-env config
+ * with `--config` so it resolves the same environment regardless of the current
+ * working directory.
  *
- * @param port - Port wp-env is listening on.
- * @param postId - Numeric ID of the published test post.
- * @param slug - Slug of the activated plugin under evaluation.
- * @returns A record keyed by env-var name:
- *   - `SKILLSMITH_JUDGE_URL` — permalink of the post that renders the block.
- *   - `SKILLSMITH_POST_ID` — that post's numeric ID, as a string.
- *   - `SKILLSMITH_PLUGIN_SLUG` — the activated plugin's slug.
+ * @param args - WP-CLI arguments appended after `wp` (for example
+ *   `[ 'plugin', 'activate', slug ]`).
  */
-export function judgeEnvVars(
-	port: number,
-	postId: number,
-	slug: string
-): Record< ( typeof ENV_VAR_NAMES )[ number ], string > {
+function runWpCli( args: string[] ): void {
+	execFileSync(
+		'npx',
+		[
+			'wp-env',
+			'run',
+			'cli',
+			'--config',
+			WP_ENV_CONFIG_PATH,
+			'wp',
+			...args,
+		],
+		{
+			cwd: PROJECT_ROOT,
+			stdio: 'inherit',
+		}
+	);
+}
+
+/** The real shell-outs used in production runs. */
+const defaultCommands: JudgeEnvCommands = {
+	buildPlugin( pluginPath: string ): void {
+		const wpScriptsBin = join(
+			PROJECT_ROOT,
+			'node_modules',
+			'.bin',
+			'wp-scripts'
+		);
+		execFileSync( wpScriptsBin, [ 'build' ], {
+			stdio: 'inherit',
+			cwd: pluginPath,
+			env: { ...process.env, WP_EXPERIMENTAL_MODULES: '1' },
+		} );
+	},
+	startWpEnv(): void {
+		execFileSync(
+			'npx',
+			[ 'wp-env', 'start', '--config', WP_ENV_CONFIG_PATH ],
+			{
+				stdio: 'inherit',
+				cwd: PROJECT_ROOT,
+				env: {
+					...process.env,
+					WP_ENV_PORT: String( WP_ENV_PORT ),
+					WP_BASE_URL: `http://localhost:${ WP_ENV_PORT }`,
+				},
+			}
+		);
+	},
+	stopWpEnv(): void {
+		execFileSync(
+			'npx',
+			[ 'wp-env', 'stop', '--config', WP_ENV_CONFIG_PATH ],
+			{
+				stdio: 'inherit',
+				cwd: PROJECT_ROOT,
+				env: {
+					...process.env,
+					WP_ENV_PORT: String( WP_ENV_PORT ),
+				},
+			}
+		);
+	},
+	wpCli: runWpCli,
+};
+
+/**
+ * The `.wp-env.json` describing the warm environment: no statically-listed
+ * plugins (pairs stage their own under the live bind mount) and a mapping of
+ * `wp-content/plugins` onto the host {@link STAGING_DIR} so staged plugins
+ * appear without restarting wp-env.
+ *
+ * @returns The `.wp-env.json` object serialized by {@link bootJudgeEnv}.
+ */
+function warmEnvConfig(): {
+	plugins: string[];
+	mappings: Record< string, string >;
+	port: number;
+} {
 	return {
-		SKILLSMITH_JUDGE_URL: judgeUrl( port, postId ),
-		SKILLSMITH_POST_ID: String( postId ),
-		SKILLSMITH_PLUGIN_SLUG: slug,
+		plugins: [],
+		mappings: { 'wp-content/plugins': STAGING_DIR },
+		port: WP_ENV_PORT,
 	};
 }
 
 /**
- * Build the `.wp-env.json` describing a single-plugin environment. wp-env
- * loads and (on start) activates exactly the one plugin under evaluation on
- * the fixed port.
+ * Boot the single warm WordPress environment for the whole run.
  *
- * @param pluginPath - Absolute path to the plugin directory in the judge copy.
- * @param port - Port wp-env should listen on.
- * @returns The `.wp-env.json` object to serialize to disk.
+ *   1. Defensively clear and recreate an empty {@link STAGING_DIR}, the host
+ *      side of the live `wp-content/plugins` bind mount.
+ *   2. Overwrite `.wp-env.json` with the warm-env config: no static plugins, a
+ *      `wp-content/plugins -> STAGING_DIR` mapping, and port {@link WP_ENV_PORT}.
+ *   3. Start wp-env once against that config.
+ *
+ * Idempotent: while {@link booted} is already true a re-entry returns
+ * immediately so the shared port is never double-booted. The caller must pair
+ * this run-level boot with {@link stopJudgeEnv}.
+ *
+ * @param commands - Shell-out seam; defaults to the real commands. Tests pass
+ *   stubs to exercise the filesystem behaviour without booting wp-env.
  */
-export function wpEnvConfig(
-	pluginPath: string,
-	port: number
-): { plugins: string[]; port: number } {
-	return { plugins: [ pluginPath ], port };
+export function bootJudgeEnv(
+	commands: JudgeEnvCommands = defaultCommands
+): void {
+	if ( booted ) {
+		return;
+	}
+
+	rmSync( STAGING_DIR, { recursive: true, force: true } );
+	mkdirSync( STAGING_DIR, { recursive: true } );
+
+	writeFileSync(
+		WP_ENV_CONFIG_PATH,
+		`${ JSON.stringify( warmEnvConfig(), null, 2 ) }\n`
+	);
+
+	commands.startWpEnv();
+
+	booted = true;
 }
 
 /**
- * Block markup for the test post. Embedding the scaffolded block as a single
- * self-closing block comment lets WordPress render it server-side and run its
- * Interactivity API view module, so the judge can exercise the produced block
- * live.
+ * Stop the run-level warm WordPress environment and remove the host state it
+ * owns: stop wp-env, then delete {@link STAGING_DIR} and `.wp-env.json`. Every
+ * step is wrapped so a failure is logged rather than thrown — teardown always
+ * runs to completion and the {@link booted} flag is reset so a later boot can
+ * stand a fresh environment up.
  *
- * @returns The post `content` containing the `skillsmith/testing-block` block.
+ * @param commands - Shell-out seam; defaults to the real commands. Tests pass
+ *   stubs to exercise the filesystem behaviour without driving wp-env.
  */
-export function testPostContent(): string {
-	return `<!-- wp:${ TESTING_BLOCK_NAME } /-->`;
+export function stopJudgeEnv(
+	commands: JudgeEnvCommands = defaultCommands
+): void {
+	try {
+		commands.stopWpEnv();
+	} catch ( err ) {
+		console.error( 'wp-env stop failed:', err );
+	}
+
+	try {
+		rmSync( STAGING_DIR, { recursive: true, force: true } );
+	} catch ( err ) {
+		console.error( 'removing the plugin staging dir failed:', err );
+	}
+
+	try {
+		rmSync( WP_ENV_CONFIG_PATH, { force: true } );
+	} catch ( err ) {
+		console.error( 'removing .wp-env.json failed:', err );
+	}
+
+	booted = false;
 }
 
 /**
- * Run a WP-CLI command inside the running wp-env, capturing stdout. Used to
- * activate the plugin and create the test post (the latter with `--porcelain`
- * so stdout is just the numeric post ID).
+ * Install the produced plugin into the warm environment for one (scenario,
+ * agent) pair and export the bridge env vars the `JUDGE.md` briefs reference.
+ * Built entirely from the **judge copy** (`ctx.judgeWorkspace`) so what the
+ * judge verifies is exactly what it sees:
+ *
+ *   1. When the plugin ships blocks, build it with `wp-scripts` (emitting
+ *      `view.asset.php` so script-module dependencies are declared).
+ *   2. Copy the built plugin directory into `<STAGING_DIR>/<slug>/`; the live
+ *      bind mount makes it visible to WordPress without restarting wp-env.
+ *   3. Deactivate every plugin (clean slate from the prior pair) then activate
+ *      this pair's slug.
+ *   4. Export `SKILLSMITH_PROJECT_ROOT`, `SKILLSMITH_WP_PORT`, and
+ *      `SKILLSMITH_PLUGIN_SLUG` for the judge child.
+ *
+ * Requires {@link bootJudgeEnv} to have run. Pair this with
+ * {@link cleanUpPair}. With `roles.judge.concurrency = 'serial'` the harness
+ * holds a run-wide lock across the whole bracket, so only one pair is staged on
+ * the shared environment at a time.
+ *
+ * @param ctx - The per-pair agent context; `judgeWorkspace`, `scenario.name`,
+ *   and `agent.id` locate the plugin to build and activate.
+ * @param commands - Shell-out seam; defaults to the real commands. Tests pass
+ *   stubs to exercise the filesystem and environment behaviour.
  */
-function wpCli( args: string[] ): string {
-	return execFileSync( 'npx', [ 'wp-env', 'run', 'cli', 'wp', ...args ], {
-		cwd: PROJECT_ROOT,
-		encoding: 'utf8',
-	} );
+export function installPluginForPair(
+	ctx: AgentContext,
+	commands: JudgeEnvCommands = defaultCommands
+): void {
+	const slug = judgePluginSlug( ctx.scenario.name, ctx.agent.id );
+	const pluginPath = join( ctx.judgeWorkspace, slug );
+
+	// Build the produced block so `build/blocks/*` (with view.asset.php) is
+	// emitted; the scaffold's index.php prefers the build output.
+	if ( existsSync( join( pluginPath, 'src', 'blocks' ) ) ) {
+		commands.buildPlugin( pluginPath );
+	}
+
+	// Stage the built plugin under the live bind mount so WordPress sees it
+	// without a restart.
+	const stagedPath = join( STAGING_DIR, slug );
+	rmSync( stagedPath, { recursive: true, force: true } );
+	cpSync( pluginPath, stagedPath, { recursive: true } );
+
+	// Clean slate from the previous pair, then activate this one explicitly so a
+	// failure surfaces rather than silently leaving the block unregistered.
+	commands.wpCli( [ 'plugin', 'deactivate', '--all' ] );
+	commands.wpCli( [ 'plugin', 'activate', slug ] );
+
+	process.env.SKILLSMITH_PROJECT_ROOT = PROJECT_ROOT;
+	process.env.SKILLSMITH_WP_PORT = String( WP_ENV_PORT );
+	process.env.SKILLSMITH_PLUGIN_SLUG = slug;
+}
+
+/**
+ * Tear one pair off the warm environment without stopping wp-env: deactivate
+ * every plugin and remove this pair's `<STAGING_DIR>/<slug>/` from the bind
+ * mount, then clear the per-pair env vars so they never leak into the next
+ * pair's judge. The warm environment stays up for the following pair.
+ *
+ * @param ctx - The per-pair agent context; `scenario.name` and `agent.id`
+ *   locate the staged plugin to remove.
+ * @param commands - Shell-out seam; defaults to the real commands. Tests pass
+ *   stubs to exercise the filesystem and environment behaviour.
+ */
+export function cleanUpPair(
+	ctx: AgentContext,
+	commands: JudgeEnvCommands = defaultCommands
+): void {
+	const slug = judgePluginSlug( ctx.scenario.name, ctx.agent.id );
+
+	commands.wpCli( [ 'plugin', 'deactivate', '--all' ] );
+	rmSync( join( STAGING_DIR, slug ), { recursive: true, force: true } );
+
+	for ( const name of ENV_VAR_NAMES ) {
+		delete process.env[ name ];
+	}
 }
 
 /**
  * Stand the WordPress environment up for one (scenario, agent) pair and export
- * the runtime facts the judge needs. Built entirely from the **judge copy**
- * (`ctx.judgeWorkspace`) so what the judge verifies is exactly what it sees:
- *
- *   1. Build the produced plugin with `wp-scripts` (emitting `view.asset.php`
- *      so script-module dependencies are declared).
- *   2. Write a single-plugin `.wp-env.json` on port {@link WP_ENV_PORT}.
- *   3. Boot wp-env (`env:start`), which activates the listed plugin.
- *   4. Create and publish a post that renders the block, capturing its ID.
- *   5. Export `SKILLSMITH_JUDGE_URL` / `SKILLSMITH_POST_ID` /
- *      `SKILLSMITH_PLUGIN_SLUG` for the judge child.
- *
- * The caller (the `beforeJudgeAgent` hook) must pair this with
- * {@link tearDownJudgeEnv}. With `roles.judge.concurrency = 'serial'` the
- * harness holds a run-wide lock across the whole bracket, so only one pair
- * boots wp-env on the shared port at a time.
+ * the runtime facts the judge needs. Retained as the legacy per-pair
+ * orchestrator until the config is rewired onto {@link bootJudgeEnv} /
+ * {@link installPluginForPair}; not used by the new run-level lifecycle.
  *
  * @param ctx - The per-pair agent context; `judgeWorkspace`, `scenario.name`,
  *   and `agent.id` locate the plugin to build and activate.
@@ -143,8 +324,6 @@ export function setUpJudgeEnv( ctx: AgentContext ): void {
 	const slug = judgePluginSlug( ctx.scenario.name, ctx.agent.id );
 	const pluginPath = join( ctx.judgeWorkspace, slug );
 
-	// Build the produced block so `build/blocks/*` (with view.asset.php) is
-	// emitted; the scaffold's index.php prefers the build output.
 	if ( existsSync( join( pluginPath, 'src', 'blocks' ) ) ) {
 		const wpScriptsBin = join(
 			PROJECT_ROOT,
@@ -162,7 +341,7 @@ export function setUpJudgeEnv( ctx: AgentContext ): void {
 	writeFileSync(
 		WP_ENV_CONFIG_PATH,
 		`${ JSON.stringify(
-			wpEnvConfig( pluginPath, WP_ENV_PORT ),
+			{ plugins: [ pluginPath ], port: WP_ENV_PORT },
 			null,
 			2
 		) }\n`
@@ -179,40 +358,16 @@ export function setUpJudgeEnv( ctx: AgentContext ): void {
 		env: wpEnv,
 	} );
 
-	// `env:start` activates every listed plugin, but activate explicitly so a
-	// failure here surfaces rather than silently leaving the block unregistered.
-	wpCli( [ 'plugin', 'activate', slug ] );
+	runWpCli( [ 'plugin', 'activate', slug ] );
 
-	const postId = Number(
-		wpCli( [
-			'post',
-			'create',
-			'--post_type=post',
-			'--post_status=publish',
-			'--post_title=Skillsmith judge fixture',
-			`--post_content=${ testPostContent() }`,
-			'--porcelain',
-		] ).trim()
-	);
-	if ( ! Number.isInteger( postId ) || postId <= 0 ) {
-		throw new Error(
-			`wp post create did not return a numeric post ID for ${ slug }`
-		);
-	}
-
-	for ( const [ name, value ] of Object.entries(
-		judgeEnvVars( WP_ENV_PORT, postId, slug )
-	) ) {
-		process.env[ name ] = value;
-	}
+	process.env.SKILLSMITH_PLUGIN_SLUG = slug;
 }
 
 /**
- * Tear the per-pair WordPress environment down: stop wp-env, remove the
- * temporary `.wp-env.json`, and clear the per-pair env vars so they never leak
- * into the next pair's judge. Safe to call even if `env:start` never
- * succeeded — `env:stop` failures are logged, not thrown, so teardown always
- * runs to completion.
+ * Tear the per-pair WordPress environment down. Retained as the legacy
+ * counterpart to {@link setUpJudgeEnv} until the config is rewired onto
+ * {@link stopJudgeEnv} / {@link cleanUpPair}; not used by the new run-level
+ * lifecycle. `env:stop` failures are logged, not thrown.
  *
  * @param _ctx - The per-pair agent context (unused; present so the hook reads
  *   symmetrically with {@link setUpJudgeEnv}).
@@ -231,7 +386,5 @@ export function tearDownJudgeEnv( _ctx: AgentContext ): void {
 		console.error( 'wp-env stop failed:', err );
 	}
 	rmSync( WP_ENV_CONFIG_PATH, { force: true } );
-	for ( const name of ENV_VAR_NAMES ) {
-		delete process.env[ name ];
-	}
+	delete process.env.SKILLSMITH_PLUGIN_SLUG;
 }
