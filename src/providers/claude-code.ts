@@ -3,18 +3,92 @@ import type {
 	SDKMessage,
 	SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
+import type { McpServerConfig } from '../config/types';
 import type {
 	InvokeParams,
 	InvokeResult,
+	JudgeCapabilities,
 	Provider,
-	Role,
 	TokenUsage,
 } from './types';
 
-const TOOLS_BY_ROLE: Record< Role, string[] > = {
-	testing: [ 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash' ],
-	judge: [ 'Read' ],
-};
+/**
+ * Tools the `testing` role always receives. The testing agent writes to and
+ * runs commands in its workspace, so it gets the full read/write/shell surface
+ * regardless of any `capabilities` on the invocation.
+ */
+const TESTING_TOOLS = [ 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash' ];
+
+/**
+ * Tools the `judge` role receives when no `capabilities.tools` is configured.
+ * A bare read tool keeps the default judge strictly read-only.
+ */
+const DEFAULT_JUDGE_TOOLS = [ 'Read' ];
+
+/**
+ * Tools removed from the judge's context when it is not allowed to write. Kept
+ * out of `tools` *and* listed in `disallowedTools` so a project that names them
+ * in `capabilities.tools` without setting `allowWrite` still cannot mutate its
+ * workspace.
+ */
+const WRITE_TOOLS = [ 'Write', 'Edit' ];
+
+/**
+ * SDK tool surface translated from an {@link InvokeParams} role and
+ * capabilities. Mirrors the slice of the Claude Code SDK `Options` the provider
+ * sets to scope what an invocation may do.
+ */
+interface ToolSurface {
+	/** Tool names made available to the agent. */
+	tools: string[];
+	/** Tool names removed from the agent's context, when any. */
+	disallowedTools?: string[];
+	/** MCP servers made available to the agent, keyed by server name. */
+	mcpServers?: Record< string, McpServerConfig >;
+}
+
+/**
+ * Translate a Claude Code invocation's role and project-configured capabilities
+ * into the SDK tool surface the provider passes to `query`.
+ *
+ * The `testing` role is fixed to {@link TESTING_TOOLS} and ignores
+ * `capabilities`. The `judge` role defaults to a read-only surface
+ * ({@link DEFAULT_JUDGE_TOOLS}, with {@link WRITE_TOOLS} disallowed) and lets a
+ * project widen it via `capabilities`: `tools` selects the allowed tools and
+ * `mcpServers` adds MCP servers. Unless `capabilities.allowWrite` is exactly
+ * `true`, {@link WRITE_TOOLS} are stripped from `tools` and placed in
+ * `disallowedTools`, so a judge cannot write even if asked to.
+ *
+ * @param role - The invocation role; only `judge` consults `capabilities`.
+ * @param capabilities - The judge's capability overrides, when present.
+ * @returns The `tools`, optional `disallowedTools`, and optional `mcpServers`
+ *   to pass into the SDK `query` options.
+ *
+ * @example
+ * // Read-only judge default:
+ * toolSurfaceFor( 'judge', undefined );
+ * // => { tools: [ 'Read' ], disallowedTools: [ 'Write', 'Edit' ] }
+ */
+function toolSurfaceFor(
+	role: InvokeParams[ 'role' ],
+	capabilities: JudgeCapabilities | undefined
+): ToolSurface {
+	if ( role === 'testing' ) {
+		return { tools: [ ...TESTING_TOOLS ] };
+	}
+
+	const allowWrite = capabilities?.allowWrite === true;
+	const requestedTools = capabilities?.tools ?? DEFAULT_JUDGE_TOOLS;
+	const tools = allowWrite
+		? [ ...requestedTools ]
+		: requestedTools.filter( ( tool ) => ! WRITE_TOOLS.includes( tool ) );
+
+	const surface: ToolSurface = { tools };
+	if ( ! allowWrite ) surface.disallowedTools = [ ...WRITE_TOOLS ];
+	if ( capabilities?.mcpServers )
+		surface.mcpServers = capabilities.mcpServers;
+	return surface;
+}
 
 /**
  * Environment-variable names stripped from the child process the Claude Code
@@ -75,18 +149,25 @@ export function createClaudeCodeProvider( queryFn: QueryFn ): Provider {
 			let usage: TokenUsage | undefined;
 
 			try {
-				const stream = queryFn( {
-					prompt: params.prompt,
-					options: {
-						model: params.agent.model,
-						cwd: params.cwd,
-						systemPrompt: params.systemPrompt,
-						tools: TOOLS_BY_ROLE[ params.role ],
-						permissionMode: 'bypassPermissions',
-						allowDangerouslySkipPermissions: true,
-						env: claudeCodeEnv( process.env ),
-					},
-				} );
+				const surface = toolSurfaceFor(
+					params.role,
+					params.capabilities
+				);
+				const options: Options = {
+					model: params.agent.model,
+					cwd: params.cwd,
+					systemPrompt: params.systemPrompt,
+					tools: surface.tools,
+					permissionMode: 'bypassPermissions',
+					allowDangerouslySkipPermissions: true,
+					env: claudeCodeEnv( process.env ),
+				};
+				if ( surface.disallowedTools )
+					options.disallowedTools = surface.disallowedTools;
+				if ( surface.mcpServers )
+					options.mcpServers = surface.mcpServers;
+
+				const stream = queryFn( { prompt: params.prompt, options } );
 
 				for await ( const message of stream ) {
 					if ( message.type === 'assistant' ) {

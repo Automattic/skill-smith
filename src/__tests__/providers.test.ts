@@ -500,3 +500,112 @@ test( 'claude-code provider scrubs pay-as-you-go keys from the env passed to que
 	assert.equal( env?.CLAUDE_CODE_OAUTH_TOKEN, 'test-oauth-token' );
 	assert.equal( env?.PATH, '/test/bin' );
 } );
+
+test( 'claude-code judge invoke with no capabilities is read-only', async () => {
+	const captured: CapturedQuery = {};
+	const provider = createClaudeCodeProvider( makeClaudeCodeFake( captured ) );
+
+	await provider.invoke( baseParams( { role: 'judge' } ) );
+
+	assert.deepEqual( captured.options?.tools, [ 'Read' ] );
+	const disallowed = captured.options?.disallowedTools ?? [];
+	assert.ok( disallowed.includes( 'Write' ) );
+	assert.ok( disallowed.includes( 'Edit' ) );
+	assert.equal( captured.options?.mcpServers, undefined );
+} );
+
+test( 'claude-code judge invoke honors capabilities.tools but keeps Write/Edit disallowed', async () => {
+	const captured: CapturedQuery = {};
+	const provider = createClaudeCodeProvider( makeClaudeCodeFake( captured ) );
+
+	await provider.invoke(
+		baseParams( {
+			role: 'judge',
+			capabilities: { tools: [ 'Read', 'Bash' ] },
+		} )
+	);
+
+	assert.deepEqual( captured.options?.tools, [ 'Read', 'Bash' ] );
+	const disallowed = captured.options?.disallowedTools ?? [];
+	assert.ok( disallowed.includes( 'Write' ) );
+	assert.ok( disallowed.includes( 'Edit' ) );
+} );
+
+test( 'claude-code judge invoke strips Write/Edit from tools when allowWrite is not set', async () => {
+	const captured: CapturedQuery = {};
+	const provider = createClaudeCodeProvider( makeClaudeCodeFake( captured ) );
+
+	await provider.invoke(
+		baseParams( {
+			role: 'judge',
+			capabilities: { tools: [ 'Read', 'Write', 'Edit', 'Bash' ] },
+		} )
+	);
+
+	assert.deepEqual( captured.options?.tools, [ 'Read', 'Bash' ] );
+	const disallowed = captured.options?.disallowedTools ?? [];
+	assert.ok( disallowed.includes( 'Write' ) );
+	assert.ok( disallowed.includes( 'Edit' ) );
+} );
+
+test( 'claude-code judge invoke passes capabilities.mcpServers to the SDK', async () => {
+	const captured: CapturedQuery = {};
+	const provider = createClaudeCodeProvider( makeClaudeCodeFake( captured ) );
+	const mcpServers = {
+		playwright: { command: 'npx', args: [ '@playwright/mcp' ] },
+	};
+
+	await provider.invoke(
+		baseParams( {
+			role: 'judge',
+			capabilities: { mcpServers },
+		} )
+	);
+
+	assert.deepEqual( captured.options?.mcpServers, mcpServers );
+} );
+
+test( 'claude-code judge invoke with allowWrite does not disallow Write/Edit', async () => {
+	const captured: CapturedQuery = {};
+	const provider = createClaudeCodeProvider( makeClaudeCodeFake( captured ) );
+
+	await provider.invoke(
+		baseParams( {
+			role: 'judge',
+			capabilities: {
+				tools: [ 'Read', 'Write', 'Edit' ],
+				allowWrite: true,
+			},
+		} )
+	);
+
+	assert.deepEqual( captured.options?.tools, [ 'Read', 'Write', 'Edit' ] );
+	const disallowed = captured.options?.disallowedTools ?? [];
+	assert.equal( disallowed.includes( 'Write' ), false );
+	assert.equal( disallowed.includes( 'Edit' ), false );
+} );
+
+test( 'claude-code testing invoke keeps the full testing tool set and ignores capabilities', async () => {
+	const captured: CapturedQuery = {};
+	const provider = createClaudeCodeProvider( makeClaudeCodeFake( captured ) );
+
+	await provider.invoke(
+		baseParams( {
+			role: 'testing',
+			// Capabilities are only set on the judge call in practice; pass them
+			// here to prove the testing role ignores them entirely.
+			capabilities: { tools: [ 'Read' ], allowWrite: false },
+		} )
+	);
+
+	assert.deepEqual( captured.options?.tools, [
+		'Read',
+		'Write',
+		'Edit',
+		'Glob',
+		'Grep',
+		'Bash',
+	] );
+	assert.equal( captured.options?.disallowedTools, undefined );
+	assert.equal( captured.options?.mcpServers, undefined );
+} );
