@@ -23,7 +23,7 @@ Prose review cannot catch this. We need a test loop.
 **Self-Improvement Harness.** When tests fail, a single improver agent reads the failure trace, edits the skill files in place, re-runs the tests, and iterates (capped) until the suite passes or it gives up. It leaves the edits in the working tree alongside the full evidence trail, ready to review and open as a PR.
 
 > [!IMPORTANT]
-> **Breaking change — no backward compatibility.** Scenarios are now defined by two prose files (`TESTING-AGENT.md` + `JUDGE.md`), and the judge verifies behavior live. The old model is gone: there is no `scenario.yaml`, no separate rubric/prompt files, no `acceptance`/`prompt`/`description`/`rubrics` scenario fields, no `paths.rubrics`, and no bundled Playwright/`e2e.spec.mjs` gate. The `Scenario` and `Paths` types changed shape, and the judge verdict is now `{ pass, notes }`. If you are migrating off the old model, see [Migrating from the old model](#migrating-from-the-old-model).
+> **Breaking change — no backward compatibility.** Scenarios are now defined by two prose files (`TESTING-AGENT.md` + `JUDGE.md`), and the judge verifies behavior live. The old model is gone: there is no `scenario.yaml`, no separate `prompt` files, no `acceptance`/`prompt`/`description` scenario fields, and no bundled Playwright/`e2e.spec.mjs` gate. The `Scenario` and `Paths` types changed shape, and the judge verdict is now `{ pass, notes }`. Rubrics survive in a leaner form: instead of the old per-rubric scoring grid, a `JUDGE.md` may **reference reusable rubrics by id** (see [Reusable rubrics](#reusable-rubrics)), resolved from an optional `paths.rubrics` location — the verdict is still a single `{ pass, notes }`. If you are migrating off the old model, see [Migrating from the old model](#migrating-from-the-old-model).
 
 ## How the Skill Tester works
 
@@ -134,13 +134,34 @@ Projects opt into the hooks they need. Two examples from the WordPress reference
 
 ### The judge brief
 
-The judge runs the `JUDGE.md` brief against the artifact the testing agent produced **and** the live environment the project stood up. The brief is freeform prose — Skillsmith imposes no structure on it and never resolves links inside it. Write it to ask for whatever you need verified: a code review against your conventions, a per-scenario acceptance checklist, a reusable best-practices rubric inlined into the file, live UX checks (load a page, click a button, read the console), command output — anything the judge's configured capabilities can reach.
+The judge runs the `JUDGE.md` brief against the artifact the testing agent produced **and** the live environment the project stood up. The brief is freeform prose — apart from one optional `# Rubrics` section (see [Reusable rubrics](#reusable-rubrics)), Skillsmith imposes no structure on it and never resolves links inside the prose. Write it to ask for whatever you need verified: a code review against your conventions, a per-scenario acceptance checklist, live UX checks (load a page, click a button, read the console), command output — anything the judge's configured capabilities can reach. Shared grading criteria you do not want to repeat in every brief can live in a [reusable rubric](#reusable-rubrics) the brief references by id, rather than being pasted into the file.
 
 The judge returns a single overall pass/fail plus freeform `notes`. There is no machine-readable per-check breakdown; `notes` carries every reason and observation, and a vague brief yields a vague verdict, so it pays to be specific about what "correct" means.
 
 **The judge cannot modify the artifact.** Before the judge runs, the harness copies `workspace/` to a sibling `judge-workspace/` and runs the judge with `cwd` set to that copy. The artifact of record — the files the testing agent wrote, and the source the reports and improver read — is never exposed to the judge, so the judge cannot alter it regardless of which tools it holds (a snapshot diff-guard around the judge phase fails the pair as a backstop if anything mutates the canonical workspace anyway).
 
 **The judge does not read the skill.** The agent learns from the skill; the judge grades from the `JUDGE.md` brief and what it observes live. Keeping them epistemically separate is what lets the harness catch a regression in the skill itself — if the judge consulted the same skill the agent did, a bad skill edit would simultaneously redefine "correct" and the regression would slip through.
+
+### Reusable rubrics
+
+When the same grading criteria recur across scenarios — a house style guide, a best-practices checklist — you can author them once and **reference them by id** instead of pasting the same prose into every `JUDGE.md`. A rubric is reusable grading **content**, not a structured scoring grid: the judge still returns a single overall `{ pass, notes }` verdict (see [The judge brief](#the-judge-brief)), and there is no per-rubric machine-readable breakdown.
+
+Referencing rubrics is **optional**. A `JUDGE.md` with no `# Rubrics` section is valid and the judge grades on the freeform brief alone; add the section only when you want shared content pulled in.
+
+A `JUDGE.md` references rubrics with a `# Rubrics` section — the same Markdown-list grammar as the testing brief's `# Skills` section. Each list item is a rubric id:
+
+```md
+Grade the produced block against the requirements below, using both the
+source and the live page.
+
+# Rubrics
+
+- wp-interactivity-api-best-practices
+```
+
+Each id resolves to a flat `<id>.md` file under the rubrics directory configured by [`paths.rubrics`](#configuration). The id `wp-interactivity-api-best-practices` resolves to `<paths.rubrics>/wp-interactivity-api-best-practices.md`. At grading time Skillsmith loads each referenced rubric's content (plus any Markdown-linked companion files that resolve inside the rubrics directory) and supplies it to the judge automatically, under a `# Grading rubrics` heading in the judge's system prompt — you do not paste it into the brief and the judge does not have to go find it. The literal `# Rubrics` id list stays in the brief; the resolved content is what the judge grades against.
+
+`paths.rubrics` is optional and has no default. A project only declares it when it uses rubrics, and the directory is required to exist only then (see [Configuration](#configuration)). If a `JUDGE.md` references a rubric id that does not resolve to a file, that scenario is reported with a clear error and runs no agents — the same keep-but-skip-and-fail behavior as an unknown skill id (validation problems never abort the rest of the run).
 
 ### Environment ownership and judge concurrency
 
@@ -280,9 +301,9 @@ export default defineConfig({
 });
 ```
 
-`paths` defaults to `{ base: "./.skillsmith", skills: "./skills", scenarios: "./eval/scenarios" }`; set any subset to relocate them. (There is no `paths.rubrics` — the judge brief replaces rubric files.)
+`paths` defaults to `{ base: "./.skillsmith", skills: "./skills", scenarios: "./eval/scenarios" }`; set any subset to relocate them. `paths.rubrics` is an additional **optional** entry with no default — set it to the directory holding your [reusable rubric](#reusable-rubrics) files (e.g. `rubrics: "./eval/rubrics"`). It is required to exist only when a `JUDGE.md` references a rubric by id; projects that never reference rubrics can leave it unset.
 
-`roles.test.prompt` and `roles.judge.prompt` are appended to the respective system prompts as a `# Role instructions` section, augmenting the harness-owned structural blocks. The judge's system prompt is the verbatim `JUDGE.md` brief plus a minimal `{ pass, notes }` output instruction, with `roles.judge.prompt` appended when set. `roles.improver.prompt` replaces the built-in improver instructions entirely. When `roles.improver.prompt` is not set, the harness uses a minimal built-in instruction ("edit the failing skills in place, minimally, no git").
+`roles.test.prompt` and `roles.judge.prompt` are appended to the respective system prompts as a `# Role instructions` section, augmenting the harness-owned structural blocks. The judge's system prompt is the verbatim `JUDGE.md` brief plus a minimal `{ pass, notes }` output instruction, the resolved content of any [referenced rubrics](#reusable-rubrics) under a `# Grading rubrics` heading, and `roles.judge.prompt` appended when set. `roles.improver.prompt` replaces the built-in improver instructions entirely. When `roles.improver.prompt` is not set, the harness uses a minimal built-in instruction ("edit the failing skills in place, minimally, no git").
 
 See [`examples/skillsmith.config.ts`](./examples/skillsmith.config.ts) for a reference config showing every provider (`claude-code`, `anthropic-api`, `openai-api`, `codex`, `gemini-api`), provider-specific options like `effort`, and the full set of hooks and `selfImprovement` knobs.
 
@@ -312,8 +333,8 @@ Each iteration hook receives the iteration number, the iteration directory, and 
 
 This release is a clean break — there is no backward compatibility, and the old inputs no longer exist. If you have scenarios on the previous model, convert them:
 
-- **Replace each `scenario.yaml` with two briefs.** In every scenario folder, write a `TESTING-AGENT.md` (the old `prompt`/`description`, plus a `# Skills` section listing the skill ids the scenario uses) and a `JUDGE.md` (the judge's instructions). The `prompt`, `description`, `acceptance`, and `rubrics` fields are gone from the `Scenario` type; the only parsed structure is `# Skills`.
-- **Move rubrics and acceptance into `JUDGE.md`.** There are no separate rubric files and no `paths.rubrics`. Inline whatever the judge should check — best-practices rubric, acceptance list, live checks — directly into each `JUDGE.md` as prose.
+- **Replace each `scenario.yaml` with two briefs.** In every scenario folder, write a `TESTING-AGENT.md` (the old `prompt`/`description`, plus a `# Skills` section listing the skill ids the scenario uses) and a `JUDGE.md` (the judge's instructions). The `prompt`, `description`, and `acceptance` fields are gone from the `Scenario` type. The only structure parsed from the testing brief is `# Skills`; the judge brief is freeform apart from an optional `# Rubrics` section.
+- **Move acceptance into `JUDGE.md`; convert rubrics to references by id.** Inline whatever the judge should check — acceptance list, live checks — directly into each `JUDGE.md` as prose. The old per-rubric *scoring* model is gone (the verdict is now `{ pass, notes }`), but shared rubric **content** is not: rather than the old structured grid, factor any reusable best-practices rubric into a file under [`paths.rubrics`](#configuration) and reference it from each `JUDGE.md` by id in a `# Rubrics` section, instead of pasting it into every brief (see [Reusable rubrics](#reusable-rubrics)). `paths.rubrics` is optional — set it only if you use rubrics.
 - **Read the new verdict shape.** The judge returns `{ pass, notes }` (overall pass/fail plus freeform notes) instead of a per-rubric/acceptance breakdown. Anything reading `report.json`'s `review` block must handle the new shape.
 - **Configure the judge's capabilities and own its environment.** Declare the judge's `tools` / `mcpServers` / `allowWrite` / `network` on the judge agent (read-only by default). Skillsmith no longer ships a Playwright/`e2e.spec.mjs` gate — stand your own live environment up in `beforeJudgeAgent` and tear it down in `afterJudgeAgent`, and set `roles.judge.concurrency: 'serial'` if that environment is shared and non-reentrant.
 
