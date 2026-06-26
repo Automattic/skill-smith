@@ -126,11 +126,13 @@ When the judge is configured `serial` (see [Environment ownership](#environment-
 
 ### Hook examples
 
-Projects opt into the hooks they need. Two examples from the WordPress reference project:
+Projects opt into the hooks they need. A few examples from the WordPress reference project:
 
 **`beforeTestAgent` — scaffold the artifact the agent will edit.** Generates a plugin skeleton inside `agentWorkspace` with a deterministic slug derived from `scenario.name` and `agent.id`, so the judge's live environment can activate it later.
 
-**`beforeJudgeAgent` / `afterJudgeAgent` — own the live environment the judge verifies against.** `beforeJudgeAgent` builds the plugin from `judgeWorkspace` (the copy the judge sees), boots `wp-env`, activates the plugin, creates a test post, and exports the per-pair facts the `JUDGE.md` brief reads (the post URL, plugin slug, etc.) as environment variables. `afterJudgeAgent` tears that environment back down. Because the reference project boots a single shared `wp-env` that cannot run two instances at once, it sets `roles.judge.concurrency: 'serial'` so only one pair's environment is up at a time. See [Environment ownership and judge concurrency](#environment-ownership-and-judge-concurrency).
+**`beforeAllScenarios` / `afterAllScenarios` — boot the shared environment once per run.** `beforeAllScenarios` starts a single `wp-env` and keeps it warm for the whole sweep; `afterAllScenarios` stops it and clears the host state it owns. The environment is booted once, not per pair.
+
+**`beforeJudgeAgent` / `afterJudgeAgent` — give each pair a clean slate on that one environment.** `beforeJudgeAgent` builds the plugin from `judgeWorkspace` (the copy the judge sees), installs it into the already-running environment, deactivates every other plugin and activates this pair's so only its plugin is live, and exports the per-pair facts the judge reads to reach the environment (the project root, the port, and the plugin slug) as environment variables. `afterJudgeAgent` deactivates the pair's plugin and removes it, leaving the environment up and clean for the next pair — it does not tear the environment down. The harness owns this deterministic infrastructure (boot, build, install, clean slate, and a reliable bridge into the environment); the live behavioral setup — discovering and inserting the produced block(s), opening the page, and verifying — is the judge's job, driven from the plain-language `JUDGE.md` brief, so the harness no longer pre-creates a post or hands over a fixed URL. Because the reference project shares a single `wp-env` that cannot run two instances at once, it sets `roles.judge.concurrency: 'serial'` so only one pair is staged on that environment at a time. See [Environment ownership and judge concurrency](#environment-ownership-and-judge-concurrency).
 
 ### The judge brief
 
@@ -165,14 +167,16 @@ Each id resolves to a flat `<id>.md` file under the rubrics directory configured
 
 ### Environment ownership and judge concurrency
 
-**The project owns the environment, not Skillsmith.** Skillsmith never starts or stops a server, browser, or container. When the judge needs to exercise a live environment, the project stands it up in the per-pair `beforeJudgeAgent` hook and tears it down in `afterJudgeAgent`. `beforeJudgeAgent` is the first point in the lifecycle where the produced artifact exists (the testing agent has run) and the environment can be up before the judge grades; both hooks receive `judgeWorkspace`, so the project builds its environment from the same copy the judge sees.
+**The project owns the environment, not Skillsmith.** Skillsmith never starts or stops a server, browser, or container. When the judge needs to exercise a live environment, the project stands it up in its hooks — the run-level `beforeAllScenarios` / `afterAllScenarios` hooks for anything shared across the whole sweep, and the per-pair `beforeJudgeAgent` / `afterJudgeAgent` hooks for whatever each pair needs in place before its judge grades. `beforeJudgeAgent` is the first per-pair point in the lifecycle where the produced artifact exists (the testing agent has run) and the environment can be ready before the judge grades; both per-pair hooks receive `judgeWorkspace`, so the project builds against the same copy the judge sees. This hook set is unchanged — only how the reference project uses it has.
+
+The reference WordPress project splits the work along that boundary. It boots a single `wp-env` **once per run** in `beforeAllScenarios`, keeps it warm across every pair, and stops it in `afterAllScenarios` — not a boot-and-teardown per pair. Per pair, `beforeJudgeAgent` builds the produced plugin from `judgeWorkspace`, installs it into that one running environment, and guarantees a clean slate (only this pair's plugin active) before the judge runs; `afterJudgeAgent` removes the pair's plugin and leaves the environment up for the next pair. The harness keeps only the deterministic infrastructure — boot, build, install, the clean-slate guarantee, and a reliable bridge for the judge to reach the environment. The behavioral setup itself — discovering and inserting the produced block(s), opening the page, and checking — is the judge's, driven live from the plain-language `JUDGE.md` brief, so the harness does not pre-create a post or hand the judge a fixed URL.
 
 Each provider translates the judge agent's capabilities to its native tool surface; an api/text provider degrades to read-only local-fs, so live judging is intended for the `claude-code` and `codex` providers. With Bash or a write-capable sandbox the judge could in principle write files — the no-modify guarantee rests on the copied workspace (above), not on the tool surface.
 
 **`roles.judge.concurrency`** controls how the judge phase is scheduled across the scenario and agent fan-outs:
 
 - `parallel` *(default)* — every pair's judge bracket may run at once (today's behavior).
-- `serial` — a single run-wide lock serializes the **whole** `beforeJudgeAgent` → judge → `afterJudgeAgent` bracket, so no two pairs grade simultaneously. Use this when each grade boots a shared, non-reentrant environment (such as `wp-env start` on a fixed port). The testing phase stays fully parallel either way.
+- `serial` — a single run-wide lock serializes the **whole** `beforeJudgeAgent` → judge → `afterJudgeAgent` bracket, so no two pairs grade simultaneously. Use this when every pair shares one non-reentrant environment (such as a single `wp-env` on a fixed port) and a pair's setup must not race another's — in the reference project, each pair installs its plugin onto the one warm environment and needs a clean slate to itself while its judge grades. The testing phase stays fully parallel either way.
 
 ## How the Self-Improvement works
 
