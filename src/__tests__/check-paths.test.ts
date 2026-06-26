@@ -33,6 +33,8 @@ function configWithPaths(
 }
 
 test( 'DEFAULT_PATHS no longer contains a rubrics key', () => {
+	// `rubrics` is optional, not defaulted: the `Paths` type allows it, but
+	// `DEFAULT_PATHS` deliberately omits it so projects opt in explicitly.
 	assert.deepEqual( Object.keys( DEFAULT_PATHS ).sort(), [
 		'base',
 		'scenarios',
