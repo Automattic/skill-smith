@@ -5,13 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 /**
- * Removal contract for Task 17: the `testing-project` Playwright/e2e harness
- * and its rubrics directory are gone. These tests pin the on-disk state so the
- * legacy structured model can never silently creep back into the bundled
- * testing-project: the harness files no longer exist, `package.json` carries no
- * Playwright/e2e dependency or script (while keeping `@wordpress/env` +
- * `@wordpress/scripts` and the env/skillsmith scripts), and no source file
- * still names the deleted harness tokens.
+ * Removal contract for Task 17: the `testing-project` Playwright/e2e harness is
+ * gone. These tests pin the on-disk state so the legacy structured model can
+ * never silently creep back into the bundled testing-project: the harness files
+ * no longer exist, `package.json` carries no Playwright/e2e dependency or script
+ * (while keeping `@wordpress/env` + `@wordpress/scripts` and the env/skillsmith
+ * scripts), and no source file still names the deleted harness tokens. The
+ * shared `eval/rubrics` directory is intentionally retained — the reusable
+ * best-practices rubric lives there and is referenced by id from each scenario.
  */
 
 const here = dirname( fileURLToPath( import.meta.url ) );
@@ -55,7 +56,6 @@ test( 'the Playwright/e2e harness files no longer exist', () => {
 		'playwright.config.ts',
 		'global-setup.mjs',
 		join( 'eval', 'utils', 'verify-e2e.ts' ),
-		'eval/rubrics',
 	] ) {
 		assert.ok(
 			! existsSync( join( TESTING_PROJECT, removed ) ),
