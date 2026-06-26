@@ -1,7 +1,10 @@
 # Candidate Interactivity API scenarios mined from Gutenberg docs and canonical
 # interactive blocks. Grouped by primary concept; ordered simple → advanced
-# within each group. Each entry mirrors counter/scenario.yaml shape minus the
-# `skills:` and `rubrics:` keys (consumer to fill in).
+# within each group. This is a backlog of ideas, not runnable scenarios: each
+# entry sketches a `prompt` and `acceptance` notes. To turn one into a runnable
+# scenario, author a folder with a `TESTING-AGENT.md` (the prompt plus a
+# `# Skills` section) and a `JUDGE.md` (the grading brief), following the
+# converted scenarios alongside this file.
 #
 # Source files (relative to /Users/darerodz/Code/gutenberg):
 #   - docs/reference-guides/interactivity-api/{README, iapi-about, iapi-faq,
