@@ -2,7 +2,7 @@
 
 ## Overview
 
-This plan implements review-1 of the #55 pipeline as an increment on the merged base already on the branch. It splits into two tracks that meet only inside the judge's system prompt. **Track A** (Skillsmith core, the only core change) adds reusable rubrics referenced by id: a `JUDGE.md` may carry an optional `# Rubrics` section (parsed exactly like `# Skills`), rubric ids are validated at enumeration through the existing per-scenario error channel, an optional `paths.rubrics` is added, and the resolved rubric content is loaded lazily at judge dispatch and injected into the judge system prompt; the verdict stays `{ pass, notes }`. **Track B** (testing-project) boots wp-env once per run via a live bind-mount, installs/activates each pair's plugin against that warm env under the existing serial lock, moves the live e2e (block discovery, post creation, page open, checks) into a human-language judge driven by a role-prompt "environment manual", stops enforcing the fixed block name, and restores the shared rubric to `eval/rubrics/` referenced by id from all 11 `JUDGE.md`. A set of six guard tests that pinned the base removal of these surfaces must each be flipped to the new contract; one of them throws inside the real `npm test` smoke run, so it must be updated in the same task that populates `Scenario.rubrics`. The changeset is amended (not added to). Ordering: core type + parse + load + inject + guard-test updates first (Tasks 1-7), then the testing-project conversion that exercises Track A end to end (Tasks 8-15), then the changeset and gitignore (Tasks 16-17), then a single manual sanity check (Task 18).
+This plan implements review-1 of the #55 pipeline as an increment on the merged base already on the branch. It splits into two tracks that meet only inside the judge's system prompt. **Track A** (Skillsmith core, the only core change) adds reusable rubrics referenced by id: a `JUDGE.md` may carry an optional `# Rubrics` section (parsed exactly like `# Skills`), rubric ids are validated at enumeration through the existing per-scenario error channel, an optional `paths.rubrics` is added, and the resolved rubric content is loaded lazily at judge dispatch and injected into the judge system prompt; the verdict stays `{ pass, notes }`. **Track B** (testing-project) boots wp-env once per run via a live bind-mount, installs/activates each pair's plugin against that warm env under the existing serial lock, moves the live e2e (block discovery, post creation, page open, checks) into a human-language judge driven by a role-prompt "environment manual", stops enforcing the fixed block name, and restores the shared rubric to `eval/rubrics/` referenced by id from all 11 `JUDGE.md`. A set of six guard tests that pinned the base removal of these surfaces must each be flipped to the new contract; one of them (the smoke fixture's `afterAllScenarios` removed-field hook) throws inside the real `npm test` smoke run, so its flip is folded into the same task (Task 4) that populates `Scenario.rubrics` — the field population and the fixture flip land in one commit so the fixed `npm test` gate is never red between them. The changeset is amended (not added to). Ordering: core type + parse + validate/populate (with the folded smoke-fixture flip) + load + inject + the core guard-test updates first (Tasks 1-8), then the testing-project conversion that exercises Track A end to end (Tasks 9-15), then the gitignore and changeset (Tasks 16-17), then a single manual sanity check (Task 18).
 
 ## Guardrail scopes
 
@@ -101,25 +101,28 @@ Per the spec's testing posture (Acceptance criterion 9, Requirement 14), **full 
   - An empty `# Rubrics` section returns `[]`; a brief with no `# Rubrics` heading returns `undefined`; the first matching heading wins.
   - `parseSkillsSection`'s existing behavior is unchanged (its existing tests still pass).
 
-### Task 4: Validate rubric ids at enumeration and populate `Scenario.rubrics`
+### Task 4: Validate rubric ids at enumeration, populate `Scenario.rubrics`, and flip the smoke-fixture removed-field guard
 
-- **Goal:** At enumeration, parse and validate rubric ids against the rubrics root, route unknown ids through the existing per-scenario error channel, and store parsed ids on `Scenario.rubrics`.
+- **Goal:** At enumeration, parse and validate rubric ids against the rubrics root, route unknown ids through the existing per-scenario error channel, and store parsed ids on `Scenario.rubrics`. In the **same commit**, stop the smoke fixture's `afterAllScenarios` hook from throwing on the now-legitimate `rubrics` field so the real `npm test` smoke run stays green the instant `Scenario.rubrics` is populated.
 - **Type:** tdd
-- **Files to change:** `src/scenarios/enumerate.ts`
+- **Files to change:** `src/scenarios/enumerate.ts`, `src/__tests__/fixtures/smoke-project/skillsmith.config.ts`
 - **Changes:**
   - In `enumerateScenarios`, resolve the rubrics root from `paths.rubrics` when it is set (mirroring how `skillsRoot` is resolved via `join( projectRoot, paths.rubrics )`); pass it (or `undefined` when unset) into `scenarioFromBriefs`.
   - In `scenarioFromBriefs`, call `parseRubricsSection( judgeBrief )`. When `paths.rubrics` is set, validate each parsed id with `existsSync( join( rubricsRoot, \`${id}.md\` ) )` (flat `<id>.md`, not a directory); append any unresolved ids to the same `problems[]` array used for skills, formatted `unresolved reference: rubric "<id>"` (matching the skills wording/joining). When `paths.rubrics` is unset, skip validation. An absent `# Rubrics` section yields no rubrics and never produces a problem (referencing rubrics is optional).
   - Store the parsed ids on the produced `Scenario` as `rubrics` (use `[]` when the section is absent or empty so the field is always populated).
   - Update `stubScenario` to populate `rubrics: []`.
   - Update the relevant doc comments to mention `# Rubrics` parsing/validation.
+  - In `src/__tests__/fixtures/smoke-project/skillsmith.config.ts`, in the `afterAllScenarios` hook, drop `'rubrics'` from the `['description','prompt','acceptance','rubrics']` removed-field list so it no longer throws when an enumerated `scenario.scenario` carries the now-populated `rubrics` field. The `description`/`prompt`/`acceptance` checks stay (those remain removed). This must land in this same task because `smoke.test.ts` drives this fixture through a real `run()` (asserting `exitCode === 0`): the moment `Scenario.rubrics` is populated above, every enumerated scenario carries `rubrics` and the un-flipped hook would throw, turning the fixed `npm test` gate red. Folding the flip in keeps the gate green at this commit.
 - **Depends on:** Task 1, Task 3
-- **Traces to:** Spec requirements 1, 3; Acceptance criteria 1, 3; Design decision "Validate rubric ids at enumeration through the existing per-scenario `error` channel"; Core data flow (rubrics)
+- **Traces to:** Spec requirements 1, 3; Acceptance criteria 1, 3; Design decision "Validate rubric ids at enumeration through the existing per-scenario `error` channel"; Design decision "`paths.rubrics` is optional…"; Failure Modes → `fixtures/smoke-project/skillsmith.config.ts`; Core data flow (rubrics)
 - **Acceptance:**
   - A scenario whose `JUDGE.md` references an existing rubric id (with `paths.rubrics` set) enumerates with no error and `scenario.rubrics` contains that id.
   - A scenario referencing an unknown rubric id (with `paths.rubrics` set) enumerates with `error` containing `unresolved reference: rubric "<id>"`, runs no agents, and aggregates fail — enumeration does not throw.
   - A scenario with no `# Rubrics` section enumerates valid with `scenario.rubrics` equal to `[]`.
   - When `paths.rubrics` is unset, rubric ids are not existence-validated (no rubric error is produced) and parsed ids (if any) are still stored.
   - `stubScenario` produces a scenario with `rubrics: []`.
+  - The smoke fixture's `afterAllScenarios` hook no longer treats `rubrics` as a removed field and does not throw when an enumerated scenario carries `rubrics`; the `description`/`prompt`/`acceptance` removed-field guards are retained.
+  - `npm test` (including the `smoke.test.ts` run that drives this fixture via a real `run()`) stays green at this commit — the field population and the fixture flip land together, so the fixed gate is never red.
 
 ### Task 5: Add `loadRubric` mirroring `loadSkill`
 
@@ -169,21 +172,7 @@ Per the spec's testing posture (Acceptance criterion 9, Requirement 14), **full 
   - A new case asserts that a passed rubric blob appears under `# Grading rubrics`, and passes.
   - The `!/acceptance/i` assertion is retained and passes.
 
-### Task 8: Update the smoke fixture `afterAllScenarios` removed-field guard
-
-- **Goal:** Stop the smoke fixture hook from throwing on the now-legitimate `rubrics` field so the real `npm test` smoke run stays green once `Scenario.rubrics` is populated.
-- **Type:** tdd
-- **Files to change:** `src/__tests__/fixtures/smoke-project/skillsmith.config.ts`
-- **Changes:**
-  - In the `afterAllScenarios` hook, drop `'rubrics'` from the `['description','prompt','acceptance','rubrics']` removed-field list so it no longer throws when `scenario.scenario` carries `rubrics`. The `description`/`prompt`/`acceptance` checks stay (those remain removed). Optionally assert the optional `rubrics` field is permitted on the scenario record.
-- **Depends on:** Task 4
-- **Traces to:** Failure Modes → `fixtures/smoke-project/skillsmith.config.ts`; Design decision "`paths.rubrics` is optional…"
-- **Acceptance:**
-  - The fixture hook no longer treats `rubrics` as a removed field and does not throw when an enumerated scenario carries `rubrics`.
-  - The `smoke.test.ts` run (driving this fixture via a real `run()`) passes under `npm test`.
-  - The `description`/`prompt`/`acceptance` removed-field guards are retained.
-
-### Task 9: Confirm `check-paths` guard test holds under the restored-optional contract
+### Task 8: Confirm `check-paths` guard test holds under the restored-optional contract
 
 - **Goal:** Ensure the `check-paths` guards still encode the intended contract: `DEFAULT_PATHS` omits `rubrics`, and `checkPaths` adds no rubrics existence gate.
 - **Type:** tdd
@@ -199,21 +188,21 @@ Per the spec's testing posture (Acceptance criterion 9, Requirement 14), **full 
   - `checkPaths` passes when `skills/` and `scenarios/` exist and `rubrics/` does not; it still throws clearly when `skills/` or `scenarios/` is missing.
   - No `rubrics` key is added to `DEFAULT_PATHS` and no rubrics existence check is added to `checkPaths`.
 
-### Task 10: Restore the shared rubric file to `testing-project/eval/rubrics/`
+### Task 9: Restore the shared rubric file to `testing-project/eval/rubrics/`
 
 - **Goal:** Recreate the shared best-practices rubric as a single file referenced by id.
 - **Type:** tdd
 - **Files to change:** `testing-project/eval/rubrics/wp-interactivity-api-best-practices.md` (new)
 - **Changes:**
   - Create the rubric file with the WordPress Interactivity API best-practices content (the same criteria currently inlined as the `## Best-practices rubric` block in every `JUDGE.md`; the historical `eval/rubrics/wp-interactivity-api-best-practices.md` from git `03535e0^` is the canonical source and is content-identical). The rubric id is `wp-interactivity-api-best-practices` (= filename without `.md`).
-  - Keep the distinctive sentence ``` `block.json` declares the view module as `viewScriptModule` (NOT `viewScript`). ``` verbatim (it is the rubric sentinel used by the conversion guard in Task 15).
+  - Keep the distinctive sentence ``` `block.json` declares the view module as `viewScriptModule` (NOT `viewScript`). ``` verbatim (it is the rubric sentinel used by the conversion guard in Task 14).
 - **Depends on:** none
 - **Traces to:** Spec requirement 11; Acceptance criterion 8; Design decision "Restore the shared rubric to `eval/rubrics/` and reference it by id"; Design decision "Rubric file layout is flat `<id>.md`"
 - **Acceptance:**
   - `testing-project/eval/rubrics/wp-interactivity-api-best-practices.md` exists and contains the shared best-practices rubric content (block wiring, server-side initialization, reactivity/directives, async-actions sections).
   - The file contains the sentinel sentence about `viewScriptModule` (NOT `viewScript`) verbatim.
 
-### Task 11: Update the `testing-project-e2e-removal` guard to expect the restored `rubrics/`
+### Task 10: Update the `testing-project-e2e-removal` guard to expect the restored `rubrics/`
 
 - **Goal:** Stop asserting `eval/rubrics` is absent now that it is restored.
 - **Type:** tdd
@@ -221,13 +210,13 @@ Per the spec's testing posture (Acceptance criterion 9, Requirement 14), **full 
 - **Changes:**
   - In "the Playwright/e2e harness files no longer exist", remove `'eval/rubrics'` from the removed-paths list (the directory is restored). Leave the genuine Playwright/e2e removals (`playwright.config.ts`, `global-setup.mjs`, `eval/utils/verify-e2e.ts`) asserted as absent.
   - Leave the other tests in the file (package.json drops Playwright/e2e deps and `test:e2e`; keeps `@wordpress/env`/`@wordpress/scripts` and `env:start`/`env:stop`/`skillsmith`/`check:config`; no file references the removed e2e harness) unchanged.
-- **Depends on:** Task 10
+- **Depends on:** Task 9
 - **Traces to:** Failure Modes → `testing-project-e2e-removal.test.ts`
 - **Acceptance:**
   - The removal guard no longer requires `eval/rubrics` to be absent and passes with the restored directory.
   - The remaining Playwright/e2e removal assertions are retained and pass.
 
-### Task 12: Boot wp-env once and install/clean-slate per pair (`wp-env-judge.ts`)
+### Task 11: Boot wp-env once and install/clean-slate per pair (`wp-env-judge.ts`)
 
 - **Goal:** Replace per-pair boot/teardown with a run-level warm-env boot/stop plus per-pair install + clean-slate, via a live bind-mount of `wp-content/plugins` to a host staging dir.
 - **Type:** tdd
@@ -249,7 +238,7 @@ Per the spec's testing posture (Acceptance criterion 9, Requirement 14), **full 
   - `stopJudgeEnv` stops wp-env and removes the staging dir and `.wp-env.json`, swallowing errors (never throws).
   - `wpCli`/`deactivateAllPlugins` pass `--config` with the warm-env config path; `judgePluginSlug` re-export and the fixed port are retained; `testPostContent`/`TESTING_BLOCK_NAME`/`judgeUrl`/`judgeEnvVars`/`wpEnvConfig` are removed.
 
-### Task 13: Wire run-level + per-pair env hooks and the judge environment manual (`skillsmith.config.ts`)
+### Task 12: Wire run-level + per-pair env hooks and the judge environment manual (`skillsmith.config.ts`)
 
 - **Goal:** Move env lifecycle to run-level hooks, add per-pair install/clean-up, add `paths.rubrics`, and supply the judge role-prompt "environment manual".
 - **Type:** tdd
@@ -259,7 +248,7 @@ Per the spec's testing posture (Acceptance criterion 9, Requirement 14), **full 
   - Add `paths: { rubrics: './eval/rubrics' }` to the config.
   - Keep `roles.judge.concurrency: 'serial'`.
   - Set `roles.judge.prompt` to an "environment manual" carrying the reusable runtime mechanics: the `judge-wp.mjs` command form (`node "$SKILLSMITH_PROJECT_ROOT/eval/utils/judge-wp.mjs" <wp args>`); the post-create template `wp post create --post_type=post --post_status=publish --post_title='...' --post_content='<!-- wp:NS/NAME /-->' --porcelain` (stdout = numeric id); the URL shape `http://localhost:$SKILLSMITH_WP_PORT/?p=<id>`; and "discover block name(s) by reading `$SKILLSMITH_PLUGIN_SLUG/build/blocks/*/block.json` and inserting one self-closing block comment per discovered `name`". Read the manual from a prompt file (e.g. `eval/prompts/judge.md`) for parity with `testing-agent.md`/`improver.md`, or inline it; keep WordPress vocabulary out of core.
-- **Depends on:** Task 1, Task 12
+- **Depends on:** Task 1, Task 11
 - **Traces to:** Spec requirements 6, 7, 9; Acceptance criteria 5, 6, 7; Design decision "Judge owns the behavioral e2e; harness owns deterministic infra"; Lifecycle hooks used
 - **Acceptance:**
   - The config wires `beforeAllScenarios`/`afterAllScenarios` to boot/stop and `beforeJudgeAgent`/`afterJudgeAgent` to per-pair install/clean-up; `beforeTestAgent` still scaffolds the plugin.
@@ -267,7 +256,7 @@ Per the spec's testing posture (Acceptance criterion 9, Requirement 14), **full 
   - `roles.judge.prompt` includes the `judge-wp.mjs` command form, the `wp post create … --porcelain` template, the `?p=<id>` URL shape with the port var, and the block-discovery instruction reading `build/blocks/*/block.json`.
   - `npm --prefix testing-project run check:config` passes (the config module loads and typechecks, including `paths.rubrics`).
 
-### Task 14: Add the `judge-wp.mjs` WP-CLI bridge wrapper
+### Task 13: Add the `judge-wp.mjs` WP-CLI bridge wrapper
 
 - **Goal:** Give the judge a single, cwd-independent command to reach the warm wp-env.
 - **Type:** tdd
@@ -281,17 +270,17 @@ Per the spec's testing posture (Acceptance criterion 9, Requirement 14), **full 
   - `node eval/utils/judge-wp.mjs <args>` invokes `npx wp-env --config "<PROJECT_ROOT>/.wp-env.json" run cli wp <args>` with `PROJECT_ROOT` resolved from the script's own location (independent of the caller's cwd).
   - The wrapper forwards arbitrary trailing args and propagates wp-env's exit status and output.
 
-### Task 15: Convert all 11 `JUDGE.md`, slim the briefs, and update the conversion guard tests
+### Task 14: Convert all 11 `JUDGE.md`, slim the briefs, and update the conversion guard tests
 
 - **Goal:** Reference the shared rubric by id, delete inlined rubric text, replace the removed env-var catalog with human-language judge-driven setup, and flip the conversion guards to the new shape.
 - **Type:** tdd
 - **Files to change:** all of `testing-project/eval/scenarios/{async-fetch,config-fetch,counter,derived-double,focus-trap-menu,fruit-list-each,independent-counters,minimal-scaffold,paginated-list,shared-state,toggle-visibility}/JUDGE.md`; `src/__tests__/testing-project-scenarios.test.ts`
 - **Changes:**
-  - In each `JUDGE.md`: delete the inlined `## Best-practices rubric` block; add a `# Rubrics` section listing `- wp-interactivity-api-best-practices`; replace the `## Environment` env-var catalog (which named the now-removed `$SKILLSMITH_JUDGE_URL` / `$SKILLSMITH_POST_ID`) with slim human-language setup that has the judge activate the plugin, discover the produced block name(s), insert them on a published post, open the page, and run the scenario-specific live checks — keeping the existing scenario-specific behavioral asserts (the per-scenario live-check fragments in the `ANCHORS` table, e.g. counter's `5`/`Increment`/`Decrement`). Move all reusable runtime mechanics (commands, port, URL form) to the role-prompt manual (Task 13); keep each brief purely behavioral and scenario-specific. Do not pre-state the `{ pass, notes }` output instruction. Where retained bridge facts are needed, reference only `$SKILLSMITH_PLUGIN_SLUG` (the retained var).
+  - In each `JUDGE.md`: delete the inlined `## Best-practices rubric` block; add a `# Rubrics` section listing `- wp-interactivity-api-best-practices`; replace the `## Environment` env-var catalog (which named the now-removed `$SKILLSMITH_JUDGE_URL` / `$SKILLSMITH_POST_ID`) with slim human-language setup that has the judge activate the plugin, discover the produced block name(s), insert them on a published post, open the page, and run the scenario-specific live checks — keeping the existing scenario-specific behavioral asserts (the per-scenario live-check fragments in the `ANCHORS` table, e.g. counter's `5`/`Increment`/`Decrement`). Move all reusable runtime mechanics (commands, port, URL form) to the role-prompt manual (Task 12); keep each brief purely behavioral and scenario-specific. Do not pre-state the `{ pass, notes }` output instruction. Where retained bridge facts are needed, reference only `$SKILLSMITH_PLUGIN_SLUG` (the retained var).
   - In `src/__tests__/testing-project-scenarios.test.ts`, flip the "each JUDGE.md inlines the full rubric…" test to the new contract: assert each `JUDGE.md` references the rubric **by id** (a `# Rubrics` section listing `wp-interactivity-api-best-practices`) and does **not** inline the `RUBRIC_SENTINEL` text; drop the requirement that the brief states `$SKILLSMITH_JUDGE_URL` / `$SKILLSMITH_POST_ID` (only retained bridge facts such as `$SKILLSMITH_PLUGIN_SLUG` may be required); keep the per-scenario `liveChecks` fragment assertions and the "no `{ pass …` output instruction" assertion. Mirror the flip style used when `testing-project-e2e-removal.test.ts` was inverted.
   - Leave the `_candidates.yaml` guard (lines ~231-248) intact: the conversion must **not** re-introduce a `rubrics:` mention or `scenario.yaml` reference into `_candidates.yaml`; only update that assertion if such wording is accidentally added.
   - Keep all 11 scenarios enumerating cleanly with the `wp-interactivity-api` skill (the "all 11 scenarios enumerate cleanly" test must still pass).
-- **Depends on:** Task 4, Task 10, Task 13
+- **Depends on:** Task 4, Task 9, Task 12
 - **Traces to:** Spec requirements 9, 10, 11; Acceptance criteria 6, 7, 8; Design decision "Restore the shared rubric to `eval/rubrics/` and reference it by id"; Failure Modes → `testing-project-scenarios.test.ts`
 - **Acceptance:**
   - Every one of the 11 `JUDGE.md` contains a `# Rubrics` section listing `wp-interactivity-api-best-practices` and contains no inlined rubric text (the `RUBRIC_SENTINEL` sentence appears only in the rubric file, not in any `JUDGE.md`).
@@ -299,7 +288,7 @@ Per the spec's testing posture (Acceptance criterion 9, Requirement 14), **full 
   - `src/__tests__/testing-project-scenarios.test.ts` asserts the new by-id / not-inlined / dropped-env-var / live-check contract and passes; the `_candidates.yaml` guard is unchanged and passes.
   - All 11 scenarios still enumerate cleanly with the `wp-interactivity-api` skill and no enumeration error.
 
-### Task 16: Stop enforcing the block name (scaffold + testing-agent prompt)
+### Task 15: Stop enforcing the block name (scaffold + testing-agent prompt)
 
 - **Goal:** Make the scaffold's starter block name non-binding and drop the rename prohibition so the testing agent may name/structure block(s) freely; keep the deterministic slug.
 - **Type:** tdd
@@ -314,7 +303,7 @@ Per the spec's testing posture (Acceptance criterion 9, Requirement 14), **full 
   - `index.php` still registers any block dir name-agnostically and the plugin slug remains `plugin-<scenario>-<agent>` (deterministic, still not renameable).
   - `testing-agent.md` no longer forbids renaming/restructuring the block, still forbids creating a new plugin or renaming the plugin slug, and retains the `get_block_wrapper_attributes()` guidance.
 
-### Task 17: Add the staging dir to `.gitignore`
+### Task 16: Add the staging dir to `.gitignore`
 
 - **Goal:** Ignore the hook-owned host staging dir created at boot.
 - **Type:** tdd
@@ -326,23 +315,25 @@ Per the spec's testing posture (Acceptance criterion 9, Requirement 14), **full 
 - **Acceptance:**
   - `.gitignore` ignores `testing-project/.wp-env-plugins/` and still ignores `testing-project/.wp-env.json`.
 
-### Task 18: Extend the existing changeset
+### Task 17: Extend the existing changeset
 
 - **Goal:** Record the core rubric support by amending the existing base changeset (do not add a second).
 - **Type:** tdd
 - **Files to change:** `.changeset/flexible-scenarios-judge-verification.md`
 - **Changes:**
-  - Amend the sentence stating the `Paths` type drops `paths.rubrics` to read that it **drops then restores `paths.rubrics` as optional**.
+  - The existing body has one sentence covering both type changes: *"The `Scenario` type drops `description`, `prompt`, `acceptance`, and `rubrics`, and the `Paths` type drops `paths.rubrics`."* This sentence is now **false on two counts** once this change lands — Task 1 restores `Scenario.rubrics?` (an optional id list) and `Paths.rubrics?` — so rewrite it end to end so neither field is described as dropped. Correct **both** clauses: the `Scenario` clause must no longer claim `rubrics` is dropped (it now regains an optional `rubrics` id list referenced by id), and the `Paths` clause must read that it **drops then restores `paths.rubrics` as optional** (rather than only dropping it). Keep `description`, `prompt`, and `acceptance` listed as the fields `Scenario` still drops. For example: *"The `Scenario` type drops `description`, `prompt`, and `acceptance`, and regains an optional `rubrics` field (a list of rubric ids referenced from `JUDGE.md`); the `Paths` type drops then restores `paths.rubrics` as an optional location."*
   - Add a note that a `JUDGE.md` may reference reusable rubrics by id under a `# Rubrics` section, resolved from the optional `paths.rubrics` location and injected into the judge's grading material (verdict unchanged).
+  - Ensure the amended body is internally consistent: it must not anywhere still assert that `Scenario` (or `Paths`) drops `rubrics` while the same file documents the restored optional `rubrics` field and rubrics-by-id support — the two statements would contradict, which spec Requirement 13 forbids.
   - Keep the bump `minor` with the `BREAKING:` summary prefix. Do not add a second changeset file.
 - **Depends on:** Task 1, Task 3, Task 4, Task 5, Task 6
 - **Traces to:** Spec requirement 13; Design decision "Extend the existing changeset; only core changes bump"; Research → Changeset state
 - **Acceptance:**
-  - The single changeset `.changeset/flexible-scenarios-judge-verification.md` states `paths.rubrics` is dropped then restored as optional and documents rubrics-by-id (`# Rubrics`, resolved from `paths.rubrics`).
+  - The single changeset `.changeset/flexible-scenarios-judge-verification.md` states `paths.rubrics` is dropped then restored as optional, states `Scenario` regains an optional `rubrics` id field (no longer claims `Scenario` drops `rubrics`), and documents rubrics-by-id (`# Rubrics`, resolved from `paths.rubrics`).
+  - The changeset contains no stale "drops … `rubrics`" claim for either `Scenario` or `Paths` and is internally consistent (no clause contradicts the restored-optional-`rubrics` / rubrics-by-id description); `description`, `prompt`, and `acceptance` are still listed as dropped from `Scenario`.
   - The frontmatter bump stays `@automattic/skillsmith: minor` and the summary keeps the `BREAKING:` prefix; no second changeset file is added.
   - `npx tsx scripts/validate-changesets.ts` passes.
 
-### Task 19: Single-scenario manual sanity check (live bind-mount + judge-driven setup)
+### Task 18: Single-scenario manual sanity check (live bind-mount + judge-driven setup)
 
 - **Goal:** Empirically confirm, once, the one source-verified-but-unbooted claim: a plugin copied into the live bind-mounted staging dir is immediately activatable and the judge-driven setup works end to end for one scenario.
 - **Type:** tdd
@@ -350,7 +341,7 @@ Per the spec's testing posture (Acceptance criterion 9, Requirement 14), **full 
 - **Changes:**
   - Manually, within the testing posture (at most a single scenario × single agent — do **not** run the self-improvement loop or a full suite): boot wp-env once via `bootJudgeEnv`, copy a built plugin into `.wp-env-plugins/<slug>/`, `wp plugin activate <slug>`, confirm it registers; then drive one converted scenario through the judge to confirm it discovers the block from `build/blocks/*/block.json`, creates the post, opens `?p=<id>`, and produces a `{ pass, notes }` verdict. Tear down with `stopJudgeEnv`.
   - Requires Docker available locally. If any step fails, surface it as a blocker rather than altering the design.
-- **Depends on:** Task 12, Task 13, Task 14, Task 15, Task 16
+- **Depends on:** Task 11, Task 12, Task 13, Task 14, Task 15
 - **Traces to:** Acceptance criteria 5, 6, 7, 9; Risk 2 (live-bind-mount empirical check); Risk 5 (judge reliability); Risk 4 (Docker)
 - **Acceptance:**
   - wp-env boots once; a plugin copied into the live-mounted staging dir activates without a restart.
