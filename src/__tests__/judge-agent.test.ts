@@ -128,14 +128,14 @@ test( 'buildJudgeSystemPrompt asks for exactly the { pass, notes } object with J
 	);
 } );
 
-test( 'buildJudgeSystemPrompt carries no rubric/acceptance scaffolding', () => {
+test( 'buildJudgeSystemPrompt carries no rubric/acceptance scaffolding for a no-rubric scenario', () => {
 	const prompt = buildJudgeSystemPrompt(
 		makeScenario( 'grade it' ),
 		makeConfig()
 	);
 	assert.ok(
-		! /rubric/i.test( prompt ),
-		'no rubric scaffolding remains in the judge prompt'
+		! prompt.includes( '# Grading rubrics' ),
+		'no Grading rubrics section appears for a scenario that references no rubric with no rubricBlob passed'
 	);
 	assert.ok(
 		! /acceptance/i.test( prompt ),
