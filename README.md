@@ -86,7 +86,18 @@ Unsupported option-like arguments such as `--scenario` fail before a run starts.
 
 Project-specific behaviour is exposed through **hooks**. Each fork implements only the hooks it needs against the harness's runtime contract.
 
-![Skill Tester workflow diagram](assets/skill-tester-workflow.png)
+```mermaid
+flowchart TD
+    A["Testing agent<br/>gets the verbatim <code>testingBrief</code><br/>+ skills from <code># Skills</code>"]
+    A --> B["Produces its artifact<br/>in <code>workspace/</code>"]
+    B --> C["Harness copies<br/><code>workspace/</code> → <code>judge-workspace/</code>"]
+    C --> D["<code>beforeJudgeAgent</code><br/>project brings up its live env<br/>from <code>judge-workspace/</code>"]
+    D --> E["Judge verifies live<br/>(<code>JUDGE.md</code> brief, project-configured<br/>capabilities, against the copy)"]
+    E --> F["Verdict <code>{ pass, notes }</code><br/>+ diff-guard on the canonical workspace"]
+    F --> G["<code>afterJudgeAgent</code><br/>project tears the env down"]
+    F -- "on failure (self-improvement mode)" --> H["Improver edits the skills<br/>from the judge's <code>notes</code>"]
+```
+
 
 ### Lifecycle
 
