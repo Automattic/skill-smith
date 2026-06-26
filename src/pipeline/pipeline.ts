@@ -42,6 +42,7 @@ import {
 	selectScenariosByNormalizedFilters,
 } from '../scenarios/selection';
 import { tryHook } from '../util/hooks';
+import { SerialMutex } from '../util/mutex';
 import { RunLog } from '../util/run-log';
 import { runAgents } from './agent-loop';
 import { selectScenarios } from './select-scenarios';
@@ -377,6 +378,12 @@ async function runOneIteration(
 		);
 	}
 
+	// One judge mutex per iteration, constructed above both fan-outs (the
+	// scenario `Promise.all` below and the agent loop inside each scenario)
+	// so a single instance serializes the judge bracket across every pair
+	// in the iteration when `roles.judge.concurrency === 'serial'`.
+	const judgeMutex = new SerialMutex();
+
 	let scenarioRecords: ScenarioRunRecord[];
 	try {
 		scenarioRecords = await Promise.all(
@@ -392,6 +399,7 @@ async function runOneIteration(
 					log,
 					tracker: args.tracker,
 					scenarios: args.runCtx.scenarios,
+					judgeMutex,
 				} )
 			)
 		);
@@ -473,6 +481,12 @@ interface ScenarioRunArgs {
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
+	/**
+	 * The iteration's shared judge mutex, constructed once above the
+	 * scenario fan-out and forwarded unchanged into every scenario's agent
+	 * loop so one instance serializes the judge bracket run-wide.
+	 */
+	judgeMutex: SerialMutex;
 }
 
 async function runScenario(
@@ -517,6 +531,7 @@ async function runScenario(
 				log: args.log,
 				tracker: args.tracker,
 				scenarios: args.scenarios,
+				judgeMutex: args.judgeMutex,
 				agentIdFilter: args.agentFilter,
 			} );
 		}

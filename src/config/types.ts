@@ -8,6 +8,20 @@ import type { ProviderId } from '../providers/types';
 export type RunMode = 'test-only' | 'self-improvement';
 
 /**
+ * How the judge phase of the agent loop is scheduled across the
+ * pipeline's scenario and agent fan-outs:
+ *   - `parallel` — every pair's judge bracket may run concurrently
+ *     (the default; today's behavior).
+ *   - `serial` — a single run-wide lock serializes the
+ *     `beforeJudgeAgent` → judge → `afterJudgeAgent` bracket so no two
+ *     pairs grade at once (e.g. when each grade boots a shared,
+ *     non-reentrant environment such as `wp-env start`).
+ *
+ * Set on the judge role via `roles.judge.concurrency`.
+ */
+export type JudgeConcurrency = 'serial' | 'parallel';
+
+/**
  * How a subsequent iteration narrows what to re-evaluate based on the
  * previous iteration's report:
  *   - `failed-pairs` — only the exact (scenario, agent) pairs that failed.
@@ -86,7 +100,15 @@ export interface TestRoleInput {
 	prompt?: string;
 }
 
-export type SingleRoleInput = string | { agent: string; prompt?: string };
+/**
+ * A single-agent role as the user writes it: either a bare agent-id
+ * string or an object naming the agent and optional `prompt`. The judge
+ * role additionally accepts {@link JudgeConcurrency} via `concurrency`
+ * (ignored on other single-agent roles).
+ */
+export type SingleRoleInput =
+	| string
+	| { agent: string; prompt?: string; concurrency?: JudgeConcurrency };
 
 /**
  * The normalized form the harness uses internally. String shorthands are
@@ -96,7 +118,16 @@ export type SingleRoleInput = string | { agent: string; prompt?: string };
  */
 export interface NormalizedRoles {
 	test: { agents: AgentDefinition[]; prompt?: string };
-	judge: { agent: AgentDefinition; prompt?: string };
+	/**
+	 * The judge role. `concurrency` is always present after normalization,
+	 * defaulting to `'parallel'` when the user omits it; the agent loop
+	 * reads it to decide whether to serialize the judge bracket.
+	 */
+	judge: {
+		agent: AgentDefinition;
+		prompt?: string;
+		concurrency: JudgeConcurrency;
+	};
 	improver: { agent: AgentDefinition; prompt?: string };
 }
 
@@ -221,7 +252,20 @@ export interface ScenarioContext extends RunContext {
 
 export interface AgentContext extends ScenarioContext {
 	agent: AgentDefinition;
+	/**
+	 * The canonical workspace the testing agent wrote into, at
+	 * `<agent-dir>/workspace`. This is the artifact of record; the
+	 * diff-guard fails the pair if anything mutates it during the judge
+	 * phase.
+	 */
 	agentWorkspace: string;
+	/**
+	 * The isolated copy the judge runs against, at
+	 * `<agent-dir>/judge-workspace`. Exposed so the `beforeJudgeAgent` /
+	 * `afterJudgeAgent` hooks can build and tear down the judge's
+	 * environment from the copy rather than the canonical workspace.
+	 */
+	judgeWorkspace: string;
 }
 
 /**

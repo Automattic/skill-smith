@@ -13,7 +13,17 @@ export interface RunJudgeAgentParams {
 	scenario: Scenario;
 	judge: AgentDefinition;
 	agentDirectory: string;
+	/**
+	 * The canonical workspace the testing agent produced. The judge must
+	 * never write here; it reads file contents into the prompt from it.
+	 */
 	agentWorkspace: string;
+	/**
+	 * The isolated copy the judge runs against (its `cwd`), so a judge that
+	 * writes cannot mutate the canonical artifact. The caller copies
+	 * `agentWorkspace` here before invoking the judge.
+	 */
+	judgeWorkspace: string;
 	projectRoot: string;
 	config: SkillsmithConfig;
 	log: RunLog;

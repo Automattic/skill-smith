@@ -2,6 +2,7 @@ import { isProviderId, PROVIDER_IDS } from '../providers/registry';
 import type {
 	AgentDefinitionInput,
 	EvaluationScope,
+	JudgeConcurrency,
 	RunMode,
 	SingleRoleInput,
 	SkillsmithConfigInput,
@@ -13,6 +14,7 @@ const VALID_SCOPES: EvaluationScope[] = [
 	'failed-scenarios',
 	'all',
 ];
+const VALID_JUDGE_CONCURRENCY: JudgeConcurrency[] = [ 'serial', 'parallel' ];
 
 export function collectConfigErrors( config: SkillsmithConfigInput ): string[] {
 	const errors: string[] = [];
@@ -103,7 +105,38 @@ function validateRoles(
 
 	validateTestRole( roles.test, agentIds, errors );
 	validateSingleRole( roles.judge, 'roles.judge', agentIds, errors );
+	validateJudgeConcurrency( roles.judge, errors );
 	validateSingleRole( roles.improver, 'roles.improver', agentIds, errors );
+}
+
+/**
+ * Permissively validate the judge role's optional `concurrency` knob: an
+ * absent value is accepted (it defaults to `'parallel'` at normalization),
+ * and only an explicit value outside {@link VALID_JUDGE_CONCURRENCY} is
+ * rejected. The string-shorthand judge role carries no concurrency, so it
+ * is always accepted.
+ *
+ * @param role   - The judge role as authored (string or object).
+ * @param errors - The accumulator to push a message onto on rejection.
+ */
+function validateJudgeConcurrency(
+	role: SingleRoleInput | undefined,
+	errors: string[]
+): void {
+	if ( role === undefined || role === null || typeof role !== 'object' ) {
+		return;
+	}
+	const { concurrency } = role;
+	if (
+		concurrency !== undefined &&
+		! VALID_JUDGE_CONCURRENCY.includes( concurrency )
+	) {
+		errors.push(
+			`roles.judge.concurrency must be one of ${ VALID_JUDGE_CONCURRENCY.map(
+				( c ) => `"${ c }"`
+			).join( ', ' ) }`
+		);
+	}
 }
 
 function validateTestRole(

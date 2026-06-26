@@ -53,7 +53,7 @@ function makeConfig( rolePrompt?: string ): SkillsmithConfig {
 		agents: { [ agent.id ]: agent },
 		roles: {
 			test: { agents: [ agent ], prompt: rolePrompt },
-			judge: { agent },
+			judge: { agent, concurrency: 'parallel' },
 			improver: { agent },
 		},
 		paths: { base: '.skillsmith', skills: 'skills', scenarios: 'scenarios' },

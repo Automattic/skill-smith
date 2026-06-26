@@ -34,7 +34,7 @@ export function normalizeConfig(
 				? { prompt: input.roles.test.prompt }
 				: {} ),
 		},
-		judge: normalizeSingleRole( input.roles.judge, agents ),
+		judge: normalizeJudgeRole( input.roles.judge, agents ),
 		improver: normalizeSingleRole( input.roles.improver, agents ),
 	};
 
@@ -63,4 +63,24 @@ function normalizeSingleRole(
 	};
 	if ( role.prompt !== undefined ) out.prompt = role.prompt;
 	return out;
+}
+
+/**
+ * Normalize the judge role, lifting the string shorthand to object form
+ * and resolving its `concurrency` to a concrete value. The user-facing
+ * field is optional and defaults to `'parallel'`, so downstream code can
+ * read `config.roles.judge.concurrency` unconditionally.
+ *
+ * @param role   - The judge role exactly as authored (string or object).
+ * @param agents - The resolved agent map to look the judge agent up in.
+ * @returns The normalized judge role with `concurrency` always set.
+ */
+function normalizeJudgeRole(
+	role: SingleRoleInput,
+	agents: Record< string, AgentDefinition >
+): NormalizedRoles[ 'judge' ] {
+	const base = normalizeSingleRole( role, agents );
+	const concurrency =
+		typeof role === 'string' ? undefined : role.concurrency;
+	return { ...base, concurrency: concurrency ?? 'parallel' };
 }
