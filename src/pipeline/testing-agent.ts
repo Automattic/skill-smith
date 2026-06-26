@@ -25,7 +25,7 @@ const TOOL_USE_WARNING_THRESHOLD = 50;
  * Run the testing sub-agent for one (scenario, agent) pair. The system
  * prompt carries the skill blob, a snapshot of the workspace, a write
  * constraint, and a recursion guard. The user message is
- * `scenario.prompt` verbatim.
+ * `scenario.testingBrief` verbatim.
  */
 export async function runTestingAgent(
 	params: RunTestingAgentParams
@@ -69,7 +69,7 @@ export async function runTestingAgent(
 	const result = await provider.invoke( {
 		agent,
 		systemPrompt,
-		prompt: scenario.prompt,
+		prompt: scenario.testingBrief,
 		cwd: agentWorkspace,
 		role: 'testing',
 	} );
