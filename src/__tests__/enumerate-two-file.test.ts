@@ -68,11 +68,11 @@ test( 'a directory with both briefs is discovered as a runnable scenario', () =>
 	}
 } );
 
-test( 'a scenario directory with no scenario.yaml is still discovered', () => {
+test( 'a scenario directory with only the two briefs is discovered', () => {
 	const root = makeProject();
 	try {
 		writeScenario( root, 'counter' );
-		// No scenario.yaml is written; discovery is by brief presence alone.
+		// Only the two briefs are written; discovery is by brief presence alone.
 
 		const found = enumerateScenarios( TEST_PATHS, root );
 

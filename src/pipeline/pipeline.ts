@@ -565,8 +565,7 @@ async function runScenario(
  * Each entry in `config.paths` for `skills` and `scenarios` must resolve to an
  * existing directory under `projectRoot`, and `paths.base` must be non-empty.
  * Any missing or non-directory path, or an empty `base`, is collected and
- * reported together. There is no `rubrics` precondition: a project with no
- * `rubrics/` directory runs cleanly.
+ * reported together.
  *
  * @param config      - Resolved harness config whose `paths` are checked.
  * @param projectRoot - Absolute root the relative `paths` are resolved against.

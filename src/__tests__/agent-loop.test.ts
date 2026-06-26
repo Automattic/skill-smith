@@ -33,7 +33,7 @@ test( 'judge phase is skipped when the testing agent reports an error', async ()
 	// error inlined into the reason, so summaries can show why.
 	const failReportPath = join(
 		iterationDir,
-		'hello-scenario',
+		'hello',
 		'mock-fail-testing',
 		'report.json'
 	);
@@ -51,21 +51,16 @@ test( 'judge phase is skipped when the testing agent reports an error', async ()
 	// own directory creation.
 	const failWorkspace = join(
 		iterationDir,
-		'hello-scenario',
+		'hello',
 		'mock-fail-testing',
 		'workspace'
 	);
 	assert.ok( existsSync( failWorkspace ) );
 
 	// The other agent's full pipeline still runs as normal: its report
-	// carries the judge's complete review (every rubric/acceptance item),
-	// which classifies as a pass — distinct from the skipped block above.
-	const okReportPath = join(
-		iterationDir,
-		'hello-scenario',
-		'ok',
-		'report.json'
-	);
+	// carries the judge's { pass, notes } review, which classifies as a
+	// pass — distinct from the skipped block above.
+	const okReportPath = join( iterationDir, 'hello', 'ok', 'report.json' );
 	const okReport = JSON.parse( readFileSync( okReportPath, 'utf8' ) ) as {
 		review?: { skipped?: unknown };
 	};
@@ -76,7 +71,12 @@ test( 'judge phase is skipped when the testing agent reports an error', async ()
 	assert.equal(
 		classifyVerdict( okReport.review ).kind,
 		'PASS',
-		"the passing agent's complete review classifies as a pass"
+		"the passing agent's { pass, notes } review classifies as a pass"
+	);
+	assert.deepEqual(
+		okReport.review,
+		{ pass: true, notes: 'mock' },
+		"the passing agent persists the judge's { pass, notes } review verbatim"
 	);
 
 	rmSync( baseDir, { recursive: true, force: true } );

@@ -51,17 +51,11 @@ test( 'all-pass run exits 0 with RUN RESULT: PASS', async () => {
 							totalTokens: 150,
 						},
 					},
-					review: {
-						rubrics: { r1: { pass: true } },
-						acceptance: [ { item: 'x', pass: true } ],
-					},
+					review: { pass: true, notes: 'looks good' },
 				},
 				opus: {
 					testing: { duration: 900 },
-					review: {
-						rubrics: { r1: { pass: true } },
-						acceptance: [ { item: 'x', pass: true } ],
-					},
+					review: { pass: true, notes: 'looks good' },
 				},
 			},
 		},
@@ -78,26 +72,20 @@ test( 'all-pass run exits 0 with RUN RESULT: PASS', async () => {
 	assert.match( out, /RUN RESULT: PASS/ );
 } );
 
-test( 'any failure → exit 1, FAIL, and a line per failing rubric/acceptance', async () => {
+test( 'any failure → exit 1, FAIL, and a line surfacing the judge notes', async () => {
 	const { runDirectory } = withReport( {
 		'counter-block': {
 			scenario: 'counter-block',
 			agents: {
 				haiku: {
 					testing: { duration: 1200 },
-					review: {
-						rubrics: { r1: { pass: true } },
-						acceptance: [ { item: 'x', pass: true } ],
-					},
+					review: { pass: true, notes: 'looks good' },
 				},
 				opus: {
 					testing: { duration: 1100 },
 					review: {
-						rubrics: {
-							r1: { pass: false, notes: 'bad' },
-							r2: { pass: false, notes: 'also bad' },
-						},
-						acceptance: [ { item: 'uses fetch', pass: false } ],
+						pass: false,
+						notes: 'fetch is missing and console.log remains',
 					},
 				},
 			},
@@ -112,9 +100,10 @@ test( 'any failure → exit 1, FAIL, and a line per failing rubric/acceptance', 
 	assert.match( out, /counter-block\s+haiku\s+PASS\s+1\.2s/ );
 	assert.match( out, /\bopus\s+FAIL\s+1\.1s/ );
 	assert.match( out, /RUN RESULT: FAIL/ );
-	assert.match( out, /opus: rubric r1/ );
-	assert.match( out, /opus: rubric r2/ );
-	assert.match( out, /opus: acceptance uses fetch/ );
+	assert.match(
+		out,
+		/opus: fetch is missing and console\.log remains/
+	);
 	assert.doesNotMatch( out, /not pass/ );
 } );
 
@@ -125,17 +114,11 @@ test( 'multiple failing scenarios each get their own block', async () => {
 			agents: {
 				'codex-gpt55': {
 					testing: { duration: 1000 },
-					review: {
-						rubrics: { r1: { pass: false } },
-						acceptance: [ { item: 'ok', pass: true } ],
-					},
+					review: { pass: false, notes: 'config never fetched' },
 				},
 				'codex-mini': {
 					testing: { duration: 1000 },
-					review: {
-						rubrics: { r2: { pass: false } },
-						acceptance: [ { item: 'ok', pass: true } ],
-					},
+					review: { pass: false, notes: 'wrong endpoint' },
 				},
 			},
 		},
@@ -144,17 +127,11 @@ test( 'multiple failing scenarios each get their own block', async () => {
 			agents: {
 				'codex-gpt55': {
 					testing: { duration: 1000 },
-					review: {
-						rubrics: { r3: { pass: false } },
-						acceptance: [ { item: 'ok', pass: true } ],
-					},
+					review: { pass: false, notes: 'broken output' },
 				},
 				'codex-mini': {
 					testing: { duration: 1000 },
-					review: {
-						rubrics: { r3: { pass: true } },
-						acceptance: [ { item: 'ok', pass: true } ],
-					},
+					review: { pass: true, notes: 'ok' },
 				},
 			},
 		},
@@ -166,12 +143,12 @@ test( 'multiple failing scenarios each get their own block', async () => {
 
 	assert.ok(
 		out.includes(
-			'config-fetch\n  codex-gpt55: rubric r1\n  codex-mini: rubric r2'
+			'config-fetch\n  codex-gpt55: config never fetched\n  codex-mini: wrong endpoint'
 		),
 		`failure block for config-fetch missing in:\n${ out }`
 	);
 	assert.ok(
-		out.includes( 'other\n  codex-gpt55: rubric r3' ),
+		out.includes( 'other\n  codex-gpt55: broken output' ),
 		`failure block for other missing in:\n${ out }`
 	);
 } );
@@ -212,10 +189,7 @@ test( 'long format unifies the scenario cell across agent rows', async () => {
 							totalTokens: 1500,
 						},
 					},
-					review: {
-						rubrics: { r1: { pass: true } },
-						acceptance: [ { item: 'x', pass: true } ],
-					},
+					review: { pass: true, notes: 'looks good' },
 				},
 				opus: {
 					testing: {
@@ -226,10 +200,7 @@ test( 'long format unifies the scenario cell across agent rows', async () => {
 							totalTokens: 1200,
 						},
 					},
-					review: {
-						rubrics: { r1: { pass: true } },
-						acceptance: [ { item: 'x', pass: true } ],
-					},
+					review: { pass: true, notes: 'looks good' },
 				},
 			},
 		},
@@ -259,10 +230,7 @@ test( 'writes summary.txt mirroring the console (without ANSI)', async () => {
 			agents: {
 				haiku: {
 					testing: { duration: 800 },
-					review: {
-						rubrics: { r1: { pass: false } },
-						acceptance: [ { item: 'x', pass: true } ],
-					},
+					review: { pass: false, notes: 'output is wrong' },
 				},
 			},
 		},
@@ -277,7 +245,7 @@ test( 'writes summary.txt mirroring the console (without ANSI)', async () => {
 	const body = readFileSync( summaryPath, 'utf8' );
 	assert.match( body, /counter-block\s+haiku\s+FAIL/ );
 	assert.match( body, /RUN RESULT: FAIL/ );
-	assert.match( body, /haiku: rubric r1/ );
+	assert.match( body, /haiku: output is wrong/ );
 	assert.equal(
 		body.includes( String.fromCharCode( 27 ) ),
 		false,

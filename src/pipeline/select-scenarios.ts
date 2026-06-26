@@ -26,9 +26,9 @@ export interface ScenarioSelection {
  *   - `failed-pairs` — keep only the exact (scenario, agent) pairs
  *     that failed. Scenarios where every agent passed drop out.
  *
- * Scenarios that have a pre-run `error` (enumeration failure, e.g.
- * malformed scenario.yaml) always stay in selection so the harness
- * keeps surfacing them.
+ * Scenarios that have a pre-run `error` (enumeration failure, e.g. a
+ * scenario directory missing one of its two briefs) always stay in
+ * selection so the harness keeps surfacing them.
  */
 export function selectScenarios(
 	iteration: number,

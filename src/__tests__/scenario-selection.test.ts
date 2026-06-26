@@ -93,21 +93,16 @@ function cleanProject(): void {
 	rmSync( join( projectRoot, 'hooks.log' ), { force: true } );
 }
 
-function writeScenario( id: string, name: string ): void {
+function writeScenario( id: string ): void {
 	const scenarioDir = join( scenariosRoot, ...id.split( '/' ) );
 	mkdirSync( scenarioDir, { recursive: true } );
 	writeFileSync(
-		join( scenarioDir, 'scenario.yaml' ),
-		`name: ${ name }
-description: ${ name }
-skills:
-  - foo
-prompt: ${ name }
-acceptance:
-  - passes
-rubrics:
-  - r1
-`
+		join( scenarioDir, 'TESTING-AGENT.md' ),
+		`Run the ${ id } scenario.\n\n# Skills\n\n- foo\n`
+	);
+	writeFileSync(
+		join( scenarioDir, 'JUDGE.md' ),
+		`Pass when the ${ id } scenario succeeds.\n`
 	);
 }
 
@@ -155,26 +150,20 @@ test( 'API run without scenarios runs all scenarios', async () => {
 	const result = await runApi();
 
 	assert.equal( result.exitCode, 0 );
-	assert.deepEqual( reportScenarioNames(), [
-		'config-fetch-scenario',
-		'counter-scenario',
-	] );
-	assert.match( result.stdout, /counter-scenario\s+\S+\s+PASS/ );
-	assert.match( result.stdout, /config-fetch-scenario\s+\S+\s+PASS/ );
+	assert.deepEqual( reportScenarioNames(), [ 'config-fetch', 'counter' ] );
+	assert.match( result.stdout, /counter\s+\S+\s+PASS/ );
+	assert.match( result.stdout, /config-fetch\s+\S+\s+PASS/ );
 } );
 
 test( 'API run with an empty scenario list runs all scenarios', async () => {
 	const result = await runApi( [] );
 
 	assert.equal( result.exitCode, 0 );
-	assert.deepEqual( reportScenarioNames(), [
-		'config-fetch-scenario',
-		'counter-scenario',
-	] );
+	assert.deepEqual( reportScenarioNames(), [ 'config-fetch', 'counter' ] );
 } );
 
 test( 'API run with an empty scenario list uses deterministic scenario ID order', async () => {
-	writeScenario( 'z-group/nested', 'nested-scenario' );
+	writeScenario( 'z-group/nested' );
 	try {
 		const result = await runApi( [] );
 
@@ -193,12 +182,12 @@ test( 'API run targets one scenario directory ID', async () => {
 	const result = await runApi( [ 'counter' ] );
 
 	assert.equal( result.exitCode, 0 );
-	assert.deepEqual( reportScenarioNames(), [ 'counter-scenario' ] );
+	assert.deepEqual( reportScenarioNames(), [ 'counter' ] );
 	assert.deepEqual(
 		hookEvents().filter( ( event ) =>
 			event.startsWith( 'beforeScenario:' )
 		),
-		[ 'beforeScenario:counter-scenario' ]
+		[ 'beforeScenario:counter' ]
 	);
 	assert.ok( hookEvents().includes( 'afterAllScenarios:counter' ) );
 } );
@@ -207,12 +196,12 @@ test( 'API run trims scenario IDs before exact matching', async () => {
 	const result = await runApi( [ ' counter ' ] );
 
 	assert.equal( result.exitCode, 0 );
-	assert.deepEqual( reportScenarioNames(), [ 'counter-scenario' ] );
+	assert.deepEqual( reportScenarioNames(), [ 'counter' ] );
 	assert.deepEqual(
 		hookEvents().filter( ( event ) =>
 			event.startsWith( 'beforeScenario:' )
 		),
-		[ 'beforeScenario:counter-scenario' ]
+		[ 'beforeScenario:counter' ]
 	);
 } );
 
@@ -220,12 +209,12 @@ test( 'API run normalizes harmless scenario ID spelling', async () => {
 	const result = await runApi( [ ' ./counter/ ', 'counter' ] );
 
 	assert.equal( result.exitCode, 0 );
-	assert.deepEqual( reportScenarioNames(), [ 'counter-scenario' ] );
+	assert.deepEqual( reportScenarioNames(), [ 'counter' ] );
 	assert.deepEqual(
 		hookEvents().filter(
-			( event ) => event === 'beforeScenario:counter-scenario'
+			( event ) => event === 'beforeScenario:counter'
 		),
-		[ 'beforeScenario:counter-scenario' ]
+		[ 'beforeScenario:counter' ]
 	);
 } );
 
@@ -233,18 +222,12 @@ test( 'API run targets multiple scenario directory IDs', async () => {
 	const result = await runApi( [ 'counter', 'config-fetch' ] );
 
 	assert.equal( result.exitCode, 0 );
-	assert.deepEqual( reportScenarioNames(), [
-		'config-fetch-scenario',
-		'counter-scenario',
-	] );
+	assert.deepEqual( reportScenarioNames(), [ 'config-fetch', 'counter' ] );
 	assert.deepEqual(
 		hookEvents().filter( ( event ) =>
 			event.startsWith( 'beforeScenario:' )
 		),
-		[
-			'beforeScenario:counter-scenario',
-			'beforeScenario:config-fetch-scenario',
-		]
+		[ 'beforeScenario:counter', 'beforeScenario:config-fetch' ]
 	);
 	assert.ok(
 		hookEvents().includes( 'afterAllScenarios:counter,config-fetch' )
@@ -255,12 +238,12 @@ test( 'API run de-dupes duplicate scenario IDs', async () => {
 	const result = await runApi( [ 'counter', 'counter' ] );
 
 	assert.equal( result.exitCode, 0 );
-	assert.deepEqual( reportScenarioNames(), [ 'counter-scenario' ] );
+	assert.deepEqual( reportScenarioNames(), [ 'counter' ] );
 	assert.deepEqual(
 		hookEvents().filter(
-			( event ) => event === 'beforeScenario:counter-scenario'
+			( event ) => event === 'beforeScenario:counter'
 		),
-		[ 'beforeScenario:counter-scenario' ]
+		[ 'beforeScenario:counter' ]
 	);
 } );
 
@@ -285,45 +268,22 @@ test( 'API run rejects unknown scenario IDs before hooks and lists available IDs
 	assert.equal( existsSync( join( projectRoot, '.skillsmith' ) ), false );
 } );
 
-test( 'API run rejects invalid filters before duplicate-name validation or side effects', async () => {
-	writeScenario( 'duplicates/counter', 'counter-scenario' );
-	try {
-		const result = await runApi( [ '../counter' ] );
+test( 'API run rejects invalid filters before side effects', async () => {
+	const result = await runApi( [ '../counter' ] );
 
-		assert.equal( result.exitCode, 1 );
-		assert.match( result.stderr, /Invalid scenario filter: \.\.\/counter/ );
-		assert.doesNotMatch( result.stderr, /Duplicate scenario\.name/ );
-		assert.deepEqual( hookEvents(), [] );
-		assert.equal( existsSync( join( projectRoot, '.skillsmith' ) ), false );
-	} finally {
-		removeScenario( 'duplicates/counter' );
-	}
-} );
-
-test( 'API run rejects duplicate configured names before hooks and agents', async () => {
-	writeScenario( 'duplicates/counter', 'counter-scenario' );
-	try {
-		const result = await runApi( [ 'counter' ] );
-
-		assert.equal( result.exitCode, 1 );
-		assert.match(
-			result.stderr,
-			/Duplicate scenario\.name "counter-scenario"/
-		);
-		assert.deepEqual( hookEvents(), [] );
-		assert.equal( existsSync( join( projectRoot, '.skillsmith' ) ), false );
-	} finally {
-		removeScenario( 'duplicates/counter' );
-	}
+	assert.equal( result.exitCode, 1 );
+	assert.match( result.stderr, /Invalid scenario filter: \.\.\/counter/ );
+	assert.deepEqual( hookEvents(), [] );
+	assert.equal( existsSync( join( projectRoot, '.skillsmith' ) ), false );
 } );
 
 test( 'API run with a nested folder filter exposes normalized IDs to hooks', async () => {
-	writeScenario( 'z-group/nested', 'nested-scenario' );
+	writeScenario( 'z-group/nested' );
 	try {
 		const result = await runApi( [ 'z-group' ] );
 
 		assert.equal( result.exitCode, 0 );
-		assert.deepEqual( reportScenarioNames(), [ 'nested-scenario' ] );
+		assert.deepEqual( reportScenarioNames(), [ 'z-group/nested' ] );
 		assert.ok(
 			hookEvents().includes( 'afterAllScenarios:z-group/nested' )
 		);
@@ -342,39 +302,33 @@ test( 'CLI parser passes no args as all scenarios', async () => {
 	const result = await runCli( [] );
 
 	assert.equal( result.exitCode, 0 );
-	assert.deepEqual( reportScenarioNames(), [
-		'config-fetch-scenario',
-		'counter-scenario',
-	] );
+	assert.deepEqual( reportScenarioNames(), [ 'config-fetch', 'counter' ] );
 } );
 
 test( 'CLI parser passes one positional scenario', async () => {
 	const result = await runCli( [ 'counter' ] );
 
 	assert.equal( result.exitCode, 0 );
-	assert.deepEqual( reportScenarioNames(), [ 'counter-scenario' ] );
+	assert.deepEqual( reportScenarioNames(), [ 'counter' ] );
 } );
 
 test( 'CLI parser passes multiple positional scenarios', async () => {
 	const result = await runCli( [ 'counter', 'config-fetch' ] );
 
 	assert.equal( result.exitCode, 0 );
-	assert.deepEqual( reportScenarioNames(), [
-		'config-fetch-scenario',
-		'counter-scenario',
-	] );
+	assert.deepEqual( reportScenarioNames(), [ 'config-fetch', 'counter' ] );
 } );
 
 test( 'CLI parser preserves duplicate positional args for shared de-duping', async () => {
 	const result = await runCli( [ 'counter', 'counter' ] );
 
 	assert.equal( result.exitCode, 0 );
-	assert.deepEqual( reportScenarioNames(), [ 'counter-scenario' ] );
+	assert.deepEqual( reportScenarioNames(), [ 'counter' ] );
 	assert.deepEqual(
 		cliHookEvents().filter(
-			( event ) => event === 'beforeScenario:counter-scenario'
+			( event ) => event === 'beforeScenario:counter'
 		),
-		[ 'beforeScenario:counter-scenario' ]
+		[ 'beforeScenario:counter' ]
 	);
 } );
 
@@ -382,7 +336,7 @@ test( 'CLI parser uses shared harmless scenario ID normalization', async () => {
 	const result = await runCli( [ './counter/' ] );
 
 	assert.equal( result.exitCode, 0 );
-	assert.deepEqual( reportScenarioNames(), [ 'counter-scenario' ] );
+	assert.deepEqual( reportScenarioNames(), [ 'counter' ] );
 } );
 
 test( 'CLI parser returns user-facing errors for unknown positional scenarios', async () => {

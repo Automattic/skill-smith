@@ -29,8 +29,33 @@ export default defineConfig( {
 					'expected scenario.dirName to match scenario.id'
 				);
 			}
+			// The public RunScenario hook surface is exactly { id, dirName,
+			// scenario }. It must not leak the enumeration-only `nameSource`
+			// flag.
+			const keys = Object.keys( scenario ).sort();
+			if ( keys.join( ',' ) !== 'dirName,id,scenario' ) {
+				throw new Error(
+					`RunScenario must expose only id, dirName, scenario; got ${ keys.join(
+						', '
+					) }`
+				);
+			}
 			if ( 'nameSource' in scenario ) {
 				throw new Error( 'RunScenario must not expose nameSource' );
+			}
+			// The scenario record carries the two-file model fields and must
+			// not carry the removed Scenario fields.
+			for ( const removed of [
+				'description',
+				'prompt',
+				'acceptance',
+				'rubrics',
+			] ) {
+				if ( removed in scenario.scenario ) {
+					throw new Error(
+						`Scenario must not carry the removed field "${ removed }"`
+					);
+				}
 			}
 		},
 	},

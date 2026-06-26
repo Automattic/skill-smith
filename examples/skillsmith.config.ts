@@ -70,10 +70,23 @@ export default defineConfig( {
 			provider: 'codex',
 			model: 'gpt-5.4-mini',
 		},
-		'codex-gpt55': {
+
+		// The judge agent verifies each artifact against the scenario's
+		// JUDGE.md brief. It can carry its own capabilities: `tools` names
+		// the tools it is allowed to use while grading, and `mcpServers`
+		// declares MCP servers it can call (e.g. to drive a browser or
+		// query a database as part of verification).
+		'codex-judge': {
 			provider: 'codex',
 			model: 'gpt-5.5',
 			effort: 'xhigh',
+			tools: [ 'Read', 'Bash' ],
+			mcpServers: {
+				playwright: {
+					command: 'npx',
+					args: [ '@playwright/mcp@latest' ],
+				},
+			},
 		},
 
 		// Google Gemini via the public API (uses GEMINI_API_KEY).
@@ -101,22 +114,31 @@ export default defineConfig( {
 			prompt: testingAgentPrompt,
 		},
 
-		// Single-agent roles accept a string shorthand…
-		judge: 'codex-gpt55',
+		// The judge grades each artifact against the scenario's JUDGE.md
+		// brief. The object form lets you pin a project-specific prompt and
+		// set `concurrency`:
+		//   - "parallel" (default) — every (scenario, agent) pair may grade
+		//     at once.
+		//   - "serial" — a run-wide lock serializes the judge bracket so no
+		//     two pairs grade simultaneously, e.g. when each grade boots a
+		//     shared, non-reentrant environment such as `wp-env start`.
+		judge: { agent: 'codex-judge', concurrency: 'serial' },
 
-		// …or the object form when you want a project-specific prompt.
-		// For `improver`, the prompt REPLACES the built-in instructions
-		// entirely (different from `test`/`judge`, which augment).
+		// Single-agent roles also accept a string shorthand. For `improver`,
+		// the prompt REPLACES the built-in instructions entirely (different
+		// from `test`/`judge`, which augment).
 		improver: { agent: 'cc-opus', prompt: improverPrompt },
 	},
 
 	// Project layout. Every entry is a directory the harness scans;
-	// `base` is where it writes run artifacts.
+	// `base` is where it writes run artifacts. Each scenario under
+	// `scenarios` is a directory holding a `TESTING-AGENT.md` (the brief
+	// handed to the test agents, including a `# Skills` section) and a
+	// `JUDGE.md` (the brief handed to the judge).
 	paths: {
 		base: './.skillsmith',
 		skills: './skills',
 		scenarios: './eval/scenarios',
-		rubrics: './eval/rubrics',
 	},
 
 	// Behavior of the self-improvement loop. Only consulted when
@@ -151,14 +173,11 @@ export default defineConfig( {
 			void agent;
 			void agentWorkspace;
 		},
-		afterAllScenarios: ( { iteration, iterationDirectory, scenarios } ) => {
-			// Run your own verification (e.g. a real e2e suite) against
-			// this iteration's artifacts. Return a list of failures to
-			// mark scenarios/pairs failed even if the judge passed them.
-			void iteration;
-			void iterationDirectory;
-			void scenarios;
-			return true;
+		beforeJudgeAgent: ( { judgeWorkspace } ) => {
+			// The judge runs against an isolated copy of the artifact at
+			// `judgeWorkspace`; build any environment it needs here (e.g.
+			// boot a server) and tear it down in `afterJudgeAgent`.
+			void judgeWorkspace;
 		},
 	},
 } );

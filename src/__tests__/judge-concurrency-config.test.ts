@@ -8,7 +8,6 @@ const PATHS = {
 	base: './.skillsmith',
 	skills: './skills',
 	scenarios: './eval/scenarios',
-	rubrics: './eval/rubrics',
 };
 
 function build(

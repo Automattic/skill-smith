@@ -29,7 +29,7 @@ export default defineConfig( {
 				return {
 					failures: [
 						{
-							scenario: 'verify-scenario',
+							scenario: 'verify',
 							details:
 								'e2e suite failed even though the judge passed',
 						},

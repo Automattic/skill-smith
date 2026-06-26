@@ -20,7 +20,7 @@ test( 'aggregateScenarioReport creates the directory when missing (skipped scena
 	aggregateScenarioReport( {
 		scenarioDirectory,
 		scenarioName: 'never-created',
-		scenarioError: 'scenario.yaml malformed',
+		scenarioError: 'missing required file: JUDGE.md',
 	} );
 
 	const reportPath = join( scenarioDirectory, 'report.json' );
@@ -31,6 +31,6 @@ test( 'aggregateScenarioReport creates the directory when missing (skipped scena
 		unknown
 	>;
 	assert.equal( parsed.scenario, 'never-created' );
-	assert.equal( parsed.error, 'scenario.yaml malformed' );
+	assert.equal( parsed.error, 'missing required file: JUDGE.md' );
 	assert.deepEqual( parsed.agents, {} );
 } );

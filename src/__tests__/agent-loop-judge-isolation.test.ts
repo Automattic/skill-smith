@@ -25,15 +25,14 @@ import { RunLog } from '../util/run-log';
 
 /**
  * Stand up a self-contained project on disk: a skills root with one
- * loadable skill, a rubrics root, and a base iteration directory the
- * agent loop writes its `<agent>/workspace` trees under.
+ * loadable skill and a base iteration directory the agent loop writes its
+ * `<agent>/workspace` trees under.
  */
 function makeProject(): { projectRoot: string; scenarioDirectory: string } {
 	const projectRoot = mkdtempSync( join( tmpdir(), 'agent-loop-iso-' ) );
 	const skillDir = join( projectRoot, 'skills', 'demo-skill' );
 	mkdirSync( skillDir, { recursive: true } );
 	writeFileSync( join( skillDir, 'SKILL.md' ), '# Demo skill\n' );
-	mkdirSync( join( projectRoot, 'rubrics' ), { recursive: true } );
 	const scenarioDirectory = join( projectRoot, 'iteration-1', 'demo' );
 	mkdirSync( scenarioDirectory, { recursive: true } );
 	return { projectRoot, scenarioDirectory };
@@ -41,9 +40,7 @@ function makeProject(): { projectRoot: string; scenarioDirectory: string } {
 
 /**
  * A scenario that satisfies both the testing-agent and judge-agent
- * runtime reads. The extra `rubrics`/`acceptance`/`description` keys flow
- * through the open `Scenario` index signature; the judge runs against an
- * empty rubric/acceptance set, which is all this isolation test needs.
+ * runtime reads: a testing brief, a judge brief, and one resolvable skill.
  */
 function makeScenario( name: string ): Scenario {
 	return {
@@ -51,9 +48,6 @@ function makeScenario( name: string ): Scenario {
 		skills: [ 'demo-skill' ],
 		testingBrief: 'do the task',
 		judgeBrief: 'grade the task',
-		rubrics: [],
-		acceptance: [],
-		description: 'grade the task',
 	};
 }
 
@@ -61,22 +55,17 @@ function makeAgent( id: string ): AgentDefinition {
 	return { id, provider: 'mock', model: 'mock-model' };
 }
 
-/**
- * Paths pointing at the on-disk project. `rubrics` is consumed by the
- * judge agent (a sibling task adds it to the `Paths` type); assigning
- * through a variable keeps excess-property checks from rejecting it.
- */
+/** Paths pointing at the on-disk project, resolved against `projectRoot`. */
 const PATHS = {
 	base: '.skillsmith',
 	skills: 'skills',
 	scenarios: 'scenarios',
-	rubrics: 'rubrics',
 };
 
 /**
  * Build a config whose test role lists `agentIds` and whose judge
- * concurrency is `concurrency`. The relative `paths.skills`/`paths.rubrics`
- * are resolved against the per-call `projectRoot` passed to `runAgents`.
+ * concurrency is `concurrency`. The relative `paths.skills` is resolved
+ * against the per-call `projectRoot` passed to `runAgents`.
  */
 function makeConfig(
 	agentIds: string[],

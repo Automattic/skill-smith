@@ -1,3 +1,1 @@
-# r1
-
 Pass when the skill carries the success marker.

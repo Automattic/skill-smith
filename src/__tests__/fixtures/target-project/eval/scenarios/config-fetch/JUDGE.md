@@ -1,3 +1,1 @@
-# Rubric
-
 Pass deterministic mock outputs.

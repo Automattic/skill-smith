@@ -1,9 +1,0 @@
-name: config-fetch-scenario
-description: Config fetch scenario
-skills:
-  - foo
-prompt: Fetch configuration.
-acceptance:
-  - Configuration is fetched.
-rubrics:
-  - r1

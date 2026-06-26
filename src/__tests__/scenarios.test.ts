@@ -20,33 +20,132 @@ const projectRoot = join( here, 'fixtures', 'proj1' );
 test( 'scenarios with unresolved refs are flagged but others continue', () => {
 	const found = enumerateScenarios( DEFAULT_PATHS, projectRoot );
 
-	const byName = new Map( found.map( ( s ) => [ s.scenario.name, s ] ) );
-	assert.equal( byName.size, 2, 'two scenarios should be found' );
+	const byId = new Map( found.map( ( s ) => [ s.id, s ] ) );
+	assert.equal( byId.size, 2, 'two scenarios should be found' );
 
-	const good = byName.get( 'good-scenario' );
+	const good = byId.get( 'good' );
 	assert.ok( good, 'good scenario present' );
-	assert.equal( good?.id, 'good' );
+	assert.equal( good?.scenario.name, 'good' );
 	assert.equal( good?.dirName, 'good' );
-	assert.equal( good?.nameSource, 'configured' );
+	assert.deepEqual( good?.scenario.skills, [ 'foo' ] );
 	assert.equal( good?.error, undefined, 'good scenario has no error' );
 
-	const bad = byName.get( 'bad-scenario' );
+	const bad = byId.get( 'bad' );
 	assert.ok( bad, 'bad scenario present' );
-	assert.equal( bad?.id, 'bad' );
+	assert.equal( bad?.scenario.name, 'bad' );
 	assert.equal( bad?.dirName, 'bad' );
-	assert.equal( bad?.nameSource, 'configured' );
 	assert.match( bad?.error ?? '', /unresolved reference/ );
 	assert.match( bad?.error ?? '', /missing-skill/ );
-	assert.match( bad?.error ?? '', /missing-rubric/ );
+} );
+
+test( 'enumeration reads both briefs verbatim and parses the # Skills section', () => {
+	const root = makeProject();
+	try {
+		writeScenario( root, 'counter', {
+			testingBrief:
+				'Build a counter block.\n\n# Skills\n\n- counter\n- counter\n',
+			judgeBrief: 'Pass when the counter increments.\n',
+		} );
+
+		const found = enumerateScenarios( TEST_PATHS, root );
+		const counter = found.find( ( s ) => s.id === 'counter' );
+
+		assert.ok( counter, 'counter scenario present' );
+		assert.equal( counter?.error, undefined );
+		assert.equal(
+			counter?.scenario.testingBrief,
+			'Build a counter block.\n\n# Skills\n\n- counter\n- counter\n',
+			'testing brief is stored verbatim'
+		);
+		assert.equal(
+			counter?.scenario.judgeBrief,
+			'Pass when the counter increments.\n',
+			'judge brief is stored verbatim'
+		);
+		assert.deepEqual(
+			counter?.scenario.skills,
+			[ 'counter', 'counter' ],
+			'each # Skills list item becomes a skill id'
+		);
+	} finally {
+		rmSync( root, { recursive: true, force: true } );
+	}
+} );
+
+test( 'a testing brief without a # Skills section is an errored scenario', () => {
+	const root = makeProject();
+	try {
+		writeScenario( root, 'no-skills', {
+			testingBrief: 'Do the task.\n',
+			judgeBrief: 'Pass when done.\n',
+		} );
+
+		const found = enumerateScenarios( TEST_PATHS, root );
+		const scenario = found.find( ( s ) => s.id === 'no-skills' );
+
+		assert.ok( scenario, 'scenario present' );
+		assert.match( scenario?.error ?? '', /missing required # Skills section/ );
+	} finally {
+		rmSync( root, { recursive: true, force: true } );
+	}
+} );
+
+test( 'an unknown skill reference is an errored scenario naming the skill', () => {
+	const root = makeProject();
+	try {
+		writeScenario( root, 'unknown-skill', {
+			testingBrief: 'Do the task.\n\n# Skills\n\n- absent-skill\n',
+			judgeBrief: 'Pass when done.\n',
+		} );
+
+		const found = enumerateScenarios( TEST_PATHS, root );
+		const scenario = found.find( ( s ) => s.id === 'unknown-skill' );
+
+		assert.ok( scenario, 'scenario present' );
+		assert.match( scenario?.error ?? '', /unresolved reference/ );
+		assert.match( scenario?.error ?? '', /absent-skill/ );
+	} finally {
+		rmSync( root, { recursive: true, force: true } );
+	}
+} );
+
+test( 'a directory with only one of the two briefs is an errored scenario', () => {
+	const root = makeProject();
+	try {
+		const testingOnly = join( root, 'scenarios', 'testing-only' );
+		mkdirSync( testingOnly, { recursive: true } );
+		writeFileSync(
+			join( testingOnly, 'TESTING-AGENT.md' ),
+			'Do the task.\n\n# Skills\n\n- counter\n'
+		);
+
+		const judgeOnly = join( root, 'scenarios', 'judge-only' );
+		mkdirSync( judgeOnly, { recursive: true } );
+		writeFileSync( join( judgeOnly, 'JUDGE.md' ), 'Pass when done.\n' );
+
+		const found = enumerateScenarios( TEST_PATHS, root );
+		const byId = new Map( found.map( ( s ) => [ s.id, s ] ) );
+
+		assert.match(
+			byId.get( 'testing-only' )?.error ?? '',
+			/missing required file: JUDGE\.md/
+		);
+		assert.match(
+			byId.get( 'judge-only' )?.error ?? '',
+			/missing required file: TESTING-AGENT\.md/
+		);
+	} finally {
+		rmSync( root, { recursive: true, force: true } );
+	}
 } );
 
 test( 'scenario enumeration discovers nested scenarios in deterministic ID order', () => {
 	const root = makeProject();
 	try {
-		writeScenario( root, 'counter', { name: 'counter-scenario' } );
-		writeScenario( root, 'blocks', { name: 'blocks-scenario' } );
-		writeScenario( root, 'blocks/counter', { name: 'nested-counter' } );
-		writeScenario( root, 'groups/deeper', { name: 'grouped-scenario' } );
+		writeScenario( root, 'counter' );
+		writeScenario( root, 'blocks' );
+		writeScenario( root, 'blocks/counter' );
+		writeScenario( root, 'groups/deeper' );
 		writeFileSync(
 			join( root, 'scenarios', 'notes.txt' ),
 			'not a directory'
@@ -68,10 +167,9 @@ test( 'scenario enumeration discovers nested scenarios in deterministic ID order
 			found.map( ( scenario ) => scenario.id )
 		);
 		assert.equal(
-			found.find( ( scenario ) => scenario.id === 'groups' )?.scenario
-				.name,
+			found.find( ( scenario ) => scenario.id === 'groups' ),
 			undefined,
-			'grouping directories without scenario.yaml are not emitted'
+			'grouping directories without the two briefs are not emitted'
 		);
 		assert.equal(
 			found.find( ( scenario ) => scenario.id === 'linked-counter' ),
@@ -79,8 +177,8 @@ test( 'scenario enumeration discovers nested scenarios in deterministic ID order
 			'symlinked directories are not emitted'
 		);
 		assert.ok(
-			found.every( ( scenario ) => scenario.nameSource === 'configured' ),
-			'valid scenario names come from configuration'
+			found.every( ( scenario ) => scenario.scenario.name === scenario.id ),
+			'each scenario name equals its id'
 		);
 	} finally {
 		rmSync( root, { recursive: true, force: true } );
@@ -90,30 +188,14 @@ test( 'scenario enumeration discovers nested scenarios in deterministic ID order
 test( 'scenario enumeration keeps nested errors isolated while recursing', () => {
 	const root = makeProject();
 	try {
-		writeScenario( root, 'valid', { name: 'valid-scenario' } );
-		writeScenario( root, 'missing', {
-			name: 'missing-reference-scenario',
-			skills: [ 'absent-skill' ],
-			rubrics: [ 'absent-rubric' ],
-		} );
+		writeScenario( root, 'valid' );
+		writeScenario( root, 'missing', { skills: [ 'absent-skill' ] } );
 		mkdirSync( join( root, 'scenarios', 'broken' ), { recursive: true } );
-		mkdirSync( join( root, 'scenarios', 'malformed' ), {
-			recursive: true,
-		} );
 		writeFileSync(
-			join( root, 'scenarios', 'broken', 'scenario.yaml' ),
-			'name: ['
+			join( root, 'scenarios', 'broken', 'TESTING-AGENT.md' ),
+			'Do the task.\n\n# Skills\n\n- counter\n'
 		);
-		writeFileSync(
-			join( root, 'scenarios', 'malformed', 'scenario.yaml' ),
-			'name: malformed-only\n'
-		);
-		writeScenario( root, 'broken/child', {
-			name: 'broken-child-scenario',
-		} );
-		writeScenario( root, 'malformed/child', {
-			name: 'malformed-child-scenario',
-		} );
+		writeScenario( root, 'broken/child' );
 
 		const found = enumerateScenarios( TEST_PATHS, root );
 		const byId = new Map(
@@ -122,30 +204,19 @@ test( 'scenario enumeration keeps nested errors isolated while recursing', () =>
 
 		assert.deepEqual(
 			found.map( ( scenario ) => scenario.id ),
-			[
-				'broken',
-				'broken/child',
-				'malformed',
-				'malformed/child',
-				'missing',
-				'valid',
-			]
+			[ 'broken', 'broken/child', 'missing', 'valid' ]
 		);
-		assert.match( byId.get( 'broken' )?.error ?? '', /parse error/ );
-		assert.equal( byId.get( 'broken' )?.nameSource, 'synthetic' );
-		assert.match( byId.get( 'malformed' )?.error ?? '', /malformed/ );
-		assert.equal( byId.get( 'malformed' )?.nameSource, 'synthetic' );
+		assert.match(
+			byId.get( 'broken' )?.error ?? '',
+			/missing required file: JUDGE\.md/
+		);
 		assert.match(
 			byId.get( 'missing' )?.error ?? '',
 			/unresolved reference/
 		);
 		assert.match( byId.get( 'missing' )?.error ?? '', /absent-skill/ );
-		assert.match( byId.get( 'missing' )?.error ?? '', /absent-rubric/ );
-		assert.equal( byId.get( 'missing' )?.nameSource, 'configured' );
 		assert.equal( byId.get( 'valid' )?.error, undefined );
-		assert.equal( byId.get( 'valid' )?.nameSource, 'configured' );
 		assert.equal( byId.get( 'broken/child' )?.error, undefined );
-		assert.equal( byId.get( 'malformed/child' )?.error, undefined );
 	} finally {
 		rmSync( root, { recursive: true, force: true } );
 	}
@@ -155,46 +226,44 @@ const TEST_PATHS: Paths = {
 	base: '.',
 	scenarios: 'scenarios',
 	skills: 'skills',
-	rubrics: 'rubrics',
 };
 
 function makeProject(): string {
 	const root = mkdtempSync( join( tmpdir(), 'skillsmith-scenarios-' ) );
 	mkdirSync( join( root, 'scenarios' ), { recursive: true } );
 	mkdirSync( join( root, 'skills', 'counter' ), { recursive: true } );
-	mkdirSync( join( root, 'rubrics' ), { recursive: true } );
 	writeFileSync(
 		join( root, 'skills', 'counter', 'SKILL.md' ),
 		'# Counter\n'
 	);
-	writeFileSync( join( root, 'rubrics', 'basic.md' ), '# Basic\n' );
 	return root;
 }
 
 function writeScenario(
 	root: string,
 	id: string,
-	options: { name: string; skills?: string[]; rubrics?: string[] }
+	options: {
+		skills?: string[];
+		testingBrief?: string;
+		judgeBrief?: string;
+	} = {}
 ): void {
 	const scenarioDir = join( root, 'scenarios', ...id.split( '/' ) );
 	mkdirSync( scenarioDir, { recursive: true } );
-	writeFileSync(
-		join( scenarioDir, 'scenario.yaml' ),
+	const skills = options.skills ?? [ 'counter' ];
+	const testingBrief =
+		options.testingBrief ??
 		[
-			`name: ${ options.name }`,
-			'description: Test scenario',
-			'skills:',
-			...( options.skills ?? [ 'counter' ] ).map(
-				( skill ) => `  - ${ skill }`
-			),
-			'prompt: Run the scenario',
-			'acceptance:',
-			'  - It succeeds',
-			'rubrics:',
-			...( options.rubrics ?? [ 'basic' ] ).map(
-				( rubric ) => `  - ${ rubric }`
-			),
+			'Run the scenario.',
 			'',
-		].join( '\n' )
+			'# Skills',
+			'',
+			...skills.map( ( skill ) => `- ${ skill }` ),
+			'',
+		].join( '\n' );
+	writeFileSync( join( scenarioDir, 'TESTING-AGENT.md' ), testingBrief );
+	writeFileSync(
+		join( scenarioDir, 'JUDGE.md' ),
+		options.judgeBrief ?? 'Pass when the scenario succeeds.\n'
 	);
 }
