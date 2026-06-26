@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
+	readFileSync,
 	statSync,
 	utimesSync,
 	writeFileSync,
@@ -10,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
+	copyWorkspaceForJudge,
 	diffSnapshots,
 	snapshotWorkspace,
 } from '../pipeline/workspace-snapshot';
@@ -102,5 +106,83 @@ test( 'diffSnapshots returns an empty list when nothing changed', () => {
 		diffSnapshots( snapshot, snapshot ),
 		[],
 		'an unchanged workspace produces no written files'
+	);
+} );
+
+test( 'copyWorkspaceForJudge reproduces files and nested directories at the destination', () => {
+	const parent = makeWorkspace();
+	const source = join( parent, 'workspace' );
+	const dest = join( parent, 'judge-workspace' );
+	mkdirSync( source, { recursive: true } );
+	writeFileSync( join( source, 'top.txt' ), 'top contents' );
+	mkdirSync( join( source, 'nested', 'deep' ), { recursive: true } );
+	writeFileSync( join( source, 'nested', 'deep', 'leaf.txt' ), 'leaf contents' );
+
+	copyWorkspaceForJudge( source, dest );
+
+	assert.equal(
+		readFileSync( join( dest, 'top.txt' ), 'utf8' ),
+		'top contents',
+		'top-level file is reproduced at the destination'
+	);
+	assert.equal(
+		readFileSync( join( dest, 'nested', 'deep', 'leaf.txt' ), 'utf8' ),
+		'leaf contents',
+		'nested-directory file is reproduced at the destination'
+	);
+} );
+
+test( 'copyWorkspaceForJudge creates a missing destination parent directory', () => {
+	const parent = makeWorkspace();
+	const source = join( parent, 'workspace' );
+	// Destination parent does not exist yet.
+	const dest = join( parent, 'missing-parent', 'judge-workspace' );
+	mkdirSync( source, { recursive: true } );
+	writeFileSync( join( source, 'file.txt' ), 'data' );
+
+	copyWorkspaceForJudge( source, dest );
+
+	assert.equal(
+		readFileSync( join( dest, 'file.txt' ), 'utf8' ),
+		'data',
+		'destination parent is created so the copy succeeds'
+	);
+} );
+
+test( 'copyWorkspaceForJudge copies an empty workspace to an empty destination without error', () => {
+	const parent = makeWorkspace();
+	const source = join( parent, 'workspace' );
+	const dest = join( parent, 'judge-workspace' );
+	mkdirSync( source, { recursive: true } );
+
+	copyWorkspaceForJudge( source, dest );
+
+	assert.ok(
+		existsSync( dest ) && statSync( dest ).isDirectory(),
+		'an empty source produces an existing destination directory'
+	);
+	assert.deepEqual(
+		readdirSync( dest ),
+		[],
+		'the destination of an empty source is itself empty'
+	);
+} );
+
+test( 'copyWorkspaceForJudge leaves the source workspace unmodified', () => {
+	const parent = makeWorkspace();
+	const source = join( parent, 'workspace' );
+	const dest = join( parent, 'judge-workspace' );
+	mkdirSync( join( source, 'sub' ), { recursive: true } );
+	writeFileSync( join( source, 'a.txt' ), 'aaa' );
+	writeFileSync( join( source, 'sub', 'b.txt' ), 'bbbbb' );
+
+	const before = snapshotWorkspace( source );
+	copyWorkspaceForJudge( source, dest );
+	const after = snapshotWorkspace( source );
+
+	assert.deepEqual(
+		diffSnapshots( before, after ),
+		[],
+		'the copy adds or modifies nothing in the source workspace'
 	);
 } );

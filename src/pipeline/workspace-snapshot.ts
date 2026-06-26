@@ -1,5 +1,5 @@
-import { readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { cpSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 
 /**
  * Metadata recorded for a single file in a workspace snapshot. Holds
@@ -94,4 +94,22 @@ export function diffSnapshots(
 		}
 	}
 	return written.sort();
+}
+
+/**
+ * Recursively copy the canonical workspace to an isolated sibling
+ * directory so the judge can run against its own copy without touching
+ * the original. The destination's parent directory is created if it does
+ * not already exist, and an empty source produces an empty destination
+ * directory rather than an error. The source is never modified.
+ *
+ * @param canonicalWorkspace - Absolute path of the workspace to copy from.
+ * @param judgeWorkspace - Absolute path of the isolated copy to create.
+ */
+export function copyWorkspaceForJudge(
+	canonicalWorkspace: string,
+	judgeWorkspace: string
+): void {
+	mkdirSync( dirname( judgeWorkspace ), { recursive: true } );
+	cpSync( canonicalWorkspace, judgeWorkspace, { recursive: true } );
 }
