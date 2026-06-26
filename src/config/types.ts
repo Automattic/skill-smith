@@ -147,6 +147,11 @@ export interface Paths {
 	base: string;
 	skills: string;
 	scenarios: string;
+	/**
+	 * Directory holding reusable rubric definitions. Optional: it is
+	 * required to exist only when a project uses it.
+	 */
+	rubrics?: string;
 }
 
 /**
@@ -189,6 +194,12 @@ export interface Scenario {
 	name: string;
 	/** Skill ids the scenario exercises. */
 	skills: string[];
+	/**
+	 * Rubric ids parsed from `JUDGE.md`'s `# Rubrics` section. Parallels
+	 * {@link Scenario.skills}; optional because a scenario need not reference
+	 * any reusable rubrics.
+	 */
+	rubrics?: string[];
 	/** Brief handed to the test agents describing the task to perform. */
 	testingBrief: string;
 	/** Brief handed to the judge describing how to grade the artifact. */

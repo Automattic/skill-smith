@@ -54,6 +54,16 @@ test( 'Scenario carries exactly name/skills/testingBrief/judgeBrief', () => {
 		custom: 123,
 	} );
 	assert.equal( withExtra.custom, 123 );
+
+	// `rubrics` is an optional string-array field alongside `skills`.
+	const withRubrics = ofType< Scenario >( {
+		name: 's',
+		skills: [ 'block-development' ],
+		testingBrief: 't',
+		judgeBrief: 'j',
+		rubrics: [ 'increments-on-click' ],
+	} );
+	assert.deepEqual( withRubrics.rubrics, [ 'increments-on-click' ] );
 } );
 
 test( 'Scenario no longer declares the legacy fields', () => {
@@ -73,13 +83,13 @@ test( 'Scenario no longer declares the legacy fields', () => {
 	const _prompt: string = scenario.prompt;
 	// @ts-expect-error `acceptance` is removed from Scenario.
 	const _acceptance: string[] = scenario.acceptance;
-	// @ts-expect-error `rubrics` is removed from Scenario.
-	const _rubrics: string[] = scenario.rubrics;
 
-	assert.ok( [ _description, _prompt, _acceptance, _rubrics ] );
+	assert.ok( [ _description, _prompt, _acceptance ] );
 } );
 
-test( 'Paths has base/skills/scenarios and no rubrics', () => {
+test( 'Paths has base/skills/scenarios and an optional rubrics', () => {
+	// A `Paths` value that omits `rubrics` is still valid, and its key set is
+	// exactly base/scenarios/skills.
 	const paths = ofType< Paths >( {
 		base: './.skillsmith',
 		skills: './skills',
@@ -92,9 +102,14 @@ test( 'Paths has base/skills/scenarios and no rubrics', () => {
 		'skills',
 	] );
 
-	// @ts-expect-error `rubrics` is removed from Paths.
-	const _rubrics: string = paths.rubrics;
-	assert.equal( _rubrics, undefined );
+	// `rubrics` is now a valid optional `Paths` field.
+	const withRubrics = ofType< Paths >( {
+		base: './.skillsmith',
+		skills: './skills',
+		scenarios: './eval/scenarios',
+		rubrics: './eval/rubrics',
+	} );
+	assert.equal( withRubrics.rubrics, './eval/rubrics' );
 } );
 
 test( 'McpServerConfig mirrors the stdio shape', () => {
