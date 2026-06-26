@@ -12,6 +12,7 @@ export type {
 	IterationCompleteHookContext,
 	IterationHookContext,
 	IterationInfo,
+	McpServerConfig,
 	NormalizedRoles,
 	Paths,
 	RolesInput,
@@ -29,6 +30,10 @@ export type {
 	VerificationResult,
 	VerificationReturn,
 } from './config/types';
-export type { Provider, ProviderId } from './providers/types';
+export type {
+	JudgeCapabilities,
+	Provider,
+	ProviderId,
+} from './providers/types';
 export type { RunOptions } from './runner';
 export { run } from './runner';

@@ -1,4 +1,4 @@
-import type { AgentDefinition } from '../config/types';
+import type { AgentDefinition, McpServerConfig } from '../config/types';
 
 export type ProviderId =
 	| 'claude-code'
@@ -10,10 +10,29 @@ export type ProviderId =
 
 /**
  * The two sub-agent roles the harness dispatches. `testing` writes to
- * the workspace and may run shell commands; `judge` is read-only.
- * Providers translate this to whatever native tool surface they expose.
+ * the workspace and may run shell commands; the `judge` defaults to
+ * read-only but its capabilities are project-configurable via
+ * {@link InvokeParams.capabilities}. Providers translate this to whatever
+ * native tool surface they expose.
  */
 export type Role = 'testing' | 'judge';
+
+/**
+ * Project-configurable capabilities for a sub-agent invocation. Set on the
+ * judge call so a project can widen (or restrict) what the judge may do
+ * beyond the read-only default. Every field is optional; an omitted field
+ * leaves the provider's default for that capability in place.
+ */
+export interface JudgeCapabilities {
+	/** Tool names the agent is allowed to use. */
+	tools?: string[];
+	/** MCP servers made available to the agent, keyed by server name. */
+	mcpServers?: Record< string, McpServerConfig >;
+	/** Whether the agent may write to its workspace. */
+	allowWrite?: boolean;
+	/** Whether the agent may access the network. */
+	network?: boolean;
+}
 
 export interface InvokeParams {
 	agent: AgentDefinition;
@@ -21,6 +40,11 @@ export interface InvokeParams {
 	prompt: string;
 	cwd: string;
 	role: Role;
+	/**
+	 * Capability overrides for this invocation. Set only for the judge call;
+	 * left unset for the testing role, which uses the provider's defaults.
+	 */
+	capabilities?: JudgeCapabilities;
 }
 
 /**

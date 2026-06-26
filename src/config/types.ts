@@ -17,14 +17,42 @@ export type RunMode = 'test-only' | 'self-improvement';
 export type EvaluationScope = 'failed-pairs' | 'failed-scenarios' | 'all';
 
 /**
+ * Configuration for one stdio MCP server, mirroring the minimal stdio shape
+ * the Claude Agent SDK accepts. Referenced by both {@link AgentDefinitionInput}
+ * and {@link JudgeCapabilities} so projects can declare MCP servers for an
+ * agent or for the judge.
+ *
+ * @example
+ * { command: 'node', args: [ 'mcp-server.js' ], env: { TOKEN: 'abc' } }
+ */
+export interface McpServerConfig {
+	/** Executable to launch for the server's stdio transport. */
+	command: string;
+	/** Arguments passed to {@link McpServerConfig.command}. */
+	args?: string[];
+	/** Environment variables set on the spawned server process. */
+	env?: Record< string, string >;
+}
+
+/**
  * One agent as the user writes it in `agents`. The id comes from the map
- * key, so there is no `id` field here. Extra keys (e.g. `effort`,
- * `temperature`) flow through to whichever provider the harness dispatches
- * to.
+ * key, so there is no `id` field here. The typed optional fields
+ * (`tools`, `mcpServers`, `allowWrite`, `network`) give projects editor
+ * completion for the common knobs, while the open index signature still
+ * lets extra keys (e.g. `effort`, `temperature`) flow through to whichever
+ * provider the harness dispatches to.
  */
 export interface AgentDefinitionInput {
 	provider: ProviderId;
 	model: string;
+	/** Tool names the agent is allowed to use. */
+	tools?: string[];
+	/** MCP servers made available to the agent, keyed by server name. */
+	mcpServers?: Record< string, McpServerConfig >;
+	/** Whether the agent may write to its workspace. */
+	allowWrite?: boolean;
+	/** Whether the agent may access the network. */
+	network?: boolean;
 	[ key: string ]: unknown;
 }
 
@@ -88,7 +116,6 @@ export interface Paths {
 	base: string;
 	skills: string;
 	scenarios: string;
-	rubrics: string;
 }
 
 /**
@@ -120,13 +147,21 @@ export interface SkillsmithConfig {
 	selfImprovement?: SelfImprovementConfig;
 }
 
+/**
+ * One scenario as authored on disk under `config.paths.scenarios`. A scenario
+ * is described by two files: a testing brief (the task handed to the test
+ * agents) and a judge brief (the criteria handed to the judge). The harness
+ * loads both into this record.
+ */
 export interface Scenario {
+	/** Display and reporting name for the scenario. */
 	name: string;
-	description: string;
+	/** Skill ids the scenario exercises. */
 	skills: string[];
-	prompt: string;
-	acceptance: string[];
-	rubrics: string[];
+	/** Brief handed to the test agents describing the task to perform. */
+	testingBrief: string;
+	/** Brief handed to the judge describing how to grade the artifact. */
+	judgeBrief: string;
 	[ key: string ]: unknown;
 }
 
@@ -173,7 +208,10 @@ export interface RunScenario {
 	 * @example "blocks/counter"
 	 */
 	dirName: string;
-	/** Parsed scenario definition loaded from `scenario.yaml`. */
+	/**
+	 * Parsed scenario definition, loaded from the scenario's two-file
+	 * representation on disk: a testing brief and a judge brief.
+	 */
 	scenario: Scenario;
 }
 
