@@ -19,18 +19,36 @@ import type { InvokeParams, InvokeResult } from '../providers/types';
 import { RunLog } from '../util/run-log';
 
 /**
- * A scenario in the new two-brief shape: it carries `testingBrief` and
- * `judgeBrief` and no `description`/`rubrics`/`acceptance` fields. The
- * judge agent must read only `judgeBrief`.
+ * A scenario in the two-brief shape: it carries `testingBrief` and
+ * `judgeBrief` and no `description`/`rubrics`/`acceptance` fields. The judge
+ * agent reads `judgeBrief` verbatim and the skill-stripped `testingBrief`.
+ *
+ * @param judgeBrief   - The judge brief text (the prompt body).
+ * @param testingBrief - The testing brief text auto-supplied as the task;
+ *   defaults to a trivial brief with no `# Skills` section.
  */
-function makeScenario( judgeBrief: string ): Scenario {
+function makeScenario(
+	judgeBrief: string,
+	testingBrief = 'do the task'
+): Scenario {
 	return {
 		name: 'demo',
 		skills: [ 'demo-skill' ],
-		testingBrief: 'do the task',
+		testingBrief,
 		judgeBrief,
 	};
 }
+
+/**
+ * The G2 selection lead-in the judge prompt prepends to the loaded rubric
+ * bodies: it tells the judge the rubrics are shared, reusable criteria and to
+ * apply only the ones the brief names. A sentinel substring is enough to assert
+ * the lead-in is present without pinning the full wording.
+ */
+const G2_SENTINEL = 'Apply ONLY the';
+
+/** A default task string helper: `buildJudgeSystemPrompt`'s new `task` arg. */
+const TASK = 'do the task';
 
 const judge: AgentDefinition = {
 	id: 'grader',
@@ -95,7 +113,11 @@ async function captureInvoke(
 test( 'buildJudgeSystemPrompt includes the verbatim judgeBrief', () => {
 	const brief =
 		'JUDGE_BRIEF_SENTINEL: confirm the counter increments on click.';
-	const prompt = buildJudgeSystemPrompt( makeScenario( brief ), makeConfig() );
+	const prompt = buildJudgeSystemPrompt(
+		makeScenario( brief ),
+		makeConfig(),
+		TASK
+	);
 	assert.ok(
 		prompt.includes( brief ),
 		'the judge system prompt must contain the judgeBrief verbatim'
@@ -105,7 +127,8 @@ test( 'buildJudgeSystemPrompt includes the verbatim judgeBrief', () => {
 test( 'buildJudgeSystemPrompt asks for exactly the { pass, notes } object with JSON-only guidance and recursion guard', () => {
 	const prompt = buildJudgeSystemPrompt(
 		makeScenario( 'grade it' ),
-		makeConfig()
+		makeConfig(),
+		TASK
 	);
 	assert.ok(
 		prompt.includes( '"pass"' ) && prompt.includes( '"notes"' ),
@@ -131,7 +154,8 @@ test( 'buildJudgeSystemPrompt asks for exactly the { pass, notes } object with J
 test( 'buildJudgeSystemPrompt carries no rubric/acceptance scaffolding for a no-rubric scenario', () => {
 	const prompt = buildJudgeSystemPrompt(
 		makeScenario( 'grade it' ),
-		makeConfig()
+		makeConfig(),
+		TASK
 	);
 	assert.ok(
 		! prompt.includes( '# Grading rubrics' ),
@@ -147,7 +171,8 @@ test( 'buildJudgeSystemPrompt appends roles.judge.prompt as a Role instructions 
 	const rolePrompt = 'ROLE_PROMPT_SENTINEL: prefer the live environment.';
 	const prompt = buildJudgeSystemPrompt(
 		makeScenario( 'grade it' ),
-		makeConfig( rolePrompt )
+		makeConfig( rolePrompt ),
+		TASK
 	);
 	assert.ok(
 		prompt.includes( '# Role instructions' ) &&
@@ -159,7 +184,8 @@ test( 'buildJudgeSystemPrompt appends roles.judge.prompt as a Role instructions 
 test( 'buildJudgeSystemPrompt omits the Role instructions section when no role prompt is set', () => {
 	const prompt = buildJudgeSystemPrompt(
 		makeScenario( 'grade it' ),
-		makeConfig()
+		makeConfig(),
+		TASK
 	);
 	assert.ok(
 		! prompt.includes( '# Role instructions' ),
@@ -167,49 +193,128 @@ test( 'buildJudgeSystemPrompt omits the Role instructions section when no role p
 	);
 } );
 
-test( 'buildJudgeSystemPrompt injects a non-empty rubricBlob under a Grading rubrics heading', () => {
+// --- buildJudgeSystemPrompt: auto-supplied task -------------------------
+
+test( 'buildJudgeSystemPrompt injects the auto-supplied task under a Testing task heading, placed after the judgeBrief and before the Output format section', () => {
+	const brief = 'JUDGE_BRIEF_SENTINEL: confirm the counter increments.';
+	const task = 'TASK_SENTINEL: build a counter block.';
+	const prompt = buildJudgeSystemPrompt(
+		makeScenario( brief ),
+		makeConfig(),
+		task
+	);
+	assert.ok(
+		prompt.includes( '# Testing task' ),
+		'a Testing task heading is present'
+	);
+	assert.ok( prompt.includes( task ), 'the task text is injected verbatim' );
+	const briefIdx = prompt.indexOf( brief );
+	const taskHeadingIdx = prompt.indexOf( '# Testing task' );
+	const outputIdx = prompt.indexOf( '# Output format' );
+	assert.ok(
+		briefIdx < taskHeadingIdx,
+		'the Testing task section comes after the judgeBrief'
+	);
+	assert.ok(
+		taskHeadingIdx < outputIdx,
+		'the Testing task section comes before the Output format section'
+	);
+} );
+
+test( 'buildJudgeSystemPrompt injects the Testing task section on every run, even with no rubric and no role prompt', () => {
+	const prompt = buildJudgeSystemPrompt(
+		makeScenario( 'grade it' ),
+		makeConfig(),
+		'TASK_SENTINEL: unconditional'
+	);
+	assert.ok(
+		prompt.includes( '# Testing task' ) &&
+			prompt.includes( 'TASK_SENTINEL: unconditional' ),
+		'the Testing task section is unconditional'
+	);
+} );
+
+test( 'buildJudgeSystemPrompt injects the task string verbatim, leaving skill-stripping to the caller', () => {
+	// The builder is a pure string builder: it inlines whatever `task` string
+	// it is handed. The caller supplies the already skill-stripped brief.
+	const strippedTask = '# Task\nBuild it.';
+	const prompt = buildJudgeSystemPrompt(
+		makeScenario( 'grade it' ),
+		makeConfig(),
+		strippedTask
+	);
+	assert.ok(
+		prompt.includes( '# Testing task' ) && prompt.includes( strippedTask ),
+		'the supplied task string is inlined verbatim under the heading'
+	);
+} );
+
+// --- buildJudgeSystemPrompt: grading rubrics (G1/G2) --------------------
+
+test( 'buildJudgeSystemPrompt injects a non-empty rubricBlob under a Grading rubrics heading with the G2 selection lead-in', () => {
 	const blob = 'RUBRIC_BLOB_SENTINEL: prefer accessible markup.';
 	const prompt = buildJudgeSystemPrompt(
 		makeScenario( 'grade it' ),
 		makeConfig(),
+		TASK,
 		blob
 	);
 	assert.ok(
 		prompt.includes( '# Grading rubrics' ) && prompt.includes( blob ),
 		'the rubric blob is injected under a Grading rubrics heading'
 	);
+	assert.ok(
+		prompt.includes( G2_SENTINEL ) && /reference/i.test( prompt ),
+		'the G2 selection lead-in (apply only named rubrics; others reference-only) precedes the blob'
+	);
+	const g2Idx = prompt.indexOf( G2_SENTINEL );
+	const blobIdx = prompt.indexOf( blob );
+	assert.ok(
+		g2Idx !== -1 && g2Idx < blobIdx,
+		'the G2 lead-in comes before the rubric bodies'
+	);
 } );
 
-test( 'buildJudgeSystemPrompt omits the Grading rubrics section when no blob is passed or it is empty', () => {
+test( 'buildJudgeSystemPrompt omits the Grading rubrics section (and the G2 lead-in) when no blob is passed or it is empty', () => {
 	const noBlob = buildJudgeSystemPrompt(
 		makeScenario( 'grade it' ),
-		makeConfig()
+		makeConfig(),
+		TASK
 	);
 	const emptyBlob = buildJudgeSystemPrompt(
 		makeScenario( 'grade it' ),
 		makeConfig(),
+		TASK,
 		''
 	);
 	assert.ok(
-		! noBlob.includes( '# Grading rubrics' ),
-		'no Grading rubrics heading appears when no blob is passed'
+		! noBlob.includes( '# Grading rubrics' ) &&
+			! noBlob.includes( G2_SENTINEL ),
+		'no Grading rubrics heading or G2 lead-in appears when no blob is passed'
 	);
 	assert.ok(
-		! emptyBlob.includes( '# Grading rubrics' ),
-		'no Grading rubrics heading appears for an empty blob'
+		! emptyBlob.includes( '# Grading rubrics' ) &&
+			! emptyBlob.includes( G2_SENTINEL ),
+		'no Grading rubrics heading or G2 lead-in appears for an empty blob'
 	);
 } );
 
-test( 'buildJudgeSystemPrompt keeps the other sections intact alongside the rubric blob', () => {
+test( 'buildJudgeSystemPrompt keeps the other sections intact alongside the rubric blob and the Testing task section', () => {
 	const rolePrompt = 'ROLE_PROMPT_SENTINEL: prefer the live environment.';
 	const blob = 'RUBRIC_BLOB_SENTINEL: prefer accessible markup.';
 	const brief = 'JUDGE_BRIEF_SENTINEL: confirm the counter increments.';
+	const task = 'TASK_SENTINEL: build a counter block.';
 	const prompt = buildJudgeSystemPrompt(
 		makeScenario( brief ),
 		makeConfig( rolePrompt ),
+		task,
 		blob
 	);
 	assert.ok( prompt.includes( brief ), 'the judgeBrief is retained verbatim' );
+	assert.ok(
+		prompt.includes( '# Testing task' ) && prompt.includes( task ),
+		'the Testing task section is present with the task text'
+	);
 	assert.ok(
 		prompt.includes( '# Output format' ),
 		'the Output format section is unchanged'
@@ -525,7 +630,7 @@ test( 'runJudgeAgent degrades to an error payload when the verdict is unparseabl
 	} );
 } );
 
-test( 'runJudgeAgent resolves scenario rubrics under paths.rubrics into the judge system prompt', async () => {
+test( 'runJudgeAgent loads all rubric files under paths.rubrics into the judge system prompt', async () => {
 	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
 	const projectRoot = mkdtempSync( join( tmpdir(), 'judge-proj-' ) );
 	mkdirSync( join( projectRoot, 'rubrics' ), { recursive: true } );
@@ -536,47 +641,6 @@ test( 'runJudgeAgent resolves scenario rubrics under paths.rubrics into the judg
 	writeFileSync(
 		join( projectRoot, 'rubrics', 'perf.md' ),
 		'RUBRIC_PERF_SENTINEL: no layout thrash.'
-	);
-	const scenario = makeScenario( 'grade it' );
-	scenario.rubrics = [ 'a11y', 'perf' ];
-
-	const captured = await captureInvoke( () =>
-		runJudgeAgent( {
-			scenario,
-			judge,
-			agentDirectory: judgeWorkspace,
-			agentWorkspace,
-			judgeWorkspace,
-			projectRoot,
-			config: makeConfig( undefined, 'rubrics' ),
-			log: new RunLog(),
-			testingResult: {
-				finalText: '',
-				toolUseCount: 0,
-				filesWritten: [ 'result.txt' ],
-			},
-		} )
-	);
-
-	assert.ok( captured, 'provider.invoke must be called' );
-	assert.ok(
-		captured.systemPrompt.includes( '# Grading rubrics' ),
-		'the resolved rubrics appear under a Grading rubrics heading'
-	);
-	assert.ok(
-		captured.systemPrompt.includes( 'RUBRIC_A11Y_SENTINEL: keyboard reachable.' ) &&
-			captured.systemPrompt.includes( 'RUBRIC_PERF_SENTINEL: no layout thrash.' ),
-		'each referenced rubric body reaches the judge prompt verbatim'
-	);
-} );
-
-test( 'runJudgeAgent omits the Grading rubrics section when the scenario references no rubrics', async () => {
-	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
-	const projectRoot = mkdtempSync( join( tmpdir(), 'judge-proj-' ) );
-	mkdirSync( join( projectRoot, 'rubrics' ), { recursive: true } );
-	writeFileSync(
-		join( projectRoot, 'rubrics', 'a11y.md' ),
-		'RUBRIC_A11Y_SENTINEL: keyboard reachable.'
 	);
 
 	const captured = await captureInvoke( () =>
@@ -599,15 +663,96 @@ test( 'runJudgeAgent omits the Grading rubrics section when the scenario referen
 
 	assert.ok( captured, 'provider.invoke must be called' );
 	assert.ok(
-		! captured.systemPrompt.includes( '# Grading rubrics' ),
-		'no Grading rubrics heading appears when the scenario references no rubrics'
+		captured.systemPrompt.includes( '# Grading rubrics' ),
+		'the loaded rubrics appear under a Grading rubrics heading'
+	);
+	assert.ok(
+		captured.systemPrompt.includes( G2_SENTINEL ),
+		'the G2 selection lead-in is present'
+	);
+	assert.ok(
+		captured.systemPrompt.includes( '# Rubric: a11y' ) &&
+			captured.systemPrompt.includes( '# Rubric: perf' ),
+		'every rubric file is loaded under its G1 self-identifying header'
+	);
+	assert.ok(
+		captured.systemPrompt.includes(
+			'RUBRIC_A11Y_SENTINEL: keyboard reachable.'
+		) &&
+			captured.systemPrompt.includes(
+				'RUBRIC_PERF_SENTINEL: no layout thrash.'
+			),
+		'each rubric body reaches the judge prompt verbatim'
 	);
 } );
 
-test( 'runJudgeAgent omits the Grading rubrics section when paths.rubrics is unset, even with scenario rubrics', async () => {
+test( 'runJudgeAgent omits the Grading rubrics section when paths.rubrics points at an empty directory', async () => {
 	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
-	const scenario = makeScenario( 'grade it' );
-	scenario.rubrics = [ 'a11y' ];
+	const projectRoot = mkdtempSync( join( tmpdir(), 'judge-proj-' ) );
+	mkdirSync( join( projectRoot, 'rubrics' ), { recursive: true } );
+
+	const captured = await captureInvoke( () =>
+		runJudgeAgent( {
+			scenario: makeScenario( 'grade it' ),
+			judge,
+			agentDirectory: judgeWorkspace,
+			agentWorkspace,
+			judgeWorkspace,
+			projectRoot,
+			config: makeConfig( undefined, 'rubrics' ),
+			log: new RunLog(),
+			testingResult: {
+				finalText: '',
+				toolUseCount: 0,
+				filesWritten: [ 'result.txt' ],
+			},
+		} )
+	);
+
+	assert.ok( captured, 'provider.invoke must be called' );
+	assert.ok(
+		! captured.systemPrompt.includes( '# Grading rubrics' ),
+		'no Grading rubrics heading appears for an empty rubrics directory'
+	);
+} );
+
+test( 'runJudgeAgent omits the Grading rubrics section when paths.rubrics is unset', async () => {
+	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+
+	const captured = await captureInvoke( () =>
+		runJudgeAgent( {
+			scenario: makeScenario( 'grade it' ),
+			judge,
+			agentDirectory: judgeWorkspace,
+			agentWorkspace,
+			judgeWorkspace,
+			projectRoot: judgeWorkspace,
+			config: makeConfig(),
+			log: new RunLog(),
+			testingResult: {
+				finalText: '',
+				toolUseCount: 0,
+				filesWritten: [ 'result.txt' ],
+			},
+		} )
+	);
+
+	assert.ok( captured, 'provider.invoke must be called' );
+	assert.ok(
+		! captured.systemPrompt.includes( '# Grading rubrics' ),
+		'no Grading rubrics heading appears when paths.rubrics is unset'
+	);
+} );
+
+test( 'runJudgeAgent auto-supplies the testing brief as the task, with its # Skills section removed', async () => {
+	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const testingBrief = [
+		'# Task',
+		'TASK_SENTINEL: build a counter block.',
+		'# Skills',
+		'- SKILL_SENTINEL_wp-interactivity-api',
+	].join( '\n' );
+	const scenario = makeScenario( 'grade it', testingBrief );
 
 	const captured = await captureInvoke( () =>
 		runJudgeAgent( {
@@ -629,8 +774,58 @@ test( 'runJudgeAgent omits the Grading rubrics section when paths.rubrics is uns
 
 	assert.ok( captured, 'provider.invoke must be called' );
 	assert.ok(
-		! captured.systemPrompt.includes( '# Grading rubrics' ),
-		'no Grading rubrics heading appears when paths.rubrics is unset'
+		captured.systemPrompt.includes( '# Testing task' ),
+		'the system prompt carries a Testing task section'
+	);
+	assert.ok(
+		captured.systemPrompt.includes( 'TASK_SENTINEL: build a counter block.' ),
+		'the task body reaches the judge prompt'
+	);
+	assert.ok(
+		! captured.systemPrompt.includes(
+			'SKILL_SENTINEL_wp-interactivity-api'
+		),
+		'the # Skills section is stripped from the auto-supplied task'
+	);
+	const briefIdx = captured.systemPrompt.indexOf( 'grade it' );
+	const taskIdx = captured.systemPrompt.indexOf( '# Testing task' );
+	assert.ok(
+		briefIdx !== -1 && taskIdx !== -1 && briefIdx < taskIdx,
+		'the task is placed after the judgeBrief'
+	);
+} );
+
+test( 'runJudgeAgent keeps the task out of the judge user message', async () => {
+	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const testingBrief = 'TASK_SENTINEL: build a counter block.';
+	const scenario = makeScenario( 'grade it', testingBrief );
+
+	const captured = await captureInvoke( () =>
+		runJudgeAgent( {
+			scenario,
+			judge,
+			agentDirectory: judgeWorkspace,
+			agentWorkspace,
+			judgeWorkspace,
+			projectRoot: judgeWorkspace,
+			config: makeConfig(),
+			log: new RunLog(),
+			testingResult: {
+				finalText: '',
+				toolUseCount: 0,
+				filesWritten: [ 'result.txt' ],
+			},
+		} )
+	);
+
+	assert.ok( captured, 'provider.invoke must be called' );
+	assert.ok(
+		! captured.prompt.includes( 'TASK_SENTINEL: build a counter block.' ),
+		'the user message contains no task text'
+	);
+	assert.ok(
+		captured.prompt.includes( '=== result.txt ===\nGATE_PASS' ),
+		'the user message still carries only the produced files'
 	);
 } );
 

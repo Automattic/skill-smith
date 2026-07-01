@@ -7,7 +7,8 @@ import type {
 } from '../config/types';
 import { getProvider } from '../providers/registry';
 import type { JudgeCapabilities } from '../providers/types';
-import { loadRubric } from '../scenarios/rubric-loader';
+import { stripSkillsSection } from '../scenarios/enumerate';
+import { loadAllRubrics } from '../scenarios/rubric-loader';
 import type { RunLog } from '../util/run-log';
 import type { TestingAgentResult } from './agent-loop';
 
@@ -36,11 +37,18 @@ export interface RunJudgeAgentParams {
 
 /**
  * Run the judge sub-agent for one (scenario, agent) pair. The judge's
- * system prompt is the scenario's verbatim `judgeBrief` plus a minimal
- * `{ pass, notes }` output instruction; it verifies the produced
- * artifact (and any live environment the project stood up) using the
- * project-configured judge capabilities, running against an isolated
- * copy of the workspace so it cannot mutate the artifact of record.
+ * system prompt is the scenario's verbatim `judgeBrief`, followed by the
+ * auto-supplied testing task (the scenario's `testingBrief` with its
+ * `# Skills` section removed) under a `# Testing task` heading, a minimal
+ * `{ pass, notes }` output instruction, and — when the project sets
+ * `paths.rubrics` and that directory holds rubric files — every rubric
+ * loaded from it under a `# Grading rubrics` heading (each rubric labeled
+ * with a `# Rubric: <id>` header, preceded by a selection lead-in telling
+ * the judge to apply only the rubric(s) the brief names). The judge
+ * verifies the produced artifact (and any live environment the project
+ * stood up) using the project-configured judge capabilities, running
+ * against an isolated copy of the workspace so it cannot mutate the
+ * artifact of record.
  *
  * Returns the verdict object — `{ pass, notes }` on success, or an
  * error-shaped payload on the failure paths. The judge emits a single
@@ -62,8 +70,18 @@ export async function runJudgeAgent(
 	} = params;
 	const scope = `judge:${ scenario.name }@${ relative( projectRoot, agentDirectory ) }`;
 
-	const rubricBlob = resolveRubricBlob( scenario, config, projectRoot );
-	const systemPrompt = buildJudgeSystemPrompt( scenario, config, rubricBlob );
+	const rubricsPath = config.paths.rubrics;
+	const rubricBlob =
+		rubricsPath === undefined
+			? undefined
+			: loadAllRubrics( resolve( projectRoot, rubricsPath ) );
+	const task = stripSkillsSection( scenario.testingBrief );
+	const systemPrompt = buildJudgeSystemPrompt(
+		scenario,
+		config,
+		task,
+		rubricBlob
+	);
 	const userMsg = buildUserMessage(
 		scenario,
 		judgeWorkspace,
@@ -71,7 +89,9 @@ export async function runJudgeAgent(
 	);
 
 	log.info(
-		`${ scope }: judge starting provider=${ judge.provider } model=${ judge.model }`
+		`${ scope }: judge starting provider=${ judge.provider } model=${ judge.model } task=supplied rubrics=${
+			rubricBlob === undefined ? 0 : 'loaded'
+		}`
 	);
 
 	const provider = getProvider( judge.provider );
@@ -106,38 +126,6 @@ export async function runJudgeAgent(
 }
 
 /**
- * Resolve and load the rubric content a scenario references. When the
- * project configures `paths.rubrics` and the scenario lists one or more
- * rubric ids, each rubric is loaded from `<projectRoot>/<paths.rubrics>`
- * and the loaded blobs are joined into a single string. Returns
- * `undefined` when `paths.rubrics` is unset or the scenario references no
- * rubrics, so the judge prompt carries no `# Grading rubrics` section.
- *
- * @param scenario    - The scenario whose `rubrics` ids are resolved.
- * @param config      - The resolved config; `paths.rubrics` is the root.
- * @param projectRoot - Absolute path the rubrics root is resolved against.
- * @returns The concatenated rubric content, or `undefined` when there is
- *   nothing to inject.
- */
-function resolveRubricBlob(
-	scenario: Scenario,
-	config: SkillsmithConfig,
-	projectRoot: string
-): string | undefined {
-	const rubricsPath = config.paths.rubrics;
-	const ids = scenario.rubrics;
-	if (
-		rubricsPath === undefined ||
-		ids === undefined ||
-		ids.length === 0
-	) {
-		return undefined;
-	}
-	const rubricsRoot = resolve( projectRoot, rubricsPath );
-	return ids.map( ( id ) => loadRubric( id, rubricsRoot ) ).join( '\n\n' );
-}
-
-/**
  * Assemble the judge's {@link JudgeCapabilities} from the passthrough keys
  * the project set on the judge agent definition. Only the four typed
  * capability keys (`tools`, `mcpServers`, `allowWrite`, `network`) are
@@ -169,26 +157,51 @@ export function judgeCapabilities( judge: AgentDefinition ): JudgeCapabilities {
 }
 
 /**
+ * The G2 selection lead-in prepended to the loaded rubric bodies. It tells the
+ * judge that the rubrics below are shared, reusable grading criteria and that it
+ * must apply only the rubric(s) the scenario's brief refers to, treating the
+ * rest as reference-only material that must not sway the verdict. Prepended so
+ * that, once several rubrics are loaded, the judge does not over-apply criteria
+ * from rubrics the scenario never named.
+ */
+const RUBRIC_SELECTION_LEAD_IN = [
+	'The rubrics below are shared, reusable grading criteria. Apply ONLY the',
+	"rubric(s) this scenario's brief refers to; the others are provided for",
+	'reference and must not affect the verdict.',
+].join( '\n' );
+
+/**
  * Build the judge's system prompt: the scenario's verbatim `judgeBrief`,
- * a minimal instruction to emit exactly `{ "pass": <bool>, "notes":
- * "<string>" }` as a single JSON object, the resolved rubric content
- * (when supplied) under a `# Grading rubrics` heading, and — when set —
- * the `roles.judge.prompt` under a `# Role instructions` heading. This is
- * a pure string builder: it performs no filesystem access. The caller
- * resolves and loads any rubric content and passes it in via
- * `rubricBlob`.
+ * followed by the auto-supplied testing task under a `# Testing task` heading, a
+ * minimal instruction to emit exactly `{ "pass": <bool>, "notes": "<string>" }`
+ * as a single JSON object, the loaded rubric content (when supplied) under a
+ * `# Grading rubrics` heading, and — when set — the `roles.judge.prompt` under a
+ * `# Role instructions` heading. This is a pure string builder: it performs no
+ * filesystem access. The caller strips the task's `# Skills` section and loads
+ * the rubric content, then passes both in as strings.
+ *
+ * The `# Testing task` section is always present (the task is auto-supplied on
+ * every judge run) and is placed immediately after `judgeBrief` and before the
+ * output instruction. The `# Grading rubrics` section is emitted only when
+ * `rubricBlob` is a non-empty string; its body is the shared-rubric selection
+ * lead-in followed by the blob (which already carries a `# Rubric: <id>` header
+ * per loaded rubric).
  *
  * @param scenario   - The scenario whose `judgeBrief` is the prompt body.
  * @param config     - The resolved config; its `roles.judge.prompt` is
  *   appended when present.
+ * @param task       - The auto-supplied testing task, already stripped of its
+ *   `# Skills` section by the caller. Inlined verbatim under a `# Testing task`
+ *   heading on every run.
  * @param rubricBlob - Pre-loaded rubric content to inject under a
- *   `# Grading rubrics` heading. When `undefined` or empty, no rubric
- *   section is added.
+ *   `# Grading rubrics` heading, preceded by the selection lead-in. When
+ *   `undefined` or empty, no rubric section (and no lead-in) is added.
  * @returns The full judge system prompt.
  */
 export function buildJudgeSystemPrompt(
 	scenario: Scenario,
 	config: SkillsmithConfig,
+	task: string,
 	rubricBlob?: string
 ): string {
 	const outputInstruction = [
@@ -203,9 +216,15 @@ export function buildJudgeSystemPrompt(
 		'Do not invoke `skillsmith` or any wrapper that would re-enter the harness.',
 	].join( '\n' );
 
-	const sections = [ scenario.judgeBrief, outputInstruction ];
+	const sections = [
+		scenario.judgeBrief,
+		`# Testing task\n${ task }`,
+		outputInstruction,
+	];
 	if ( rubricBlob !== undefined && rubricBlob.length > 0 ) {
-		sections.push( `# Grading rubrics\n${ rubricBlob }` );
+		sections.push(
+			`# Grading rubrics\n${ RUBRIC_SELECTION_LEAD_IN }\n\n${ rubricBlob }`
+		);
 	}
 	const rolePrompt = config.roles.judge.prompt;
 	if ( rolePrompt !== undefined && rolePrompt.length > 0 ) {
