@@ -54,16 +54,6 @@ test( 'Scenario carries exactly name/skills/testingBrief/judgeBrief', () => {
 		custom: 123,
 	} );
 	assert.equal( withExtra.custom, 123 );
-
-	// `rubrics` is an optional string-array field alongside `skills`.
-	const withRubrics = ofType< Scenario >( {
-		name: 's',
-		skills: [ 'block-development' ],
-		testingBrief: 't',
-		judgeBrief: 'j',
-		rubrics: [ 'increments-on-click' ],
-	} );
-	assert.deepEqual( withRubrics.rubrics, [ 'increments-on-click' ] );
 } );
 
 test( 'Scenario no longer declares the legacy fields', () => {
@@ -83,8 +73,13 @@ test( 'Scenario no longer declares the legacy fields', () => {
 	const _prompt: string = scenario.prompt;
 	// @ts-expect-error `acceptance` is removed from Scenario.
 	const _acceptance: string[] = scenario.acceptance;
+	// Annotated with the field's former declared type so that the directive
+	// is consumed only by the property being absent — not by an assignability
+	// mismatch — which keeps the guard honest about the field being gone.
+	// @ts-expect-error `rubrics` is removed from Scenario.
+	const _rubrics: string[] | undefined = scenario.rubrics;
 
-	assert.ok( [ _description, _prompt, _acceptance ] );
+	assert.ok( [ _description, _prompt, _acceptance, _rubrics ] );
 } );
 
 test( 'Paths has base/skills/scenarios and an optional rubrics', () => {

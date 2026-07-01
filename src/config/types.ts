@@ -194,12 +194,6 @@ export interface Scenario {
 	name: string;
 	/** Skill ids the scenario exercises. */
 	skills: string[];
-	/**
-	 * Rubric ids parsed from `JUDGE.md`'s `# Rubrics` section. Parallels
-	 * {@link Scenario.skills}; optional because a scenario need not reference
-	 * any reusable rubrics.
-	 */
-	rubrics?: string[];
 	/** Brief handed to the test agents describing the task to perform. */
 	testingBrief: string;
 	/** Brief handed to the judge describing how to grade the artifact. */
