@@ -71,7 +71,9 @@ export default defineConfig( {
 		scope: 'failed-scenarios',
 	},
 
-	// Reusable rubric definitions a scenario's JUDGE.md can reference by id.
+	// Reusable rubric definitions. A scenario opts in by naming the rubric in
+	// plain-language prose in its JUDGE.md; Skillsmith supplies the rubric
+	// content to the judge automatically from this directory.
 	paths: {
 		rubrics: './eval/rubrics',
 	},
