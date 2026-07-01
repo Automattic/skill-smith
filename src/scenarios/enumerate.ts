@@ -99,6 +99,60 @@ export function parseSkillsSection(
 }
 
 /**
+ * Return a testing brief with its `# Skills` section removed.
+ *
+ * Reuses the same section-boundary rule as {@link parseSkillsSection}: line
+ * endings are normalized (`\r\n` and `\r` → `\n`) before matching, the first
+ * heading whose text is exactly `Skills` (case-insensitive, at any heading
+ * depth) opens the section, and the section runs from that heading line through
+ * the line **before** the next heading of the same-or-shallower depth — or
+ * through end of input when no such heading follows. Deeper sub-headings stay
+ * inside the removed block. The heading line and every line of its body are
+ * dropped; the lines before and after the section are preserved verbatim and
+ * rejoined with `\n`.
+ *
+ * When the brief has no `# Skills` heading the input is returned unchanged.
+ *
+ * @param testingBrief - Raw brief text. `\r\n` and `\r` line endings are
+ *   normalized before matching.
+ * @returns The brief with its `# Skills` section removed, or the original brief
+ *   unchanged when no `# Skills` heading is present.
+ *
+ * @example
+ * stripSkillsSection( '# Task\nDo it.\n# Skills\n- wp-interactivity-api\n' );
+ * // => '# Task\nDo it.\n'
+ * @example
+ * stripSkillsSection( '# Task\nDo it.\n' ); // => '# Task\nDo it.\n' (no-op)
+ */
+export function stripSkillsSection( testingBrief: string ): string {
+	const lines = testingBrief.replace( /\r\n?/g, '\n' ).split( '\n' );
+
+	let depth: number | undefined;
+	let start = -1;
+	for ( let i = 0; i < lines.length; i++ ) {
+		const heading = HEADING_RE.exec( lines[ i ] ?? '' );
+		if ( heading && SKILLS_HEADING_RE.test( heading[ 2 ] ?? '' ) ) {
+			depth = heading[ 1 ]?.length;
+			start = i;
+			break;
+		}
+	}
+
+	if ( depth === undefined ) return testingBrief;
+
+	let end = lines.length;
+	for ( let i = start + 1; i < lines.length; i++ ) {
+		const heading = HEADING_RE.exec( lines[ i ] ?? '' );
+		if ( heading && ( heading[ 1 ]?.length ?? 0 ) <= depth ) {
+			end = i;
+			break;
+		}
+	}
+
+	return [ ...lines.slice( 0, start ), ...lines.slice( end ) ].join( '\n' );
+}
+
+/**
  * Extract rubric ids from the `# Rubrics` section of a judge brief.
  *
  * Grammar is identical to {@link parseSkillsSection}: the first heading whose
