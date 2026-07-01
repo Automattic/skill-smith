@@ -11,8 +11,6 @@ const JUDGE_BRIEF_FILE = 'JUDGE.md';
 const HEADING_RE = /^(#{1,6})\s+(.*?)\s*$/;
 /** Matches the heading text of the `# Skills` section (case-insensitive). */
 const SKILLS_HEADING_RE = /^Skills$/i;
-/** Matches the heading text of the `# Rubrics` section (case-insensitive). */
-const RUBRICS_HEADING_RE = /^Rubrics$/i;
 /** Matches a list item, capturing its content. */
 const LIST_ITEM_RE = /^\s*[-*]\s+(.+?)\s*$/;
 /** Matches a Markdown link, capturing its link text. */
@@ -152,35 +150,6 @@ export function stripSkillsSection( testingBrief: string ): string {
 	return [ ...lines.slice( 0, start ), ...lines.slice( end ) ].join( '\n' );
 }
 
-/**
- * Extract rubric ids from the `# Rubrics` section of a judge brief.
- *
- * Grammar is identical to {@link parseSkillsSection}: the first heading whose
- * text is exactly `Rubrics` (case-insensitive, any heading depth) opens the
- * section. Lines are collected until the next heading of the same-or-shallower
- * depth, or end of input; deeper sub-headings stay inside the section. Within
- * the collected block, only Markdown list items contribute ids — each is
- * unwrapped from surrounding backticks and from a `[id](...)` link, then
- * trimmed. Prose and blank lines are ignored.
- *
- * @param judgeBrief - Raw brief text. `\r\n` and `\r` line endings are
- *   normalized before matching.
- * @returns The ordered rubric ids, `[]` when the section exists but holds no
- *   list items, or `undefined` when the brief has no `# Rubrics` heading.
- *
- * @example
- * parseRubricsSection( '# Rubrics\n- correctness' ); // => [ 'correctness' ]
- * @example
- * parseRubricsSection( '# Judge\n' ); // => undefined (absent)
- */
-export function parseRubricsSection(
-	judgeBrief: string
-): string[] | undefined {
-	return parseListSection( judgeBrief, ( text ) =>
-		RUBRICS_HEADING_RE.test( text )
-	);
-}
-
 /** Strip surrounding backticks and unwrap a Markdown link to a bare id. */
 function normalizeSkillId( raw: string ): string {
 	let id = raw.trim();
@@ -203,11 +172,10 @@ function normalizeSkillId( raw: string ): string {
 export interface EnumeratedScenario {
 	/**
 	 * Parsed scenario definition. For a valid scenario this holds both briefs
-	 * read verbatim, the skills parsed from `# Skills`, and the rubrics parsed
-	 * from the judge brief's optional `# Rubrics` section (`[]` when absent).
-	 * For an errored scenario this is a stub carrying whatever briefs were
-	 * readable (or empty strings), `name` equal to {@link id}, and empty
-	 * `skills` and `rubrics` lists.
+	 * read verbatim and the skills parsed from `# Skills`. The judge brief is
+	 * stored opaquely — no structured section is parsed from it. For an errored
+	 * scenario this is a stub carrying whatever briefs were readable (or empty
+	 * strings), `name` equal to {@link id}, and an empty `skills` list.
 	 */
 	scenario: Scenario;
 	/**
@@ -229,10 +197,9 @@ export interface EnumeratedScenario {
  * Walk `paths.scenarios` recursively and discover scenarios by the two-file
  * model: a directory is a scenario iff it contains both a testing brief
  * (`TESTING-AGENT.md`) and a judge brief (`JUDGE.md`). Both briefs are read
- * verbatim, the testing brief's `# Skills` section is parsed and validated
- * against `paths.skills/`, and the judge brief's optional `# Rubrics` section
- * is parsed and—when `paths.rubrics` is set—validated against the flat
- * `<paths.rubrics>/<id>.md` files.
+ * verbatim, and the testing brief's `# Skills` section is parsed and validated
+ * against `paths.skills/`. The judge brief is stored opaquely — no structured
+ * section is parsed from it.
  *
  * A directory with neither brief is not a scenario; enumeration keeps walking
  * its children so grouping folders may nest scenarios. A directory with exactly
@@ -240,12 +207,12 @@ export interface EnumeratedScenario {
  * file.
  *
  * Enumeration never throws. Validation problems (a missing brief, an absent
- * `# Skills` section, or unresolved skill or rubric references) are reported as
- * a per-scenario `error` string; valid scenarios alongside an errored one are
+ * `# Skills` section, or unresolved skill references) are reported as a
+ * per-scenario `error` string; valid scenarios alongside an errored one are
  * still returned. Results are sorted by {@link EnumeratedScenario.id}.
  *
  * @param paths - Resolved config paths; `scenarios` and `skills` are joined
- *   under `projectRoot`, as is `rubrics` when it is set.
+ *   under `projectRoot`.
  * @param projectRoot - Absolute root the paths resolve against.
  * @returns Every discovered scenario, errored or not, sorted by `id`.
  */
@@ -255,10 +222,6 @@ export function enumerateScenarios(
 ): EnumeratedScenario[] {
 	const scenariosRoot = join( projectRoot, paths.scenarios );
 	const skillsRoot = join( projectRoot, paths.skills );
-	const rubricsRoot =
-		paths.rubrics === undefined
-			? undefined
-			: join( projectRoot, paths.rubrics );
 
 	const out: EnumeratedScenario[] = [];
 
@@ -285,8 +248,7 @@ export function enumerateScenarios(
 						id,
 						testingBrief,
 						judgeBrief,
-						skillsRoot,
-						rubricsRoot
+						skillsRoot
 					)
 				);
 			} else {
@@ -320,26 +282,21 @@ export function enumerateScenarios(
 /**
  * Build an {@link EnumeratedScenario} from a scenario directory that has both
  * briefs. Parses `# Skills` from the testing brief and validates each id
- * against `<skillsRoot>/<id>/SKILL.md`; parses the optional `# Rubrics` section
- * from the judge brief and, when a rubrics root is configured, validates each
- * id against the flat `<rubricsRoot>/<id>.md` file. Any missing-section and
- * unresolved-reference problems are concatenated into a single `error` string.
+ * against `<skillsRoot>/<id>/SKILL.md`, concatenating a missing-section and any
+ * unresolved-reference problems into a single `error` string. The judge brief
+ * is stored opaquely — nothing structured is parsed or validated from it.
  *
  * @param id - Normalized scenario id (slash-joined path segments).
  * @param testingBrief - Raw testing brief contents.
- * @param judgeBrief - Raw judge brief contents.
+ * @param judgeBrief - Raw judge brief contents, stored verbatim.
  * @param skillsRoot - Absolute path skill references resolve against.
- * @param rubricsRoot - Absolute path rubric references resolve against, or
- *   `undefined` when no rubrics root is configured. When `undefined`, rubric
- *   ids are parsed and stored but not existence-validated.
  * @returns A runnable scenario, or one carrying a validation `error`.
  */
 function scenarioFromBriefs(
 	id: string,
 	testingBrief: string,
 	judgeBrief: string,
-	skillsRoot: string,
-	rubricsRoot: string | undefined
+	skillsRoot: string
 ): EnumeratedScenario {
 	const parsedSkills = parseSkillsSection( testingBrief );
 	const skills = parsedSkills ?? [];
@@ -362,26 +319,9 @@ function scenarioFromBriefs(
 		);
 	}
 
-	// `# Rubrics` is optional: an absent section yields no ids and no problem.
-	// Existence is only checked when a rubrics root is configured.
-	const rubrics = parseRubricsSection( judgeBrief ) ?? [];
-	if ( rubricsRoot !== undefined ) {
-		const missingRubrics = rubrics.filter(
-			( rubric ) => ! existsSync( join( rubricsRoot, `${ rubric }.md` ) )
-		);
-		if ( missingRubrics.length > 0 ) {
-			problems.push(
-				`unresolved reference: ${ missingRubrics
-					.map( ( rubric ) => `rubric "${ rubric }"` )
-					.join( ', ' ) }`
-			);
-		}
-	}
-
 	const scenario: Scenario = {
 		name: id,
 		skills,
-		rubrics,
 		testingBrief,
 		judgeBrief,
 	};
@@ -394,8 +334,8 @@ function scenarioFromBriefs(
 
 /**
  * Build a minimal stub scenario for a directory that failed enumeration. Its
- * `name` equals the scenario id, `skills` and `rubrics` are empty, and the
- * briefs hold whatever was readable (empty strings for a missing file).
+ * `name` equals the scenario id, `skills` is empty, and the briefs hold
+ * whatever was readable (empty strings for a missing file).
  *
  * @param id - Normalized scenario id used as the stub `name`.
  * @param testingBrief - Readable testing brief, or `''` when absent.
@@ -410,7 +350,6 @@ function stubScenario(
 	return {
 		name: id,
 		skills: [],
-		rubrics: [],
 		testingBrief,
 		judgeBrief,
 	};
