@@ -1,6 +1,7 @@
 import { DEFAULT_PATHS } from './defaults';
 import type {
 	AgentDefinition,
+	JudgeRoleInput,
 	NormalizedRoles,
 	SingleRoleInput,
 	SkillsmithConfig,
@@ -66,21 +67,31 @@ function normalizeSingleRole(
 }
 
 /**
- * Normalize the judge role, lifting the string shorthand to object form
- * and resolving its `concurrency` to a concrete value. The user-facing
- * field is optional and defaults to `'parallel'`, so downstream code can
- * read `config.roles.judge.concurrency` unconditionally.
+ * Normalize the judge role, lifting the string shorthand to object form,
+ * resolving its `concurrency` to a concrete value, and carrying `library`
+ * through when set. `concurrency` is optional user-facing and defaults to
+ * `'parallel'`, so downstream code can read
+ * `config.roles.judge.concurrency` unconditionally; `library` stays
+ * optional — it is present on the normalized role only when configured.
  *
  * @param role   - The judge role exactly as authored (string or object).
  * @param agents - The resolved agent map to look the judge agent up in.
  * @returns The normalized judge role with `concurrency` always set.
  */
 function normalizeJudgeRole(
-	role: SingleRoleInput,
+	role: JudgeRoleInput,
 	agents: Record< string, AgentDefinition >
 ): NormalizedRoles[ 'judge' ] {
-	const base = normalizeSingleRole( role, agents );
-	const concurrency =
-		typeof role === 'string' ? undefined : role.concurrency;
-	return { ...base, concurrency: concurrency ?? 'parallel' };
+	if ( typeof role === 'string' ) {
+		return {
+			agent: agents[ role ] as AgentDefinition,
+			concurrency: 'parallel',
+		};
+	}
+	const out: NormalizedRoles[ 'judge' ] = {
+		agent: agents[ role.agent ] as AgentDefinition,
+		concurrency: role.concurrency ?? 'parallel',
+	};
+	if ( role.library !== undefined ) out.library = role.library;
+	return out;
 }

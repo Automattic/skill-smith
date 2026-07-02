@@ -18,7 +18,8 @@ import {
 import { tryHook } from '../util/hooks';
 import type { SerialMutex } from '../util/mutex';
 import type { RunLog } from '../util/run-log';
-import { runJudgeAgent } from './judge-agent';
+import { judgeCapabilities, runJudgeAgent } from './judge-agent';
+import { prepareJudgeLibrary } from './judge-library';
 import { runTestingAgent } from './testing-agent';
 import {
 	copyWorkspaceForJudge,
@@ -255,6 +256,44 @@ async function runAgentPair( params: RunAgentPairParams ): Promise< void > {
 			// around the phase to detect any mutation that slips through a
 			// hook.
 			copyWorkspaceForJudge( agentWorkspace, judgeWorkspace );
+
+			// Prepare the judge library before `beforeJudgeAgent` fires, so
+			// hooks see the `judge-library/` copy on disk beside the judged
+			// artifact. Preparation happens before the judge phase starts; a
+			// throw here — the collision guard or a copy I/O failure — fails
+			// this pair loudly (recorded as its review), not the run: the
+			// judge invocation is skipped and the mutex is released by the
+			// enclosing `finally`.
+			let librarySection: string | undefined;
+			const libraryPath = config.roles.judge.library;
+			if ( libraryPath !== undefined ) {
+				try {
+					librarySection = prepareJudgeLibrary( {
+						projectRoot,
+						libraryPath,
+						judgeWorkspace,
+						capabilities: judgeCapabilities(
+							config.roles.judge.agent
+						),
+					} )?.text;
+				} catch ( err ) {
+					const msg =
+						err instanceof Error ? err.message : String( err );
+					log.info(
+						`judge library preparation failed (${ scope }): ${ msg } — marking pair FAIL`
+					);
+					tracker.phaseFinished( scenario.name, agent.id, 'judge', {
+						status: 'failed',
+						detail: msg,
+					} );
+					writeAgentReport( agentDirectory, testing, {
+						pass: false,
+						error: msg,
+					} );
+					return;
+				}
+			}
+
 			const beforeJudge = snapshotWorkspace( agentWorkspace );
 
 			await tryHook(
@@ -274,12 +313,11 @@ async function runAgentPair( params: RunAgentPairParams ): Promise< void > {
 					scenario,
 					judge: config.roles.judge.agent,
 					agentDirectory,
-					agentWorkspace,
 					judgeWorkspace,
 					projectRoot,
-					config,
 					log,
 					testingResult,
+					librarySection,
 				} );
 			} catch ( err ) {
 				const msg = err instanceof Error ? err.message : String( err );

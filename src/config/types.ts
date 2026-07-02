@@ -91,7 +91,7 @@ export interface AgentDefinition {
  */
 export interface RolesInput {
 	test: TestRoleInput;
-	judge: SingleRoleInput;
+	judge: JudgeRoleInput;
 	improver: SingleRoleInput;
 }
 
@@ -102,13 +102,26 @@ export interface TestRoleInput {
 
 /**
  * A single-agent role as the user writes it: either a bare agent-id
- * string or an object naming the agent and optional `prompt`. The judge
- * role additionally accepts {@link JudgeConcurrency} via `concurrency`
- * (ignored on other single-agent roles).
+ * string or an object naming the agent and an optional `prompt`. Used by
+ * the improver role; the judge role has its own input shape (see
+ * {@link JudgeRoleInput}).
  */
-export type SingleRoleInput =
+export type SingleRoleInput = string | { agent: string; prompt?: string };
+
+/**
+ * The judge role as the user writes it: either a bare agent-id string or
+ * an object naming the agent plus the judge-specific knobs:
+ *   - `library` — a project-relative directory of grading material
+ *     supplied to every judge. Its `README.md` is inlined into the judge
+ *     system prompt as the reusable environment manual, and the whole
+ *     directory is copied per (scenario, agent) pair to `judge-library/`
+ *     inside the judge's working directory; briefs name items by relative
+ *     path (e.g. `judge-library/rubrics/<id>.md`).
+ *   - `concurrency` — see {@link JudgeConcurrency}.
+ */
+export type JudgeRoleInput =
 	| string
-	| { agent: string; prompt?: string; concurrency?: JudgeConcurrency };
+	| { agent: string; library?: string; concurrency?: JudgeConcurrency };
 
 /**
  * The normalized form the harness uses internally. String shorthands are
@@ -125,7 +138,13 @@ export interface NormalizedRoles {
 	 */
 	judge: {
 		agent: AgentDefinition;
-		prompt?: string;
+		/**
+		 * Project-relative path of the judge library directory, carried
+		 * through from `roles.judge.library`. Present only when the project
+		 * configured one; when set, the agent loop prepares the library per
+		 * pair (disk copy plus prompt section) before the judge runs.
+		 */
+		library?: string;
 		concurrency: JudgeConcurrency;
 	};
 	improver: { agent: AgentDefinition; prompt?: string };
@@ -147,11 +166,6 @@ export interface Paths {
 	base: string;
 	skills: string;
 	scenarios: string;
-	/**
-	 * Directory holding reusable rubric definitions. Optional: it is
-	 * required to exist only when a project uses it.
-	 */
-	rubrics?: string;
 }
 
 /**

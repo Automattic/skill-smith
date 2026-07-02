@@ -20,12 +20,6 @@ const testingAgentPrompt = readFileSync(
 	resolve( here, 'prompts/testing-agent.md' ),
 	'utf8'
 );
-// The judge prompt is the project's reusable "environment manual" — see
-// `roles.judge` below for what belongs in it.
-const judgePrompt = readFileSync(
-	resolve( here, 'prompts/judge.md' ),
-	'utf8'
-);
 const improverPrompt = readFileSync(
 	resolve( here, 'prompts/improver.md' ),
 	'utf8'
@@ -137,22 +131,14 @@ export default defineConfig( {
 
 		// The judge grades each artifact against the scenario's JUDGE.md
 		// brief, verifying behavior on the live environment the project
-		// stood up. The object form lets you pin a project-specific prompt
+		// stood up. The object form lets you point it at a judge library
 		// and set `concurrency`:
-		//   - `prompt` — a reusable "environment manual" the judge memorizes
-		//     for every scenario. Keep the per-scenario `JUDGE.md` briefs
-		//     short and behavior-focused (what to exercise and what counts
-		//     as correct); put the shared runtime mechanics here once: how
-		//     to reach the live environment the `hooks` stood up (a CLI
-		//     bridge, a base URL, the env vars the hooks export), how to
-		//     discover what the test agent produced (e.g. read a manifest
-		//     file rather than assume a fixed name), and how to drive the
-		//     environment to exercise it. Like `test`, this prompt is
-		//     appended to the harness-built judge prompt — it augments, not
-		//     replaces. This is also where project-specific command strings
-		//     live (the exact CLI invocations, URL shapes, and file globs
-		//     for your stack), keeping that vocabulary out of Skillsmith
-		//     core and out of the per-scenario briefs.
+		//   - `library` — a judge-scoped directory of grading material.
+		//     Its `README.md` is inlined into every judge prompt as the
+		//     reusable "environment manual"; the whole directory is copied
+		//     per pair to `judge-library/` in the judge's working directory,
+		//     and briefs name the items to apply by relative path (e.g.
+		//     `judge-library/rubrics/<id>.md`).
 		//   - `concurrency`:
 		//     - "parallel" (default) — every (scenario, agent) pair may grade
 		//       at once.
@@ -164,7 +150,7 @@ export default defineConfig( {
 		//       parallel either way.
 		judge: {
 			agent: 'codex-judge',
-			prompt: judgePrompt,
+			library: './eval/judge',
 			concurrency: 'serial',
 		},
 
@@ -183,22 +169,6 @@ export default defineConfig( {
 		base: './.skillsmith',
 		skills: './skills',
 		scenarios: './eval/scenarios',
-
-		// Optional. Point this at a directory of reusable rubric files
-		// (`<id>.md` each) to share grading criteria across scenarios
-		// instead of re-pasting them into every `JUDGE.md`. A scenario
-		// opts in by naming the rubric in plain-language prose in its
-		// `JUDGE.md` — clearest by its bare id, which matches the
-		// `# Rubric: <id>` label the judge sees on each loaded rubric
-		// (e.g. "verify the produced code against the
-		// `wp-interactivity-api-best-practices` rubric"); Skillsmith loads
-		// the rubric content and supplies it to the judge automatically —
-		// there is no `# Rubrics` id list and no reserved grammar. Omit
-		// this key entirely if no scenario uses rubrics: it has no default
-		// and no existence gate, so leaving it unset (or pointing it at an
-		// empty directory) simply runs the judge with no rubric context and
-		// no error.
-		rubrics: './eval/rubrics',
 	},
 
 	// Behavior of the self-improvement loop. Only consulted when

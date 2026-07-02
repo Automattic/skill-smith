@@ -12,6 +12,7 @@ export type {
 	IterationCompleteHookContext,
 	IterationHookContext,
 	IterationInfo,
+	JudgeRoleInput,
 	McpServerConfig,
 	NormalizedRoles,
 	Paths,

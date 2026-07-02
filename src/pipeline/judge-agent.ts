@@ -1,13 +1,8 @@
-import { relative, resolve } from 'node:path';
-import type {
-	AgentDefinition,
-	Scenario,
-	SkillsmithConfig,
-} from '../config/types';
+import { relative } from 'node:path';
+import type { AgentDefinition, Scenario } from '../config/types';
 import { getProvider } from '../providers/registry';
 import type { JudgeCapabilities } from '../providers/types';
 import { stripSkillsSection } from '../scenarios/enumerate';
-import { loadAllRubrics } from '../scenarios/rubric-loader';
 import type { RunLog } from '../util/run-log';
 import type { TestingAgentResult } from './agent-loop';
 import { inlineWorkspaceFiles } from './workspace-snapshot';
@@ -17,38 +12,37 @@ export interface RunJudgeAgentParams {
 	judge: AgentDefinition;
 	agentDirectory: string;
 	/**
-	 * The canonical workspace the testing agent produced. The judge must
-	 * never run against this; it is kept for logging and parity with the
-	 * agent loop's bookkeeping.
-	 */
-	agentWorkspace: string;
-	/**
 	 * The isolated copy the judge runs against (its `cwd`), so a judge that
-	 * writes cannot mutate the canonical artifact. The caller copies
-	 * `agentWorkspace` here before invoking the judge. The judge's `cwd` and
-	 * the inlined file bodies both come from this path.
+	 * writes cannot mutate the canonical artifact. The caller copies the
+	 * canonical workspace here before invoking the judge. The judge's `cwd`
+	 * and the inlined file bodies both come from this path.
 	 */
 	judgeWorkspace: string;
 	projectRoot: string;
-	config: SkillsmithConfig;
 	log: RunLog;
 	testingResult: TestingAgentResult;
+	/**
+	 * The pre-built `# Judge library` prompt section for this pair,
+	 * produced by `prepareJudgeLibrary` when the project configures
+	 * `roles.judge.library` and the library holds files. Appended verbatim
+	 * as the final system-prompt section; omitted when there is no library
+	 * material.
+	 */
+	librarySection?: string;
 }
 
 /**
  * Run the judge sub-agent for one (scenario, agent) pair. The judge's
  * system prompt is the scenario's verbatim `judgeBrief`, followed by the
  * auto-supplied testing task (the scenario's `testingBrief` with its
- * `# Skills` section removed) under a `# Testing task` heading, a minimal
- * `{ pass, notes }` output instruction, and — when the project sets
- * `paths.rubrics` and that directory holds rubric files — every rubric
- * loaded from it under a `# Grading rubrics` heading (each rubric labeled
- * with a `# Rubric: <id>` header, preceded by a selection lead-in telling
- * the judge to apply only the rubric(s) the brief names). The judge
- * verifies the produced artifact (and any live environment the project
- * stood up) using the project-configured judge capabilities, running
- * against an isolated copy of the workspace so it cannot mutate the
- * artifact of record.
+ * `# Skills` section removed) under a `# Testing task` heading, the
+ * `{ pass, notes }` output instruction (which carries the default decision
+ * rule and the missing-material failure duty on every run), and — when the
+ * caller passes one — the pre-built `# Judge library` section verbatim.
+ * The judge verifies the produced artifact (and any live environment the
+ * project stood up) using the project-configured judge capabilities,
+ * running against an isolated copy of the workspace so it cannot mutate
+ * the artifact of record.
  *
  * Returns the verdict object — `{ pass, notes }` on success, or an
  * error-shaped payload on the failure paths. The judge emits a single
@@ -64,33 +58,26 @@ export async function runJudgeAgent(
 		agentDirectory,
 		judgeWorkspace,
 		projectRoot,
-		config,
 		log,
 		testingResult,
+		librarySection,
 	} = params;
 	const scope = `judge:${ scenario.name }@${ relative( projectRoot, agentDirectory ) }`;
 
-	const rubricsPath = config.paths.rubrics;
-	const rubricBlob =
-		rubricsPath === undefined
-			? undefined
-			: loadAllRubrics( resolve( projectRoot, rubricsPath ) );
 	const task = stripSkillsSection( scenario.testingBrief );
 	const systemPrompt = buildJudgeSystemPrompt(
 		scenario,
-		config,
 		task,
-		rubricBlob
+		librarySection
 	);
 	const userMsg = buildUserMessage(
-		scenario,
 		judgeWorkspace,
 		testingResult.filesWritten
 	);
 
 	log.info(
-		`${ scope }: judge starting provider=${ judge.provider } model=${ judge.model } task=supplied rubrics=${
-			rubricBlob === undefined ? 0 : 'loaded'
+		`${ scope }: judge starting provider=${ judge.provider } model=${ judge.model } task=supplied library=${
+			librarySection === undefined ? 'none' : 'supplied'
 		}`
 	);
 
@@ -157,52 +144,39 @@ export function judgeCapabilities( judge: AgentDefinition ): JudgeCapabilities {
 }
 
 /**
- * The G2 selection lead-in prepended to the loaded rubric bodies. It tells the
- * judge that the rubrics below are shared, reusable grading criteria and that it
- * must apply only the rubric(s) the scenario's brief refers to, treating the
- * rest as reference-only material that must not sway the verdict. Prepended so
- * that, once several rubrics are loaded, the judge does not over-apply criteria
- * from rubrics the scenario never named.
- */
-const RUBRIC_SELECTION_LEAD_IN = [
-	'The rubrics below are shared, reusable grading criteria. Apply ONLY the',
-	"rubric(s) this scenario's brief refers to; the others are provided for",
-	'reference and must not affect the verdict.',
-].join( '\n' );
-
-/**
  * Build the judge's system prompt: the scenario's verbatim `judgeBrief`,
- * followed by the auto-supplied testing task under a `# Testing task` heading, a
- * minimal instruction to emit exactly `{ "pass": <bool>, "notes": "<string>" }`
- * as a single JSON object, the loaded rubric content (when supplied) under a
- * `# Grading rubrics` heading, and — when set — the `roles.judge.prompt` under a
- * `# Role instructions` heading. This is a pure string builder: it performs no
- * filesystem access. The caller strips the task's `# Skills` section and loads
- * the rubric content, then passes both in as strings.
+ * followed by the auto-supplied testing task under a `# Testing task` heading,
+ * the output instruction, and — when supplied — the pre-built `# Judge library`
+ * section verbatim as the final section. This is a pure string joiner: it
+ * performs no filesystem access. The caller strips the task's `# Skills`
+ * section and builds the library section, then passes both in as strings.
  *
  * The `# Testing task` section is always present (the task is auto-supplied on
  * every judge run) and is placed immediately after `judgeBrief` and before the
- * output instruction. The `# Grading rubrics` section is emitted only when
- * `rubricBlob` is a non-empty string; its body is the shared-rubric selection
- * lead-in followed by the blob (which already carries a `# Rubric: <id>` header
- * per loaded rubric).
+ * output instruction. The output instruction is always present and carries,
+ * beyond the strict-JSON `{ pass, notes }` shape:
+ *   - the default decision rule with an explicit override clause — a brief
+ *     stating its own decision rule wins; otherwise every check the brief
+ *     asks for must be satisfied for a pass;
+ *   - the missing-material failure duty — grading material the brief
+ *     references that was not supplied or cannot be read fails the verdict,
+ *     with the missing item named in `notes`. The duty is phrased against
+ *     supplied grading material so it holds identically whether the library
+ *     is mounted, inlined, or not configured at all.
  *
- * @param scenario   - The scenario whose `judgeBrief` is the prompt body.
- * @param config     - The resolved config; its `roles.judge.prompt` is
- *   appended when present.
- * @param task       - The auto-supplied testing task, already stripped of its
- *   `# Skills` section by the caller. Inlined verbatim under a `# Testing task`
- *   heading on every run.
- * @param rubricBlob - Pre-loaded rubric content to inject under a
- *   `# Grading rubrics` heading, preceded by the selection lead-in. When
- *   `undefined` or empty, no rubric section (and no lead-in) is added.
+ * @param scenario       - The scenario whose `judgeBrief` is the prompt body.
+ * @param task           - The auto-supplied testing task, already stripped of
+ *   its `# Skills` section by the caller. Inlined verbatim under a
+ *   `# Testing task` heading on every run.
+ * @param librarySection - The complete `# Judge library` section text
+ *   (heading included) to append verbatim as the final section. When
+ *   `undefined` or empty, no library section is added.
  * @returns The full judge system prompt.
  */
 export function buildJudgeSystemPrompt(
 	scenario: Scenario,
-	config: SkillsmithConfig,
 	task: string,
-	rubricBlob?: string
+	librarySection?: string
 ): string {
 	const outputInstruction = [
 		'# Output format',
@@ -211,6 +185,12 @@ export function buildJudgeSystemPrompt(
 		'`notes` is a JSON string: escape literal newlines as \\n, double quotes as \\", and backslashes as \\\\.',
 		'Strict JSON only: no trailing commas, no comments, no single-quoted strings.',
 		'Output only the JSON object — no prose, no Markdown fences, nothing before or after it.',
+		'',
+		'Decision rule: unless the brief states its own decision rule, return',
+		'`"pass": true` only if every check the brief asks for — including any',
+		'rubric check — is satisfied; otherwise return `"pass": false`.',
+		'If the brief references grading material that was not supplied or cannot',
+		'be read, return `"pass": false` and name the missing item in `notes`.',
 		'',
 		'# Recursion guard',
 		'Do not invoke `skillsmith` or any wrapper that would re-enter the harness.',
@@ -221,14 +201,8 @@ export function buildJudgeSystemPrompt(
 		`# Testing task\n${ task }`,
 		outputInstruction,
 	];
-	if ( rubricBlob !== undefined && rubricBlob.length > 0 ) {
-		sections.push(
-			`# Grading rubrics\n${ RUBRIC_SELECTION_LEAD_IN }\n\n${ rubricBlob }`
-		);
-	}
-	const rolePrompt = config.roles.judge.prompt;
-	if ( rolePrompt !== undefined && rolePrompt.length > 0 ) {
-		sections.push( `# Role instructions\n${ rolePrompt }` );
+	if ( librarySection !== undefined && librarySection.length > 0 ) {
+		sections.push( librarySection );
 	}
 	return sections.join( '\n\n' );
 }
@@ -304,14 +278,11 @@ function extractLastBalancedObject( text: string ): string | undefined {
  * keeps "what the judge reads == what it verifies"; unreadable files are
  * surfaced with a read-error placeholder.
  *
- * @param _scenario - The scenario under evaluation. Unused: the judge
- *   sees only the produced artifact, never the scenario fields.
  * @param workspace - The judge-copy workspace path the files are read from.
  * @param filesWritten - Workspace-relative paths the testing agent wrote.
  * @returns The assembled user message.
  */
 export function buildUserMessage(
-	_scenario: Scenario,
 	workspace: string,
 	filesWritten: string[]
 ): string {

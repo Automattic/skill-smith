@@ -564,11 +564,13 @@ async function runScenario(
  *
  * Each entry in `config.paths` for `skills` and `scenarios` must resolve to an
  * existing directory under `projectRoot`, and `paths.base` must be non-empty.
- * Any missing or non-directory path, or an empty `base`, is collected and
- * reported together.
+ * The judge library is opt-in, but once `roles.judge.library` is set it must
+ * also resolve to an existing directory. Any missing or non-directory path,
+ * or an empty `base`, is collected and reported together.
  *
- * @param config      - Resolved harness config whose `paths` are checked.
- * @param projectRoot - Absolute root the relative `paths` are resolved against.
+ * @param config      - Resolved harness config whose `paths` and
+ *   `roles.judge.library` are checked.
+ * @param projectRoot - Absolute root the relative paths are resolved against.
  * @throws {PreconditionError} When any required path is missing or not a
  *   directory, or when `paths.base` is empty.
  */
@@ -585,6 +587,15 @@ export function checkPaths(
 		}
 		if ( ! statSync( dir ).isDirectory() ) {
 			missing.push( `paths.${ key } → ${ dir } (not a directory)` );
+		}
+	}
+	const library = config.roles.judge.library;
+	if ( library !== undefined ) {
+		const dir = resolve( projectRoot, library );
+		if ( ! existsSync( dir ) ) {
+			missing.push( `roles.judge.library → ${ dir } (does not exist)` );
+		} else if ( ! statSync( dir ).isDirectory() ) {
+			missing.push( `roles.judge.library → ${ dir } (not a directory)` );
 		}
 	}
 	if ( config.paths.base === undefined || config.paths.base === '' ) {

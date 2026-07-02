@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { normalizeConfig } from '../config/normalize';
 import type { SkillsmithConfigInput } from '../config/types';
 import { collectConfigErrors } from '../config/validate';
 
@@ -207,12 +208,12 @@ test( 'accepts a valid config with extra pass-through keys on an agent', () => {
 	assert.deepEqual( errors, [] );
 } );
 
-test( 'accepts roles with prompts (object form)', () => {
+test( 'accepts prompts on the test/improver roles and a library on the judge role', () => {
 	const errors = collectConfigErrors(
 		build( {
 			roles: {
 				test: { agents: [ 'tester' ], prompt: 'be terse' },
-				judge: { agent: 'grader', prompt: 'strict' },
+				judge: { agent: 'grader', library: './eval/judge' },
 				improver: { agent: 'improver', prompt: 'edit minimally' },
 			},
 		} )
@@ -220,19 +221,132 @@ test( 'accepts roles with prompts (object form)', () => {
 	assert.deepEqual( errors, [] );
 } );
 
-test( 'rejects a non-string role prompt', () => {
+test( 'rejects a non-string improver prompt', () => {
 	const errors = collectConfigErrors(
 		build( {
 			roles: {
 				test: { agents: [ 'tester' ] },
+				judge: 'grader',
 				// biome-ignore lint/suspicious/noExplicitAny: testing invalid input
-				judge: { agent: 'grader', prompt: 42 as any },
+				improver: { agent: 'improver', prompt: 42 as any },
+			},
+		} )
+	);
+	assert.match(
+		errors.join( '\n' ),
+		/roles\.improver\.prompt must be a string/
+	);
+} );
+
+// --- roles.judge.library / removed-key migration --------------------------
+
+test( 'accepts a judge role that omits library', () => {
+	const errors = collectConfigErrors(
+		build( {
+			roles: {
+				test: { agents: [ 'tester' ] },
+				judge: { agent: 'grader' },
+				improver: 'improver',
+			},
+		} )
+	);
+	assert.deepEqual( errors, [] );
+} );
+
+test( 'rejects an empty-string roles.judge.library', () => {
+	const errors = collectConfigErrors(
+		build( {
+			roles: {
+				test: { agents: [ 'tester' ] },
+				judge: { agent: 'grader', library: '' },
 				improver: 'improver',
 			},
 		} )
 	);
 	assert.match(
 		errors.join( '\n' ),
-		/roles\.judge\.prompt must be a string/
+		/roles\.judge\.library must be a non-empty string/
+	);
+} );
+
+test( 'rejects a non-string roles.judge.library', () => {
+	const errors = collectConfigErrors(
+		build( {
+			roles: {
+				test: { agents: [ 'tester' ] },
+				// biome-ignore lint/suspicious/noExplicitAny: testing invalid input
+				judge: { agent: 'grader', library: 42 as any },
+				improver: 'improver',
+			},
+		} )
+	);
+	assert.match(
+		errors.join( '\n' ),
+		/roles\.judge\.library must be a non-empty string/
+	);
+} );
+
+test( 'rejects the removed roles.judge.prompt with a migration message naming roles.judge.library', () => {
+	const errors = collectConfigErrors(
+		build( {
+			roles: {
+				test: { agents: [ 'tester' ] },
+				// biome-ignore lint/suspicious/noExplicitAny: testing the removed key at runtime
+				judge: { agent: 'grader', prompt: 'strict' } as any,
+				improver: 'improver',
+			},
+		} )
+	);
+	const joined = errors.join( '\n' );
+	assert.match( joined, /roles\.judge\.prompt was removed/ );
+	assert.match( joined, /roles\.judge\.library/ );
+} );
+
+test( 'rejects the removed paths.rubrics with a migration message naming roles.judge.library', () => {
+	const errors = collectConfigErrors(
+		build( {
+			// biome-ignore lint/suspicious/noExplicitAny: testing the removed key at runtime
+			paths: { ...PATHS, rubrics: './eval/rubrics' } as any,
+		} )
+	);
+	const joined = errors.join( '\n' );
+	assert.match( joined, /paths\.rubrics was removed/ );
+	assert.match( joined, /roles\.judge\.library/ );
+} );
+
+test( 'leaves other paths keys unvalidated — only the removed rubrics key is rejected', () => {
+	const errors = collectConfigErrors(
+		build( {
+			// biome-ignore lint/suspicious/noExplicitAny: testing pass-through of unknown keys
+			paths: { ...PATHS, extra: './anything' } as any,
+		} )
+	);
+	assert.deepEqual( errors, [] );
+} );
+
+// --- normalization of the judge role's library ----------------------------
+
+test( 'normalize carries roles.judge.library through to the normalized judge role', () => {
+	const config = normalizeConfig(
+		build( {
+			roles: {
+				test: { agents: [ 'tester' ] },
+				judge: { agent: 'grader', library: './eval/judge' },
+				improver: 'improver',
+			},
+		} )
+	);
+	assert.equal( config.roles.judge.library, './eval/judge' );
+} );
+
+test( 'normalize leaves library unset when not configured and carries no judge prompt', () => {
+	const config = normalizeConfig( build() );
+	assert.ok(
+		! ( 'library' in config.roles.judge ),
+		'no library key appears on the normalized judge role when unset'
+	);
+	assert.ok(
+		! ( 'prompt' in config.roles.judge ),
+		'the normalized judge role carries no prompt key'
 	);
 } );

@@ -3,11 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import type {
-	AgentDefinition,
-	Scenario,
-	SkillsmithConfig,
-} from '../config/types';
+import type { AgentDefinition, Scenario } from '../config/types';
 import {
 	buildJudgeSystemPrompt,
 	buildUserMessage,
@@ -39,45 +35,21 @@ function makeScenario(
 	};
 }
 
-/**
- * The G2 selection lead-in the judge prompt prepends to the loaded rubric
- * bodies: it tells the judge the rubrics are shared, reusable criteria and to
- * apply only the ones the brief names. A sentinel substring is enough to assert
- * the lead-in is present without pinning the full wording.
- */
-const G2_SENTINEL = 'Apply ONLY the';
-
-/** A default task string helper: `buildJudgeSystemPrompt`'s new `task` arg. */
+/** A default task string helper: `buildJudgeSystemPrompt`'s `task` arg. */
 const TASK = 'do the task';
+
+/**
+ * A pre-built `# Judge library` section as the agent loop would pass it in:
+ * heading included, ready to be appended verbatim.
+ */
+const LIBRARY_SECTION =
+	'# Judge library\nLIBRARY_SECTION_SENTINEL: manual and manifest.';
 
 const judge: AgentDefinition = {
 	id: 'grader',
 	provider: 'mock',
 	model: 'mock-model',
 };
-
-/**
- * Minimal config carrying an optional `roles.judge.prompt` so tests can
- * toggle the role-instructions section on and off. `rubricsDir`, when
- * given, becomes `paths.rubrics` so tests can opt into rubric resolution.
- */
-function makeConfig( judgePrompt?: string, rubricsDir?: string ): SkillsmithConfig {
-	return {
-		mode: 'test-only',
-		agents: { [ judge.id ]: judge },
-		roles: {
-			test: { agents: [ judge ] },
-			judge: { agent: judge, concurrency: 'parallel', prompt: judgePrompt },
-			improver: { agent: judge },
-		},
-		paths: {
-			base: '.skillsmith',
-			skills: 'skills',
-			scenarios: 'scenarios',
-			...( rubricsDir !== undefined ? { rubrics: rubricsDir } : {} ),
-		},
-	};
-}
 
 /**
  * Temporarily swap the mock provider's `invoke` for a recorder that
@@ -113,11 +85,7 @@ async function captureInvoke(
 test( 'buildJudgeSystemPrompt includes the verbatim judgeBrief', () => {
 	const brief =
 		'JUDGE_BRIEF_SENTINEL: confirm the counter increments on click.';
-	const prompt = buildJudgeSystemPrompt(
-		makeScenario( brief ),
-		makeConfig(),
-		TASK
-	);
+	const prompt = buildJudgeSystemPrompt( makeScenario( brief ), TASK );
 	assert.ok(
 		prompt.includes( brief ),
 		'the judge system prompt must contain the judgeBrief verbatim'
@@ -125,11 +93,7 @@ test( 'buildJudgeSystemPrompt includes the verbatim judgeBrief', () => {
 } );
 
 test( 'buildJudgeSystemPrompt asks for exactly the { pass, notes } object with JSON-only guidance and recursion guard', () => {
-	const prompt = buildJudgeSystemPrompt(
-		makeScenario( 'grade it' ),
-		makeConfig(),
-		TASK
-	);
+	const prompt = buildJudgeSystemPrompt( makeScenario( 'grade it' ), TASK );
 	assert.ok(
 		prompt.includes( '"pass"' ) && prompt.includes( '"notes"' ),
 		'the output instruction names the pass and notes keys'
@@ -151,15 +115,11 @@ test( 'buildJudgeSystemPrompt asks for exactly the { pass, notes } object with J
 	);
 } );
 
-test( 'buildJudgeSystemPrompt carries no rubric/acceptance scaffolding for a no-rubric scenario', () => {
-	const prompt = buildJudgeSystemPrompt(
-		makeScenario( 'grade it' ),
-		makeConfig(),
-		TASK
-	);
+test( 'buildJudgeSystemPrompt carries no rubric/acceptance scaffolding', () => {
+	const prompt = buildJudgeSystemPrompt( makeScenario( 'grade it' ), TASK );
 	assert.ok(
 		! prompt.includes( '# Grading rubrics' ),
-		'no Grading rubrics section appears for a scenario that references no rubric with no rubricBlob passed'
+		'no Grading rubrics section exists in the judge prompt'
 	);
 	assert.ok(
 		! /acceptance/i.test( prompt ),
@@ -167,29 +127,80 @@ test( 'buildJudgeSystemPrompt carries no rubric/acceptance scaffolding for a no-
 	);
 } );
 
-test( 'buildJudgeSystemPrompt appends roles.judge.prompt as a Role instructions section when set', () => {
-	const rolePrompt = 'ROLE_PROMPT_SENTINEL: prefer the live environment.';
-	const prompt = buildJudgeSystemPrompt(
+// --- buildJudgeSystemPrompt: output instruction --------------------------
+
+test( 'the output instruction carries the decision-rule default with the brief-override clause on every run', () => {
+	const withoutLibrary = buildJudgeSystemPrompt(
 		makeScenario( 'grade it' ),
-		makeConfig( rolePrompt ),
 		TASK
 	);
-	assert.ok(
-		prompt.includes( '# Role instructions' ) &&
-			prompt.includes( rolePrompt ),
-		'the role prompt is appended under a Role instructions heading'
+	const withLibrary = buildJudgeSystemPrompt(
+		makeScenario( 'grade it' ),
+		TASK,
+		LIBRARY_SECTION
 	);
+	for ( const prompt of [ withoutLibrary, withLibrary ] ) {
+		assert.ok(
+			prompt.includes(
+				'unless the brief states its own decision rule'
+			),
+			'the decision rule defers to a brief that states its own rule'
+		);
+		assert.ok(
+			/every check the brief asks for/.test( prompt ) &&
+				/rubric check/.test( prompt ),
+			'the default requires every brief-requested check, including rubric checks'
+		);
+		assert.ok(
+			prompt.includes( '"pass": true' ) &&
+				prompt.includes( '"pass": false' ),
+			'the rule states both verdict outcomes explicitly'
+		);
+	}
 } );
 
-test( 'buildJudgeSystemPrompt omits the Role instructions section when no role prompt is set', () => {
-	const prompt = buildJudgeSystemPrompt(
+test( 'the output instruction carries the missing-material failure duty on every run, library or not', () => {
+	const withoutLibrary = buildJudgeSystemPrompt(
 		makeScenario( 'grade it' ),
-		makeConfig(),
 		TASK
 	);
+	const withLibrary = buildJudgeSystemPrompt(
+		makeScenario( 'grade it' ),
+		TASK,
+		LIBRARY_SECTION
+	);
+	for ( const prompt of [ withoutLibrary, withLibrary ] ) {
+		assert.ok(
+			/grading material/.test( prompt ) &&
+				/not supplied or cannot\s*be read/.test( prompt ),
+			'the duty is phrased against supplied grading material'
+		);
+		assert.ok(
+			/name the missing item in `notes`/.test( prompt ),
+			'the duty demands the missing item be named in notes'
+		);
+	}
+} );
+
+test( 'the decision rule and failure duty sit between the JSON-shape text and the recursion guard', () => {
+	const prompt = buildJudgeSystemPrompt( makeScenario( 'grade it' ), TASK );
+	const jsonIdx = prompt.indexOf( 'Return a single JSON object' );
+	const ruleIdx = prompt.indexOf(
+		'unless the brief states its own decision rule'
+	);
+	const dutyIdx = prompt.indexOf( 'grading material' );
+	const guardIdx = prompt.indexOf( '# Recursion guard' );
 	assert.ok(
-		! prompt.includes( '# Role instructions' ),
-		'no Role instructions heading appears without a role prompt'
+		jsonIdx !== -1 && ruleIdx !== -1 && dutyIdx !== -1 && guardIdx !== -1,
+		'all four landmarks are present'
+	);
+	assert.ok(
+		jsonIdx < ruleIdx && ruleIdx < guardIdx,
+		'the decision rule lands after the JSON shape and before the recursion guard'
+	);
+	assert.ok(
+		jsonIdx < dutyIdx && dutyIdx < guardIdx,
+		'the failure duty lands after the JSON shape and before the recursion guard'
 	);
 } );
 
@@ -198,11 +209,7 @@ test( 'buildJudgeSystemPrompt omits the Role instructions section when no role p
 test( 'buildJudgeSystemPrompt injects the auto-supplied task under a Testing task heading, placed after the judgeBrief and before the Output format section', () => {
 	const brief = 'JUDGE_BRIEF_SENTINEL: confirm the counter increments.';
 	const task = 'TASK_SENTINEL: build a counter block.';
-	const prompt = buildJudgeSystemPrompt(
-		makeScenario( brief ),
-		makeConfig(),
-		task
-	);
+	const prompt = buildJudgeSystemPrompt( makeScenario( brief ), task );
 	assert.ok(
 		prompt.includes( '# Testing task' ),
 		'a Testing task heading is present'
@@ -221,10 +228,9 @@ test( 'buildJudgeSystemPrompt injects the auto-supplied task under a Testing tas
 	);
 } );
 
-test( 'buildJudgeSystemPrompt injects the Testing task section on every run, even with no rubric and no role prompt', () => {
+test( 'buildJudgeSystemPrompt injects the Testing task section on every run, even with no library section', () => {
 	const prompt = buildJudgeSystemPrompt(
 		makeScenario( 'grade it' ),
-		makeConfig(),
 		'TASK_SENTINEL: unconditional'
 	);
 	assert.ok(
@@ -240,7 +246,6 @@ test( 'buildJudgeSystemPrompt injects the task string verbatim, leaving skill-st
 	const strippedTask = '# Task\nBuild it.';
 	const prompt = buildJudgeSystemPrompt(
 		makeScenario( 'grade it' ),
-		makeConfig(),
 		strippedTask
 	);
 	assert.ok(
@@ -249,88 +254,50 @@ test( 'buildJudgeSystemPrompt injects the task string verbatim, leaving skill-st
 	);
 } );
 
-// --- buildJudgeSystemPrompt: grading rubrics (G1/G2) --------------------
+// --- buildJudgeSystemPrompt: library section ------------------------------
 
-test( 'buildJudgeSystemPrompt injects a non-empty rubricBlob under a Grading rubrics heading with the G2 selection lead-in', () => {
-	const blob = 'RUBRIC_BLOB_SENTINEL: prefer accessible markup.';
+test( 'buildJudgeSystemPrompt appends the librarySection verbatim as the final section', () => {
+	const brief = 'JUDGE_BRIEF_SENTINEL: confirm the counter increments.';
 	const prompt = buildJudgeSystemPrompt(
-		makeScenario( 'grade it' ),
-		makeConfig(),
+		makeScenario( brief ),
 		TASK,
-		blob
+		LIBRARY_SECTION
 	);
 	assert.ok(
-		prompt.includes( '# Grading rubrics' ) && prompt.includes( blob ),
-		'the rubric blob is injected under a Grading rubrics heading'
+		prompt.includes( LIBRARY_SECTION ),
+		'the library section text appears verbatim'
 	);
 	assert.ok(
-		prompt.includes( G2_SENTINEL ) && /reference/i.test( prompt ),
-		'the G2 selection lead-in (apply only named rubrics; others reference-only) precedes the blob'
+		prompt.endsWith( LIBRARY_SECTION ),
+		'the library section is the final section of the prompt'
 	);
-	const g2Idx = prompt.indexOf( G2_SENTINEL );
-	const blobIdx = prompt.indexOf( blob );
+	const guardIdx = prompt.indexOf( '# Recursion guard' );
+	const libraryIdx = prompt.indexOf( LIBRARY_SECTION );
 	assert.ok(
-		g2Idx !== -1 && g2Idx < blobIdx,
-		'the G2 lead-in comes before the rubric bodies'
+		guardIdx < libraryIdx,
+		'the library section comes after the output instruction'
 	);
 } );
 
-test( 'buildJudgeSystemPrompt omits the Grading rubrics section (and the G2 lead-in) when no blob is passed or it is empty', () => {
-	const noBlob = buildJudgeSystemPrompt(
+test( 'buildJudgeSystemPrompt carries no library material when no section is passed', () => {
+	const noSection = buildJudgeSystemPrompt( makeScenario( 'grade it' ), TASK );
+	const emptySection = buildJudgeSystemPrompt(
 		makeScenario( 'grade it' ),
-		makeConfig(),
-		TASK
-	);
-	const emptyBlob = buildJudgeSystemPrompt(
-		makeScenario( 'grade it' ),
-		makeConfig(),
 		TASK,
 		''
 	);
-	assert.ok(
-		! noBlob.includes( '# Grading rubrics' ) &&
-			! noBlob.includes( G2_SENTINEL ),
-		'no Grading rubrics heading or G2 lead-in appears when no blob is passed'
-	);
-	assert.ok(
-		! emptyBlob.includes( '# Grading rubrics' ) &&
-			! emptyBlob.includes( G2_SENTINEL ),
-		'no Grading rubrics heading or G2 lead-in appears for an empty blob'
-	);
-} );
-
-test( 'buildJudgeSystemPrompt keeps the other sections intact alongside the rubric blob and the Testing task section', () => {
-	const rolePrompt = 'ROLE_PROMPT_SENTINEL: prefer the live environment.';
-	const blob = 'RUBRIC_BLOB_SENTINEL: prefer accessible markup.';
-	const brief = 'JUDGE_BRIEF_SENTINEL: confirm the counter increments.';
-	const task = 'TASK_SENTINEL: build a counter block.';
-	const prompt = buildJudgeSystemPrompt(
-		makeScenario( brief ),
-		makeConfig( rolePrompt ),
-		task,
-		blob
-	);
-	assert.ok( prompt.includes( brief ), 'the judgeBrief is retained verbatim' );
-	assert.ok(
-		prompt.includes( '# Testing task' ) && prompt.includes( task ),
-		'the Testing task section is present with the task text'
-	);
-	assert.ok(
-		prompt.includes( '# Output format' ),
-		'the Output format section is unchanged'
-	);
-	assert.ok(
-		prompt.includes( '# Recursion guard' ),
-		'the Recursion guard section is unchanged'
-	);
-	assert.ok(
-		prompt.includes( '# Role instructions' ) && prompt.includes( rolePrompt ),
-		'the Role instructions section is unchanged'
-	);
-	assert.ok(
-		prompt.includes( '# Grading rubrics' ) && prompt.includes( blob ),
-		'the Grading rubrics section is present and distinct from the others'
-	);
+	for ( const prompt of [ noSection, emptySection ] ) {
+		assert.ok(
+			! prompt.includes( '# Judge library' ),
+			'no Judge library heading appears without a section'
+		);
+		assert.ok(
+			prompt.endsWith(
+				'Do not invoke `skillsmith` or any wrapper that would re-enter the harness.'
+			),
+			'the output instruction closes the prompt — nothing follows it'
+		);
+	}
 } );
 
 // --- parseJudgeJson ------------------------------------------------------
@@ -375,10 +342,7 @@ test( 'buildUserMessage inlines each readable workspace file as a fenced block r
 	mkdirSync( join( workspace, 'src' ), { recursive: true } );
 	writeFileSync( join( workspace, 'src', 'index.js' ), 'export const a = 1;' );
 
-	const msg = buildUserMessage( makeScenario( 'grade it' ), workspace, [
-		'result.txt',
-		'src/index.js',
-	] );
+	const msg = buildUserMessage( workspace, [ 'result.txt', 'src/index.js' ] );
 
 	assert.ok(
 		msg.includes( '=== result.txt ===\nGATE_PASS' ),
@@ -396,7 +360,7 @@ test( 'buildUserMessage inlines each readable workspace file as a fenced block r
 
 test( 'buildUserMessage emits the no-files fallback when nothing was written', () => {
 	const workspace = mkdtempSync( join( tmpdir(), 'judge-msg-empty-' ) );
-	const msg = buildUserMessage( makeScenario( 'grade it' ), workspace, [] );
+	const msg = buildUserMessage( workspace, [] );
 	assert.ok(
 		msg.includes( '=== (no files written) ===' ),
 		'the no-files fallback block is present'
@@ -424,16 +388,14 @@ function makeWorkspaces( marker: string ): {
 }
 
 test( 'runJudgeAgent invokes the judge with cwd set to the judge-copy workspace', async () => {
-	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
 	const captured = await captureInvoke( () =>
 		runJudgeAgent( {
 			scenario: makeScenario( 'grade it' ),
 			judge,
 			agentDirectory: judgeWorkspace,
-			agentWorkspace,
 			judgeWorkspace,
 			projectRoot: judgeWorkspace,
-			config: makeConfig(),
 			log: new RunLog(),
 			testingResult: {
 				finalText: '',
@@ -453,16 +415,14 @@ test( 'runJudgeAgent invokes the judge with cwd set to the judge-copy workspace'
 } );
 
 test( 'runJudgeAgent inlines files read from the judge-copy workspace, not the canonical one', async () => {
-	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
 	const captured = await captureInvoke( () =>
 		runJudgeAgent( {
 			scenario: makeScenario( 'grade it' ),
 			judge,
 			agentDirectory: judgeWorkspace,
-			agentWorkspace,
 			judgeWorkspace,
 			projectRoot: judgeWorkspace,
-			config: makeConfig(),
 			log: new RunLog(),
 			testingResult: {
 				finalText: '',
@@ -480,7 +440,7 @@ test( 'runJudgeAgent inlines files read from the judge-copy workspace, not the c
 } );
 
 test( 'runJudgeAgent assembles capabilities from the judge agent definition passthrough keys', async () => {
-	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
 	const capableJudge: AgentDefinition = {
 		id: 'grader',
 		provider: 'mock',
@@ -496,10 +456,8 @@ test( 'runJudgeAgent assembles capabilities from the judge agent definition pass
 			scenario: makeScenario( 'grade it' ),
 			judge: capableJudge,
 			agentDirectory: judgeWorkspace,
-			agentWorkspace,
 			judgeWorkspace,
 			projectRoot: judgeWorkspace,
-			config: makeConfig(),
 			log: new RunLog(),
 			testingResult: {
 				finalText: '',
@@ -523,16 +481,14 @@ test( 'runJudgeAgent assembles capabilities from the judge agent definition pass
 } );
 
 test( 'runJudgeAgent omits unset capability keys, leaving the provider default in place', async () => {
-	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
 	const captured = await captureInvoke( () =>
 		runJudgeAgent( {
 			scenario: makeScenario( 'grade it' ),
 			judge,
 			agentDirectory: judgeWorkspace,
-			agentWorkspace,
 			judgeWorkspace,
 			projectRoot: judgeWorkspace,
-			config: makeConfig(),
 			log: new RunLog(),
 			testingResult: {
 				finalText: '',
@@ -551,7 +507,7 @@ test( 'runJudgeAgent omits unset capability keys, leaving the provider default i
 } );
 
 test( 'runJudgeAgent returns the parsed { pass, notes } verdict on success', async () => {
-	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
 	const original = PROVIDERS.mock.invoke;
 	PROVIDERS.mock.invoke = async (): Promise< InvokeResult > => ( {
 		finalText: JSON.stringify( { pass: false, notes: 'missing marker' } ),
@@ -563,10 +519,8 @@ test( 'runJudgeAgent returns the parsed { pass, notes } verdict on success', asy
 			scenario: makeScenario( 'grade it' ),
 			judge,
 			agentDirectory: judgeWorkspace,
-			agentWorkspace,
 			judgeWorkspace,
 			projectRoot: judgeWorkspace,
-			config: makeConfig(),
 			log: new RunLog(),
 			testingResult: {
 				finalText: '',
@@ -581,7 +535,7 @@ test( 'runJudgeAgent returns the parsed { pass, notes } verdict on success', asy
 } );
 
 test( 'runJudgeAgent degrades to an error payload when the verdict is unparseable', async () => {
-	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
 	const original = PROVIDERS.mock.invoke;
 	PROVIDERS.mock.invoke = async (): Promise< InvokeResult > => ( {
 		finalText: 'totally not json',
@@ -593,10 +547,8 @@ test( 'runJudgeAgent degrades to an error payload when the verdict is unparseabl
 			scenario: makeScenario( 'grade it' ),
 			judge,
 			agentDirectory: judgeWorkspace,
-			agentWorkspace,
 			judgeWorkspace,
 			projectRoot: judgeWorkspace,
-			config: makeConfig(),
 			log: new RunLog(),
 			testingResult: {
 				finalText: '',
@@ -613,104 +565,45 @@ test( 'runJudgeAgent degrades to an error payload when the verdict is unparseabl
 	} );
 } );
 
-test( 'runJudgeAgent loads all rubric files under paths.rubrics into the judge system prompt', async () => {
-	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
-	const projectRoot = mkdtempSync( join( tmpdir(), 'judge-proj-' ) );
-	mkdirSync( join( projectRoot, 'rubrics' ), { recursive: true } );
-	writeFileSync(
-		join( projectRoot, 'rubrics', 'a11y.md' ),
-		'RUBRIC_A11Y_SENTINEL: keyboard reachable.'
-	);
-	writeFileSync(
-		join( projectRoot, 'rubrics', 'perf.md' ),
-		'RUBRIC_PERF_SENTINEL: no layout thrash.'
-	);
-
+test( 'runJudgeAgent embeds a passed librarySection into the judge system prompt', async () => {
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
 	const captured = await captureInvoke( () =>
 		runJudgeAgent( {
 			scenario: makeScenario( 'grade it' ),
 			judge,
 			agentDirectory: judgeWorkspace,
-			agentWorkspace,
-			judgeWorkspace,
-			projectRoot,
-			config: makeConfig( undefined, 'rubrics' ),
-			log: new RunLog(),
-			testingResult: {
-				finalText: '',
-				toolUseCount: 0,
-				filesWritten: [ 'result.txt' ],
-			},
-		} )
-	);
-
-	assert.ok( captured, 'provider.invoke must be called' );
-	assert.ok(
-		captured.systemPrompt.includes( '# Grading rubrics' ),
-		'the loaded rubrics appear under a Grading rubrics heading'
-	);
-	assert.ok(
-		captured.systemPrompt.includes( G2_SENTINEL ),
-		'the G2 selection lead-in is present'
-	);
-	assert.ok(
-		captured.systemPrompt.includes( '# Rubric: a11y' ) &&
-			captured.systemPrompt.includes( '# Rubric: perf' ),
-		'every rubric file is loaded under its G1 self-identifying header'
-	);
-	assert.ok(
-		captured.systemPrompt.includes(
-			'RUBRIC_A11Y_SENTINEL: keyboard reachable.'
-		) &&
-			captured.systemPrompt.includes(
-				'RUBRIC_PERF_SENTINEL: no layout thrash.'
-			),
-		'each rubric body reaches the judge prompt verbatim'
-	);
-} );
-
-test( 'runJudgeAgent omits the Grading rubrics section when paths.rubrics points at an empty directory', async () => {
-	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
-	const projectRoot = mkdtempSync( join( tmpdir(), 'judge-proj-' ) );
-	mkdirSync( join( projectRoot, 'rubrics' ), { recursive: true } );
-
-	const captured = await captureInvoke( () =>
-		runJudgeAgent( {
-			scenario: makeScenario( 'grade it' ),
-			judge,
-			agentDirectory: judgeWorkspace,
-			agentWorkspace,
-			judgeWorkspace,
-			projectRoot,
-			config: makeConfig( undefined, 'rubrics' ),
-			log: new RunLog(),
-			testingResult: {
-				finalText: '',
-				toolUseCount: 0,
-				filesWritten: [ 'result.txt' ],
-			},
-		} )
-	);
-
-	assert.ok( captured, 'provider.invoke must be called' );
-	assert.ok(
-		! captured.systemPrompt.includes( '# Grading rubrics' ),
-		'no Grading rubrics heading appears for an empty rubrics directory'
-	);
-} );
-
-test( 'runJudgeAgent omits the Grading rubrics section when paths.rubrics is unset', async () => {
-	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
-
-	const captured = await captureInvoke( () =>
-		runJudgeAgent( {
-			scenario: makeScenario( 'grade it' ),
-			judge,
-			agentDirectory: judgeWorkspace,
-			agentWorkspace,
 			judgeWorkspace,
 			projectRoot: judgeWorkspace,
-			config: makeConfig(),
+			log: new RunLog(),
+			testingResult: {
+				finalText: '',
+				toolUseCount: 0,
+				filesWritten: [ 'result.txt' ],
+			},
+			librarySection: LIBRARY_SECTION,
+		} )
+	);
+
+	assert.ok( captured, 'provider.invoke must be called' );
+	assert.ok(
+		captured.systemPrompt.includes( LIBRARY_SECTION ),
+		'the library section reaches the judge system prompt verbatim'
+	);
+	assert.ok(
+		! captured.prompt.includes( 'LIBRARY_SECTION_SENTINEL' ),
+		'the library section stays out of the judge user message'
+	);
+} );
+
+test( 'runJudgeAgent carries no library material when no librarySection is passed', async () => {
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const captured = await captureInvoke( () =>
+		runJudgeAgent( {
+			scenario: makeScenario( 'grade it' ),
+			judge,
+			agentDirectory: judgeWorkspace,
+			judgeWorkspace,
+			projectRoot: judgeWorkspace,
 			log: new RunLog(),
 			testingResult: {
 				finalText: '',
@@ -722,13 +615,13 @@ test( 'runJudgeAgent omits the Grading rubrics section when paths.rubrics is uns
 
 	assert.ok( captured, 'provider.invoke must be called' );
 	assert.ok(
-		! captured.systemPrompt.includes( '# Grading rubrics' ),
-		'no Grading rubrics heading appears when paths.rubrics is unset'
+		! captured.systemPrompt.includes( '# Judge library' ),
+		'no Judge library section appears without a librarySection'
 	);
 } );
 
 test( 'runJudgeAgent auto-supplies the testing brief as the task, with its # Skills section removed', async () => {
-	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
 	const testingBrief = [
 		'# Task',
 		'TASK_SENTINEL: build a counter block.',
@@ -742,10 +635,8 @@ test( 'runJudgeAgent auto-supplies the testing brief as the task, with its # Ski
 			scenario,
 			judge,
 			agentDirectory: judgeWorkspace,
-			agentWorkspace,
 			judgeWorkspace,
 			projectRoot: judgeWorkspace,
-			config: makeConfig(),
 			log: new RunLog(),
 			testingResult: {
 				finalText: '',
@@ -779,7 +670,7 @@ test( 'runJudgeAgent auto-supplies the testing brief as the task, with its # Ski
 } );
 
 test( 'runJudgeAgent keeps the task out of the judge user message', async () => {
-	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
 	const testingBrief = 'TASK_SENTINEL: build a counter block.';
 	const scenario = makeScenario( 'grade it', testingBrief );
 
@@ -788,10 +679,8 @@ test( 'runJudgeAgent keeps the task out of the judge user message', async () => 
 			scenario,
 			judge,
 			agentDirectory: judgeWorkspace,
-			agentWorkspace,
 			judgeWorkspace,
 			projectRoot: judgeWorkspace,
-			config: makeConfig(),
 			log: new RunLog(),
 			testingResult: {
 				finalText: '',
@@ -813,7 +702,7 @@ test( 'runJudgeAgent keeps the task out of the judge user message', async () => 
 } );
 
 test( 'runJudgeAgent parses a prose-wrapped verdict via the lenient fallback', async () => {
-	const { agentWorkspace, judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
 	const original = PROVIDERS.mock.invoke;
 	PROVIDERS.mock.invoke = async (): Promise< InvokeResult > => ( {
 		finalText: 'My verdict is: {"pass":true,"notes":"looks good"}',
@@ -825,10 +714,8 @@ test( 'runJudgeAgent parses a prose-wrapped verdict via the lenient fallback', a
 			scenario: makeScenario( 'grade it' ),
 			judge,
 			agentDirectory: judgeWorkspace,
-			agentWorkspace,
 			judgeWorkspace,
 			projectRoot: judgeWorkspace,
-			config: makeConfig(),
 			log: new RunLog(),
 			testingResult: {
 				finalText: '',

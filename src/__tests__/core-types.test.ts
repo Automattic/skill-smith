@@ -56,9 +56,7 @@ test( 'Scenario carries exactly name/skills/testingBrief/judgeBrief', () => {
 	assert.equal( withExtra.custom, 123 );
 } );
 
-test( 'Paths has base/skills/scenarios and an optional rubrics', () => {
-	// A `Paths` value that omits `rubrics` is still valid, and its key set is
-	// exactly base/scenarios/skills.
+test( 'Paths is exactly base/skills/scenarios', () => {
 	const paths = ofType< Paths >( {
 		base: './.skillsmith',
 		skills: './skills',
@@ -70,15 +68,6 @@ test( 'Paths has base/skills/scenarios and an optional rubrics', () => {
 		'scenarios',
 		'skills',
 	] );
-
-	// `rubrics` is now a valid optional `Paths` field.
-	const withRubrics = ofType< Paths >( {
-		base: './.skillsmith',
-		skills: './skills',
-		scenarios: './eval/scenarios',
-		rubrics: './eval/rubrics',
-	} );
-	assert.equal( withRubrics.rubrics, './eval/rubrics' );
 } );
 
 test( 'McpServerConfig mirrors the stdio shape', () => {
