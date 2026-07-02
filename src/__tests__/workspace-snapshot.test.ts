@@ -15,6 +15,7 @@ import { test } from 'node:test';
 import {
 	copyWorkspaceForJudge,
 	diffSnapshots,
+	inlineWorkspaceFiles,
 	snapshotWorkspace,
 } from '../pipeline/workspace-snapshot';
 
@@ -165,6 +166,84 @@ test( 'copyWorkspaceForJudge copies an empty workspace to an empty destination w
 		readdirSync( dest ),
 		[],
 		'the destination of an empty source is itself empty'
+	);
+} );
+
+test( 'inlineWorkspaceFiles renders each file as a === <rel> === block joined by the separator', () => {
+	const root = makeWorkspace();
+	writeFileSync( join( root, 'a.txt' ), 'aaa' );
+	mkdirSync( join( root, 'sub' ), { recursive: true } );
+	writeFileSync( join( root, 'sub', 'b.txt' ), 'bbbbb' );
+
+	const contents = inlineWorkspaceFiles( root, [ 'a.txt', 'sub/b.txt' ], {
+		separator: '\n\n',
+		emptyFallback: '(empty workspace)',
+		skipMissing: false,
+	} );
+
+	assert.equal(
+		contents,
+		'=== a.txt ===\naaa\n\n=== sub/b.txt ===\nbbbbb',
+		'each body sits under its === <rel> === header, blocks joined by the separator'
+	);
+} );
+
+test( 'inlineWorkspaceFiles returns the empty fallback when no blocks are produced', () => {
+	const root = makeWorkspace();
+	assert.equal(
+		inlineWorkspaceFiles( root, [], {
+			separator: '\n\n',
+			emptyFallback: '(empty workspace)',
+			skipMissing: false,
+		} ),
+		'(empty workspace)',
+		'an empty path list yields the caller-supplied fallback'
+	);
+	assert.equal(
+		inlineWorkspaceFiles( root, [ 'missing.txt' ], {
+			separator: '\n',
+			emptyFallback: '=== (no files written) ===',
+			skipMissing: true,
+		} ),
+		'=== (no files written) ===',
+		'skipping every missing file also yields the fallback'
+	);
+} );
+
+test( 'inlineWorkspaceFiles skips missing files when skipMissing is set', () => {
+	const root = makeWorkspace();
+	writeFileSync( join( root, 'kept.txt' ), 'kept' );
+
+	const contents = inlineWorkspaceFiles(
+		root,
+		[ 'kept.txt', 'missing.txt' ],
+		{
+			separator: '\n',
+			emptyFallback: '=== (no files written) ===',
+			skipMissing: true,
+		}
+	);
+
+	assert.equal(
+		contents,
+		'=== kept.txt ===\nkept',
+		'missing files produce no block and no placeholder'
+	);
+} );
+
+test( 'inlineWorkspaceFiles surfaces unreadable files with a read-error placeholder when skipMissing is unset', () => {
+	const root = makeWorkspace();
+
+	const contents = inlineWorkspaceFiles( root, [ 'missing.txt' ], {
+		separator: '\n\n',
+		emptyFallback: '(empty workspace)',
+		skipMissing: false,
+	} );
+
+	assert.match(
+		contents,
+		/^=== missing\.txt ===\n<read error: /,
+		'an unreadable file keeps its block with a <read error: …> body'
 	);
 } );
 

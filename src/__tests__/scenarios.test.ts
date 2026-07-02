@@ -12,7 +12,11 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_PATHS } from '../config/defaults';
 import type { Paths } from '../config/types';
-import { enumerateScenarios } from '../scenarios/enumerate';
+import {
+	compareScenarioIds,
+	type EnumeratedScenario,
+	enumerateScenarios,
+} from '../scenarios/enumerate';
 
 const here = dirname( fileURLToPath( import.meta.url ) );
 const projectRoot = join( here, 'fixtures', 'proj1' );
@@ -220,6 +224,39 @@ test( 'scenario enumeration keeps nested errors isolated while recursing', () =>
 	} finally {
 		rmSync( root, { recursive: true, force: true } );
 	}
+} );
+
+test( 'compareScenarioIds orders enumerated scenarios lexicographically by id', () => {
+	const make = ( id: string ): EnumeratedScenario => ( {
+		scenario: { name: id, skills: [], testingBrief: '', judgeBrief: '' },
+		id,
+		dirName: id,
+	} );
+
+	assert.ok(
+		compareScenarioIds( make( 'a' ), make( 'b' ) ) < 0,
+		'a sorts before b'
+	);
+	assert.ok(
+		compareScenarioIds( make( 'b' ), make( 'a' ) ) > 0,
+		'b sorts after a'
+	);
+	assert.equal(
+		compareScenarioIds( make( 'a' ), make( 'a' ) ),
+		0,
+		'equal ids compare as equal'
+	);
+	assert.ok(
+		compareScenarioIds( make( 'Zed' ), make( 'apple' ) ) < 0,
+		'ordering is by code unit, so uppercase sorts before lowercase'
+	);
+	assert.deepEqual(
+		[ make( 'z' ), make( 'blocks/counter' ), make( 'a' ) ]
+			.sort( compareScenarioIds )
+			.map( ( scenario ) => scenario.id ),
+		[ 'a', 'blocks/counter', 'z' ],
+		'sorting with the comparator yields the deterministic id order'
+	);
 } );
 
 const TEST_PATHS: Paths = {

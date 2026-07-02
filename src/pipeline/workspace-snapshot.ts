@@ -1,4 +1,11 @@
-import { cpSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import {
+	cpSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+} from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 
 /**
@@ -94,6 +101,69 @@ export function diffSnapshots(
 		}
 	}
 	return written.sort();
+}
+
+/**
+ * Rendering options for {@link inlineWorkspaceFiles}, letting each caller
+ * keep its exact prompt shape while sharing one block builder.
+ */
+export interface InlineWorkspaceFilesOptions {
+	/** String the per-file blocks are joined with, e.g. `'\n'` or `'\n\n'`. */
+	separator: string;
+	/** Text returned verbatim when no file produces a block. */
+	emptyFallback: string;
+	/**
+	 * When `true`, paths that do not exist on disk are skipped silently.
+	 * When `false`, every path is read, so a vanished file surfaces as a
+	 * block whose body is the `<read error: …>` placeholder.
+	 */
+	skipMissing: boolean;
+}
+
+/**
+ * Inline workspace files into prompt text: each relative path becomes a
+ * `=== <rel> ===\n<body>` block with the file's contents read from
+ * `workspace`, and the blocks are joined with `options.separator` in the
+ * order given. A file that exists but cannot be read keeps its block with
+ * a `<read error: <message>>` body. When no block is produced — an empty
+ * path list, or every path skipped — `options.emptyFallback` is returned
+ * instead.
+ *
+ * @param workspace - Absolute workspace path the relative paths resolve
+ *   against.
+ * @param relPaths - Workspace-relative file paths to inline, in output
+ *   order.
+ * @param options - Separator, empty fallback, and missing-file handling.
+ * @returns The joined blocks, or `options.emptyFallback` when there are
+ *   none.
+ *
+ * @example
+ * inlineWorkspaceFiles( '/ws', [ 'a.txt' ], {
+ * 	separator: '\n\n',
+ * 	emptyFallback: '(empty workspace)',
+ * 	skipMissing: false,
+ * } );
+ * // => '=== a.txt ===\n<contents of /ws/a.txt>'
+ */
+export function inlineWorkspaceFiles(
+	workspace: string,
+	relPaths: string[],
+	options: InlineWorkspaceFilesOptions
+): string {
+	const sections: string[] = [];
+	for ( const rel of relPaths ) {
+		const full = join( workspace, rel );
+		if ( options.skipMissing && ! existsSync( full ) ) continue;
+		let body: string;
+		try {
+			body = readFileSync( full, 'utf8' );
+		} catch ( err ) {
+			body = `<read error: ${ err instanceof Error ? err.message : String( err ) }>`;
+		}
+		sections.push( `=== ${ rel } ===\n${ body }` );
+	}
+	if ( sections.length === 0 ) return options.emptyFallback;
+	return sections.join( options.separator );
 }
 
 /**

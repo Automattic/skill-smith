@@ -17,53 +17,59 @@ const LIST_ITEM_RE = /^\s*[-*]\s+(.+?)\s*$/;
 const SKILL_LINK_RE = /^\[([^\]]*)\]\([^)]*\)$/;
 
 /**
- * Extract the ordered list-item ids of a single brief section.
- *
- * The first heading whose text the `isHeading` predicate accepts (at any
- * heading depth) opens the section. Lines are collected until the next
- * heading of the same-or-shallower depth, or end of input; deeper
- * sub-headings stay inside the section. Within the collected block, only
- * Markdown list items contribute ids — each is unwrapped from surrounding
- * backticks and from a `[id](...)` link, then trimmed. Prose and blank
- * lines are ignored.
- *
- * @param brief - Raw brief text. `\r\n` and `\r` line endings are normalized
- *   before matching.
- * @param isHeading - Predicate over a heading's trailing text that decides
- *   whether it opens the section.
- * @returns The ordered ids, `[]` when the section exists but holds no list
- *   items, or `undefined` when no heading matches `isHeading`.
+ * Line-index boundaries of a brief's `# Skills` section, as located by
+ * {@link findSkillsSectionBounds}.
  */
-function parseListSection(
-	brief: string,
-	isHeading: ( text: string ) => boolean
-): string[] | undefined {
-	const lines = brief.replace( /\r\n?/g, '\n' ).split( '\n' );
+interface SkillsSectionBounds {
+	/** Index of the heading line that opens the section. */
+	headingIndex: number;
+	/**
+	 * Exclusive end index: the first line after the section — the next
+	 * heading of the same-or-shallower depth, or the line count when the
+	 * section runs to end of input.
+	 */
+	end: number;
+}
 
+/**
+ * Locate the `# Skills` section within pre-split brief lines. This is the
+ * single implementation of the section-boundary rule shared by
+ * {@link parseSkillsSection} and {@link stripSkillsSection}: the first
+ * heading whose text is exactly `Skills` (case-insensitive, at any heading
+ * depth) opens the section, and the section runs until the next heading of
+ * the same-or-shallower depth, or end of input; deeper sub-headings stay
+ * inside the section.
+ *
+ * @param lines - Brief lines, already normalized to `\n` endings and split.
+ * @returns The section bounds, or `undefined` when no `# Skills` heading is
+ *   present.
+ */
+function findSkillsSectionBounds(
+	lines: string[]
+): SkillsSectionBounds | undefined {
 	let depth: number | undefined;
-	let start = -1;
+	let headingIndex = -1;
 	for ( let i = 0; i < lines.length; i++ ) {
 		const heading = HEADING_RE.exec( lines[ i ] ?? '' );
-		if ( heading && isHeading( heading[ 2 ] ?? '' ) ) {
+		if ( heading && SKILLS_HEADING_RE.test( heading[ 2 ] ?? '' ) ) {
 			depth = heading[ 1 ]?.length;
-			start = i + 1;
+			headingIndex = i;
 			break;
 		}
 	}
 
 	if ( depth === undefined ) return undefined;
 
-	const ids: string[] = [];
-	for ( let i = start; i < lines.length; i++ ) {
-		const line = lines[ i ] ?? '';
-		const heading = HEADING_RE.exec( line );
-		if ( heading && ( heading[ 1 ]?.length ?? 0 ) <= depth ) break;
-
-		const item = LIST_ITEM_RE.exec( line );
-		if ( item ) ids.push( normalizeSkillId( item[ 1 ] ?? '' ) );
+	let end = lines.length;
+	for ( let i = headingIndex + 1; i < lines.length; i++ ) {
+		const heading = HEADING_RE.exec( lines[ i ] ?? '' );
+		if ( heading && ( heading[ 1 ]?.length ?? 0 ) <= depth ) {
+			end = i;
+			break;
+		}
 	}
 
-	return ids;
+	return { headingIndex, end };
 }
 
 /**
@@ -91,9 +97,17 @@ function parseListSection(
 export function parseSkillsSection(
 	testingBrief: string
 ): string[] | undefined {
-	return parseListSection( testingBrief, ( text ) =>
-		SKILLS_HEADING_RE.test( text )
-	);
+	const lines = testingBrief.replace( /\r\n?/g, '\n' ).split( '\n' );
+	const bounds = findSkillsSectionBounds( lines );
+	if ( bounds === undefined ) return undefined;
+
+	const ids: string[] = [];
+	for ( let i = bounds.headingIndex + 1; i < bounds.end; i++ ) {
+		const item = LIST_ITEM_RE.exec( lines[ i ] ?? '' );
+		if ( item ) ids.push( normalizeSkillId( item[ 1 ] ?? '' ) );
+	}
+
+	return ids;
 }
 
 /**
@@ -124,30 +138,13 @@ export function parseSkillsSection(
  */
 export function stripSkillsSection( testingBrief: string ): string {
 	const lines = testingBrief.replace( /\r\n?/g, '\n' ).split( '\n' );
+	const bounds = findSkillsSectionBounds( lines );
+	if ( bounds === undefined ) return testingBrief;
 
-	let depth: number | undefined;
-	let start = -1;
-	for ( let i = 0; i < lines.length; i++ ) {
-		const heading = HEADING_RE.exec( lines[ i ] ?? '' );
-		if ( heading && SKILLS_HEADING_RE.test( heading[ 2 ] ?? '' ) ) {
-			depth = heading[ 1 ]?.length;
-			start = i;
-			break;
-		}
-	}
-
-	if ( depth === undefined ) return testingBrief;
-
-	let end = lines.length;
-	for ( let i = start + 1; i < lines.length; i++ ) {
-		const heading = HEADING_RE.exec( lines[ i ] ?? '' );
-		if ( heading && ( heading[ 1 ]?.length ?? 0 ) <= depth ) {
-			end = i;
-			break;
-		}
-	}
-
-	return [ ...lines.slice( 0, start ), ...lines.slice( end ) ].join( '\n' );
+	return [
+		...lines.slice( 0, bounds.headingIndex ),
+		...lines.slice( bounds.end ),
+	].join( '\n' );
 }
 
 /** Strip surrounding backticks and unwrap a Markdown link to a bare id. */
@@ -191,6 +188,27 @@ export interface EnumeratedScenario {
 	dirName: string;
 	/** Enumeration-time validation error, if the scenario cannot run as-is. */
 	error?: string;
+}
+
+/**
+ * Compare two enumerated scenarios by {@link EnumeratedScenario.id} for the
+ * deterministic ordering shared by enumeration and selection. Ids compare
+ * lexicographically by UTF-16 code unit (plain `<`/`>`, not locale-aware),
+ * so ordering is stable across environments.
+ *
+ * @param a - First enumerated scenario.
+ * @param b - Second enumerated scenario.
+ * @returns A negative number when `a.id` sorts before `b.id`, a positive
+ *   number when it sorts after, and `0` when the ids are equal.
+ *
+ * @example
+ * scenarios.sort( compareScenarioIds );
+ */
+export function compareScenarioIds(
+	a: EnumeratedScenario,
+	b: EnumeratedScenario
+): number {
+	return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 /**
@@ -276,7 +294,7 @@ export function enumerateScenarios(
 
 	visitChildren( scenariosRoot, [] );
 
-	return out.sort( ( a, b ) => ( a.id < b.id ? -1 : a.id > b.id ? 1 : 0 ) );
+	return out.sort( compareScenarioIds );
 }
 
 /**

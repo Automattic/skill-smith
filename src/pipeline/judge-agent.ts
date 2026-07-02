@@ -1,5 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import type {
 	AgentDefinition,
 	Scenario,
@@ -11,6 +10,7 @@ import { stripSkillsSection } from '../scenarios/enumerate';
 import { loadAllRubrics } from '../scenarios/rubric-loader';
 import type { RunLog } from '../util/run-log';
 import type { TestingAgentResult } from './agent-loop';
+import { inlineWorkspaceFiles } from './workspace-snapshot';
 
 export interface RunJudgeAgentParams {
 	scenario: Scenario;
@@ -299,9 +299,10 @@ function extractLastBalancedObject( text: string ): string | undefined {
 /**
  * Build the judge's user message: each file the testing agent produced,
  * inlined from the judge-copy `workspace` as a `=== <rel> ===\n<body>`
- * block (the `=== (no files written) ===` fallback when none). Inlining
- * from the judge copy keeps "what the judge reads == what it verifies";
- * unreadable files are surfaced with a read-error placeholder.
+ * block (the `=== (no files written) ===` fallback when none). Files that
+ * no longer exist in the copy are skipped. Inlining from the judge copy
+ * keeps "what the judge reads == what it verifies"; unreadable files are
+ * surfaced with a read-error placeholder.
  *
  * @param _scenario - The scenario under evaluation. Unused: the judge
  *   sees only the produced artifact, never the scenario fields.
@@ -314,18 +315,9 @@ export function buildUserMessage(
 	workspace: string,
 	filesWritten: string[]
 ): string {
-	const sections: string[] = [];
-	for ( const rel of filesWritten ) {
-		const full = join( workspace, rel );
-		if ( ! existsSync( full ) ) continue;
-		let body: string;
-		try {
-			body = readFileSync( full, 'utf8' );
-		} catch ( err ) {
-			body = `<read error: ${ err instanceof Error ? err.message : String( err ) }>`;
-		}
-		sections.push( `=== ${ rel } ===\n${ body }` );
-	}
-	if ( sections.length === 0 ) sections.push( '=== (no files written) ===' );
-	return sections.join( '\n' );
+	return inlineWorkspaceFiles( workspace, filesWritten, {
+		separator: '\n',
+		emptyFallback: '=== (no files written) ===',
+		skipMissing: true,
+	} );
 }

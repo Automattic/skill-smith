@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import type {
 	AgentDefinition,
 	Scenario,
@@ -11,7 +10,7 @@ import type { RunLog } from '../util/run-log';
 import type { TestingAgentResult } from './agent-loop';
 import {
 	diffSnapshots,
-	type FileEntry,
+	inlineWorkspaceFiles,
 	snapshotWorkspace,
 } from './workspace-snapshot';
 
@@ -45,7 +44,15 @@ export async function runTestingAgent(
 		.join( '\n\n' );
 
 	const before = snapshotWorkspace( agentWorkspace );
-	const workspaceContents = buildWorkspaceContents( agentWorkspace, before );
+	const workspaceContents = inlineWorkspaceFiles(
+		agentWorkspace,
+		[ ...before.keys() ].sort(),
+		{
+			separator: '\n\n',
+			emptyFallback: '(empty workspace)',
+			skipMissing: false,
+		}
+	);
 
 	const sections = [
 		skillBlob,
@@ -104,23 +111,4 @@ export async function runTestingAgent(
 	if ( result.error !== undefined ) out.error = result.error;
 	if ( result.usage !== undefined ) out.usage = result.usage;
 	return out;
-}
-
-function buildWorkspaceContents(
-	workspace: string,
-	snapshot: Map< string, FileEntry >
-): string {
-	const sections: string[] = [];
-	for ( const rel of [ ...snapshot.keys() ].sort() ) {
-		const full = join( workspace, rel );
-		let body: string;
-		try {
-			body = readFileSync( full, 'utf8' );
-		} catch ( err ) {
-			body = `<read error: ${ err instanceof Error ? err.message : String( err ) }>`;
-		}
-		sections.push( `=== ${ rel } ===\n${ body }` );
-	}
-	if ( sections.length === 0 ) return '(empty workspace)';
-	return sections.join( '\n\n' );
 }

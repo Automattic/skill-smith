@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { EnumeratedScenario } from './enumerate';
+import { compareScenarioIds, type EnumeratedScenario } from './enumerate';
 import { UserFacingError } from '../util/errors';
 
 /**
@@ -156,13 +156,6 @@ function isUnsafeScenarioFilter( trimmed: string ): boolean {
 	if ( trimmed.startsWith( '/' ) || trimmed.startsWith( '//' ) ) return true;
 	if ( path.win32.isAbsolute( trimmed ) ) return true;
 	return trimmed.replace( /\\/g, '/' ).split( '/' ).includes( '..' );
-}
-
-function compareScenarioIds(
-	a: EnumeratedScenario,
-	b: EnumeratedScenario
-): number {
-	return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 function formatUnknownFiltersMessage(
