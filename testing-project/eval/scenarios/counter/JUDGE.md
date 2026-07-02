@@ -1,11 +1,20 @@
-You are grading a WordPress interactive counter block that an agent produced. Decide whether it satisfies the task it was given, using both the produced source files and the live, running site.
+Judge the produced work against the checks below, using both the produced source files and the live, running site. Pass only if every check, including the rubric check, is satisfied.
 
-Also grade the produced code against the WordPress Interactivity API best-practices rubric.
+## Code checks
 
-## Environment
+Verify in the produced source files:
 
-A live WordPress site is running with the produced plugin built. Activate the `$SKILLSMITH_PLUGIN_SLUG` plugin, discover the block name(s) it produced, insert them on a published post, then open that post in the browser to run the live checks below.
+- Has increment and decrement actions that modify the counter state
+- Uses data-wp-on--click on both increment and decrement buttons
+- Uses data-wp-text or equivalent to display the counter value reactively
+- Server-rendered HTML includes the initial counter value (5)
 
-## Live checks
+As a further code check, verify the produced code against the `wp-interactivity-api-best-practices` rubric.
 
-Open the published post. Confirm the rendered counter shows 5. Click the "Increment" button; the number must become 6. Click "Decrement" twice; the number must become 4.
+## Behavior checks
+
+Verify on the live, running site:
+
+- The block initially displays the counter value 5.
+- Clicking the increment button updates the displayed value to 6.
+- Clicking the decrement button twice from there updates the displayed value to 4.
