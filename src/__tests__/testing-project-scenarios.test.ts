@@ -7,17 +7,27 @@ import type { Paths } from '../config/types';
 import { enumerateScenarios } from '../scenarios/enumerate';
 
 /**
- * Conversion contract for the bundled `testing-project` scenarios.
+ * Conformance contract for the bundled `testing-project` scenarios.
  *
  * All 11 scenarios use the two-file model (`TESTING-AGENT.md` +
  * `JUDGE.md`) rather than the legacy structured model (`scenario.yaml` +
- * Playwright `e2e.spec.mjs`). Each `JUDGE.md` is opaque: Skillsmith
- * parses nothing from it — there is no `# Rubrics` id-section, the
- * shared rubric text is never inlined, the brief does not pre-state the
- * harness-appended output shape, and no removed bridge env var is
- * named. These tests assert that contract for the on-disk scenarios —
- * discovery cleanliness, prompt preservation, and the judge-brief
- * content contract.
+ * Playwright `e2e.spec.mjs`). Each `JUDGE.md` follows one uniform
+ * template: a fixed, task-free decision-rule opener ("Pass only if
+ * every check, including the rubric check, is satisfied."), a
+ * `## Code checks` section that closes by naming the shared rubric by
+ * bare id (`wp-interactivity-api-best-practices`), and a
+ * `## Behavior checks` section for checks against the live, running
+ * site. Everything else is supplied automatically at judge time: the
+ * harness injects the skill-stripped task text and the resolved rubric
+ * bodies, while environment mechanics (URLs, credentials, output
+ * shape) are owned by the judge role prompt. The brief stays opaque to
+ * Skillsmith — no parsed `# Rubrics` id-section, no inlined rubric
+ * text, no pre-stated output shape, no removed bridge env vars.
+ *
+ * These tests assert scenario-independent template invariants only —
+ * discovery cleanliness, prompt preservation, and the uniform brief
+ * shape. Whether each brief's checks preserve the judging coverage of
+ * its trunk predecessor is reviewer-verified, not asserted here.
  */
 
 const here = dirname( fileURLToPath( import.meta.url ) );
@@ -153,39 +163,65 @@ test( 'each TESTING-AGENT.md preserves the prompt and has a Skills section', () 
 	}
 } );
 
-test( 'each JUDGE.md is opaque: no # Rubrics heading, no inlined rubric text, no removed env vars, no pre-stated output shape', () => {
-	for ( const id of Object.keys( ANCHORS ) ) {
+test( 'each JUDGE.md conforms to the uniform brief template: fixed opener, Code/Behavior check headings, bare rubric id, and opaqueness', () => {
+	for ( const id of SCENARIO_IDS ) {
 		const brief = readScenarioFile( id, 'JUDGE.md' );
 
-		// The brief is opaque: no parsed `# Rubrics` id-section.
-		assert.ok(
-			! /^#+\s+Rubrics$/im.test( brief ),
-			`${ id } JUDGE.md still has a # Rubrics heading`
+		// 1. Both template section headings are present.
+		assert.match(
+			brief,
+			/^#+\s+Code checks$/im,
+			`${ id } JUDGE.md has no Code checks heading`
+		);
+		assert.match(
+			brief,
+			/^#+\s+Behavior checks$/im,
+			`${ id } JUDGE.md has no Behavior checks heading`
 		);
 
-		// The inlined rubric text (the sentinel sentence) must NOT appear
-		// in the brief.
+		// 2. The shared rubric is activated by its bare id.
+		assert.ok(
+			brief.includes( 'wp-interactivity-api-best-practices' ),
+			`${ id } JUDGE.md does not name the shared rubric id`
+		);
+
+		// 3. The rubric body is not inlined (the sentinel sentence must
+		// NOT appear in the brief).
 		assert.ok(
 			! brief.includes( RUBRIC_SENTINEL ),
-			`${ id } JUDGE.md still inlines the shared rubric text`
+			`${ id } JUDGE.md inlines the shared rubric text`
 		);
 
-		// The removed bridge env vars must no longer be named.
+		// 4. The harness appends the { pass, notes } instruction; the
+		// brief must not pre-state it.
+		assert.ok(
+			! /\{\s*["']?pass["']?/.test( brief ),
+			`${ id } JUDGE.md pre-states the JSON output instruction`
+		);
+
+		// 5. The removed bridge env vars are no longer named.
 		for ( const removed of [
 			'$SKILLSMITH_JUDGE_URL',
 			'$SKILLSMITH_POST_ID',
 		] ) {
 			assert.ok(
 				! brief.includes( removed ),
-				`${ id } JUDGE.md still names the removed ${ removed } env var`
+				`${ id } JUDGE.md names the removed ${ removed } env var`
 			);
 		}
 
-		// The harness appends the { pass, notes } instruction; the brief
-		// must not pre-state it.
+		// 6. The fixed decision-rule opener is present (asserted via a
+		// short stable fragment of the full opener sentence).
+		assert.match(
+			brief,
+			/pass only if every check/i,
+			`${ id } JUDGE.md is missing the decision-rule opener`
+		);
+
+		// 7. The brief stays opaque: no parsed `# Rubrics` id-section.
 		assert.ok(
-			! /\{\s*["']?pass["']?/.test( brief ),
-			`${ id } JUDGE.md should not include the JSON output instruction`
+			! /^#+\s+Rubrics$/im.test( brief ),
+			`${ id } JUDGE.md has a # Rubrics heading`
 		);
 	}
 } );
