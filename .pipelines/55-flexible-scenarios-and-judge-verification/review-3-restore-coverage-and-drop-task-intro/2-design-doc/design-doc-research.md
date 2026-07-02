@@ -71,7 +71,7 @@ Verified this session by the design-doc-researcher against branch code, trunk, g
 
 All trunk facts read directly from `git show origin/trunk:testing-project/eval/scenarios/<id>/{scenario.yaml,e2e.spec.mjs}` this session (R10-clean); all 11 specs read in full by the design-doc-researcher.
 
-**Shape survey** (all 55 acceptance bullets across the 11 scenarios are check-shaped, none narrative):
+**Shape survey** (all 63 acceptance bullets across the 11 scenarios are check-shaped, none narrative; the per-scenario counts below sum to 63):
 
 | scenario | bullets | e2e tests | e2e observable assertions (paraphrase) |
 |---|---|---|---|

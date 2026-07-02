@@ -57,14 +57,14 @@ The design phase read all 11 trunk scenarios in full. The survey below grounds t
 | shared-state | 6 | 2 | two instances both "0"; either button updates BOTH in lockstep |
 | toggle-visibility | 5 | 2 | hidden + `aria-expanded="false"`; click → visible + "true"; click → hidden + "false" |
 
-All 55 acceptance bullets across the 11 scenarios are check-shaped (none narrative); none is behavior-only. Common to all 11 e2e specs — and explicitly **not** coverage — are harness mechanics: plugin de/activation, host-post creation, `page.goto` plumbing, teardown, poll timeouts, locator scoping. Three scenarios carry coverage-relevant fixture facts (environment deltas) that must survive as behavior-check setup steps: `independent-counters` and `shared-state` embed the block **twice** in one post; `paginated-list` creates **5 extra posts** (6 total, 3 per page → 2 pages).
+The per-scenario counts above sum to **63** acceptance bullets. All 63 are check-shaped (none narrative) and none is behavior-only — both properties re-evaluated this revision over the full 63-bullet set, every bullet read from `origin/trunk` (the "Server-rendered HTML includes/seeds …" family is code-mode: it checks the produced server output, corroborable pre-hydration). Common to all 11 e2e specs — and explicitly **not** coverage — are harness mechanics: plugin de/activation, host-post creation, `page.goto` plumbing, teardown, poll timeouts, locator scoping. Three scenarios carry coverage-relevant fixture facts (environment deltas) that must survive as behavior-check setup steps: `independent-counters` and `shared-state` embed the block **twice** in one post; `paginated-list` creates **5 extra posts** (6 total, 3 per page → 2 pages).
 
 ### How the acceptance criteria are met
 
 | Criterion | Met by |
 |---|---|
 | AC1 (all trunk bullets as code checks) | Conversion rule 2 — verbatim transcription, one check per bullet, no omissions/merges |
-| AC2 (all e2e behaviors as live checks, none added) | Conversion rules 3 and 5 — one bullet per observable assertion; async-fetch degrades by explicit conditional, never by silent addition |
+| AC2 (all e2e behaviors as live checks, none added) | Conversion rules 3 and 5 — one bullet per observable assertion; unperformable or unverified observations (async-fetch's rendered outcome, config-fetch's nonce header) degrade by mandatory in-brief conditional, never by silent omission or addition |
 | AC3 (rubric instructed, not inlined) | Fixed rubric sentence naming the bare id; conformance test asserts id present and rubric sentinel absent |
 | AC4 (no task restatement) | Conversion rule 6 + the task-free fixed opener; reviewer-verified (deliberately not machine-asserted) |
 | AC5 (auto-supplied judge inputs) | Verified branch mechanism, unchanged (Decision 1) |
@@ -146,7 +146,7 @@ No interface changes anywhere. The 11 brief bodies change (content flowing into 
   1. *New optional `paths.workspace` directory, contents prompt-injected into both roles* (mirror of rubric loading). Feasible and non-breaking — but it would ship an empty mechanism (see trade-offs).
   2. *Shared directory materialized on disk into each role's working directory.* Strictly worse: pre-seeded testing-workspace files are prompt-inlined anyway; shared files would pollute the artifact of record and the judge workspace copy; and the repo already tried disk-materialized shared instructions (PR #5's `AGENTS.md`) and migrated them out to the role-prompt channel.
 - **Rationale:**
-  1. **The repeated-information inventory shows no homeless content.** Across the current 11 briefs, roughly 55 scenario-common lines repeat; about 44 of them already have shared homes (rubric content, environment manual, scaffold instructions, skill content). The irreducible per-brief residue is the one-line rubric instruction — which *cannot* move to a shared channel, because under the rubric lead-in it is the per-scenario activation key — plus 3 genuinely scenario-specific environment deltas, which are not shared material by definition.
+  1. **The repeated-information inventory shows no homeless content.** Across the current 11 briefs, roughly 55 scenario-common prose lines repeat (a line count of duplicated text in the *branch* briefs — unrelated to the 63 trunk acceptance bullets in the coverage survey); about 44 of them already have shared homes (rubric content, environment manual, scaffold instructions, skill content). The irreducible per-brief residue is the one-line rubric instruction — which *cannot* move to a shared channel, because under the rubric lead-in it is the per-scenario activation key — plus 3 genuinely scenario-specific environment deltas, which are not shared material by definition.
   2. **Nothing present needs a both-roles channel.** The environment manual is judge-only material, scaffold instructions are test-only, and rubrics must remain judge-only: handing them to the agent under test would change what the eval measures relative to trunk (rubrics were judge-only there too) and would break the lead-in's per-scenario selection semantics.
   3. **The duplication was actively harmful.** All 11 current briefs instruct "Activate the plugin" while the judge hook already activates it and the manual says so — the briefs drifted into contradicting the shared source they duplicated. The fix is in the briefs (stop restating shared material), not in core.
   4. **Spec discipline.** Out of scope: unconditional core changes; core changes only if the R6 mechanism falls short (it does not — Decision 1) or workspaces are adopted. Adopting a mechanism with no content to carry would be change for its own sake.
@@ -161,8 +161,8 @@ No interface changes anywhere. The 11 brief bodies change (content flowing into 
 
   ```markdown
   Judge the produced work against the checks below, using both the produced
-  source files and the live, running site. Pass only if every check is
-  satisfied.
+  source files and the live, running site. Pass only if every check,
+  including the rubric check, is satisfied.
 
   ## Code checks
 
@@ -172,8 +172,8 @@ No interface changes anywhere. The 11 brief bodies change (content flowing into 
   - <trunk acceptance bullet 2>
   - …
 
-  Also check the produced code against the `wp-interactivity-api-best-practices`
-  rubric.
+  As a further code check, verify the produced code against the
+  `wp-interactivity-api-best-practices` rubric.
 
   ## Behavior checks
 
@@ -185,8 +185,8 @@ No interface changes anywhere. The 11 brief bodies change (content flowing into 
   ```
 
   Element decisions:
-  - **Opening line (decision rule).** One fixed, task-free sentence pair, identical across all 11 briefs. It restores trunk's all-must-pass verdict strictness: on trunk, `classifyVerdict` (`src/reports/verdict.ts`) folded the per-item verdict mechanically — a pair passed only when every rubric and acceptance item passed, and the e2e suite was a separate hard gate. On the branch, nothing states a decision rule anywhere (`# Output format` is shape-only; the judge manual is environment mechanics only), and with the config and role prompts frozen this revision, **the per-brief template is the only permitted home for a decision rule**. The opener is judging material, not task narrative — it never names what was built — and replaces the current briefs' "Decide whether it satisfies the task it was given…" line.
-  - **`## Code checks`** carries every trunk `acceptance:` bullet, one check per bullet, and closes with the fixed rubric sentence naming the bare id in backticks. The rubric sentence lives in this section because the rubric is a code-mode check (applied to the generated code); the bare id matches the `# Rubric: <id>` blob header, making the lead-in's "brief-named" selection unambiguous.
+  - **Opening line (decision rule).** One fixed, task-free sentence pair, identical across all 11 briefs. It restores trunk's all-must-pass verdict strictness: on trunk, `classifyVerdict` (`src/reports/verdict.ts`) folded the per-item verdict mechanically — a pair passed only when every rubric and acceptance item passed, and the e2e suite was a separate hard gate. On the branch, nothing states a decision rule anywhere (`# Output format` is shape-only; the judge manual is environment mechanics only), and with the config and role prompts frozen this revision, **the per-brief template is the only permitted home for a decision rule**. The wording folds the rubric into the rule explicitly ("including the rubric check") because trunk's fold covered rubric items too — `classifyVerdict` failed the pair on **any** rubric-item failure, not just acceptance items — and a bare "every check" could defensibly be read as the bulleted checks only, making the restored rule strictly weaker than trunk's and the R2 rubric check advisory in practice. The opener is judging material, not task narrative — it never names what was built — and replaces the current briefs' "Decide whether it satisfies the task it was given…" line.
+  - **`## Code checks`** carries every trunk `acceptance:` bullet, one check per bullet, and closes with the fixed rubric sentence naming the bare id in backticks. The rubric sentence lives in this section because the rubric is a code-mode check (applied to the generated code), and is itself phrased as a check ("As a further code check, verify …") so it sits unambiguously inside the opener's all-must-pass fold; the bare id matches the `# Rubric: <id>` blob header, making the lead-in's "brief-named" selection unambiguous.
   - **`## Behavior checks`** carries trunk's e2e observable assertions as action → expected-observation bullets against the live site. Scenario-specific setup steps open the section where trunk's fixtures demanded them (insert the block twice — `independent-counters`, `shared-state`; create 5 extra posts — `paginated-list`): these are coverage-relevant environment deltas, not harness mechanics.
   - **No `## Environment` section and no base environment prose.** The judge manual owns activation, URLs, env vars, and the WP-CLI bridge; restating it caused the activate-drift bug (Decision 2).
   - **Heading depth H2**, consistent with current brief convention; the brief's internal headings sit under the assembled prompt's injected H1 sections, and core is indifferent.
@@ -195,8 +195,8 @@ No interface changes anywhere. The 11 brief bodies change (content flowing into 
 
   ```markdown
   Judge the produced work against the checks below, using both the produced
-  source files and the live, running site. Pass only if every check is
-  satisfied.
+  source files and the live, running site. Pass only if every check,
+  including the rubric check, is satisfied.
 
   ## Code checks
 
@@ -207,8 +207,8 @@ No interface changes anywhere. The 11 brief bodies change (content flowing into 
   - Uses data-wp-text or equivalent to display the counter value reactively
   - Server-rendered HTML includes the initial counter value (5)
 
-  Also check the produced code against the `wp-interactivity-api-best-practices`
-  rubric.
+  As a further code check, verify the produced code against the
+  `wp-interactivity-api-best-practices` rubric.
 
   ## Behavior checks
 
@@ -220,7 +220,7 @@ No interface changes anywhere. The 11 brief bodies change (content flowing into 
   ```
 
   The four code checks are trunk's four bullets verbatim; the R4 overlap is visible (initial value 5 appears in both sections, each in its mode).
-- **Alternatives:** Keep the review-2 heading vocabulary (`## What to check` / `## Live checks` / `## Environment`). Rejected: the spec's own vocabulary is code/behavior checks; the `## Environment` section exists only to duplicate the frozen manual (the drift-bug source); and the design-phase shape survey shows one template fits all 11 scenarios with no scenario-specific structure — every scenario reduces to 3–9 code-check bullets, 1–4 live behavior sequences, the rubric sentence, an optional env-delta setup step (3 scenarios), and an optional live-fallback conditional (1 scenario, see Decision 4 rule 5).
+- **Alternatives:** Keep the review-2 heading vocabulary (`## What to check` / `## Live checks` / `## Environment`). Rejected: the spec's own vocabulary is code/behavior checks; the `## Environment` section exists only to duplicate the frozen manual (the drift-bug source); and the design-phase shape survey shows one template fits all 11 scenarios with no scenario-specific structure — every scenario reduces to 3–9 code-check bullets, 1–4 live behavior sequences, the rubric sentence, an optional env-delta setup step (3 scenarios), and a mandatory live-fallback conditional (2 scenarios, see Decision 4 rule 5).
 - **Trade-offs:** With the narrative opener gone (R5), the judge's system prompt opens directly with judging material; the only generic judge framing is `# Role instructions` at the end. Verified as a deliberate design call, not an auto-supply failure. The new decision-rule opener is verdict semantics, not judging coverage — flagged so reviewers don't misread it as coverage inflation (R8 review compares checks, not the decision rule).
 - **Traces to:** R1–R5, AC1–AC4; R2's activation-key finding (Decision 1 consequence).
 
@@ -231,11 +231,13 @@ No interface changes anywhere. The 11 brief bodies change (content flowing into 
   2. **Code checks:** transcribe every acceptance bullet, preserving wording and expected values; unescape YAML-quoted scalars (`config-fetch`, `paginated-list`, `minimal-scaffold`). Exactly one permitted edit class: remove skill attributions — `derived-double` bullet 1 drops "from the Interactivity API skill" (the judge is skill-agnostic by design; the `# Skills` strip exists precisely to keep skill identity from the judge) while keeping the check and its grading allowance ("Seeding the doubled value alongside the counter … is acceptable"). No bullets added, none dropped, none merged.
   3. **Behavior checks:** one bullet per observable assertion of each trunk e2e test, expressed as what the judge does on the live site and what it must observe. Include assertion-bearing techniques where trunk's assertion depends on them (`paginated-list`: no-full-reload proven via a window sentinel surviving the click, "Previous" absent from the accessibility tree; `focus-trap-menu`: focus-return and Tab/Shift+Tab wrap). Exclude harness mechanics (activation, host-post creation, navigation plumbing, teardown, poll timeouts) — hook- and manual-owned.
   4. **Overlaps:** a behavior in both trunk sources appears in both sections, each in its mode — no dedup.
-  5. **Unperformable live assertions:** where the judge environment cannot reproduce a mock-dependent observation, the behavior check states the closest achievable observable plus an explicit conditional fallback to the code checks. The judge-capability check (judge = Read + Bash + Playwright MCP core tools, **no request mocking** — `browser_route` requires the absent `--caps=network` flag; WP-CLI bridge available) found 10 of 11 scenarios fully performable live. The exception is **async-fetch**: its stub URL `https://jsonplaceholder.example/joke` (.example TLD) never resolves and cannot be mocked. Live coverage becomes: text absent pre-click; on click, exactly one request attempt to exactly the stub URL (via the browser's network-request log); the rendered-joke outcome is unobservable live → explicit fallback to the display-wiring code checks (independently covered by trunk's acceptance bullets). **config-fetch** stays fully live (real endpoint in the judge env; click → title renders; request URL observable), with the nonce-header wiring anchored in its code check; the live bullet may instruct inspecting the request's headers if the tooling exposes them.
+  5. **Unperformable or unverified live assertions:** where the judge environment cannot reproduce a trunk observation — or its observability by the judge's tooling is unverified at design time — the behavior check is still **mandatory**: the brief carries the bullet stating the closest achievable observable plus an explicit conditional fallback, written into the bullet itself, naming the code check(s) that cover the same behavior. Silent omission and implementer discretion ("may include") are not permitted; degradation is always explicit in the brief text, so any two implementers produce the same brief. The judge-capability check (judge = Read + Bash + Playwright MCP core tools, **no request mocking** — `browser_route` requires the absent `--caps=network` flag; WP-CLI bridge available) found 9 of 11 scenarios fully performable live with verified tooling. Exactly two scenarios carry a conditional under this rule — async-fetch for an unperformable observation, config-fetch for an unverified one:
+     - **async-fetch:** its stub URL `https://jsonplaceholder.example/joke` (.example TLD) never resolves and cannot be mocked. Live coverage becomes: text absent pre-click; on click, exactly one request attempt to exactly the stub URL (via the browser's network-request log); the rendered-joke outcome is unobservable live → explicit fallback to the display-wiring code checks (independently covered by trunk's acceptance bullets).
+     - **config-fetch:** keeps its full live sequence (real endpoint in the judge env; click → the real post title renders; request URL observable) **and must carry the nonce observation as a live bullet**. Trunk observably asserted that the click-triggered request bore a non-empty `X-WP-Nonce` header (`capturedNonce` truthy and not `'undefined'`), and this is genuinely additional live coverage: a successful title render does not prove the nonce was sent, since a GET to `/wp/v2/posts/1` on a public post succeeds without one. Because header observability via `browser_network_requests` is unverified (see Risks), the bullet follows the same pattern as async-fetch — observe that the click-triggered request to `/wp-json/wp/v2/posts/1` carries a non-empty `X-WP-Nonce` header, with an explicit conditional fallback to the nonce-wiring code check (trunk acceptance bullet 4, this behavior's R4 overlap partner) when the tooling does not expose request headers. The bullet is never optional and never silently absent.
   6. **No task restatement:** no "You are grading…" or narrative lead-in; refer to "the produced work" / "the block"; task facts (5, 0, Apple/Banana/Cherry, button labels) appear only as expected values inside checks; never reference the injected task positionally.
   7. **Banned literal strings:** per the e2e-removal test, briefs must not contain `e2e.spec.mjs`, `@playwright/test`, `playwright.config`, lowercase `playwright test`, or `verify-e2e`.
 - **Alternatives:** Paraphrase-and-condense transcription (rejected: R1 forbids omission or merging, and verbatim wording is what reviewers diff against trunk); machine-checked coverage mapping (rejected by R8 — reviewers are the named control).
-- **Trade-offs:** Rule 2's single edit class introduces a judgment point (what counts as a skill attribution); it is bounded to the one known instance and reviewers verify parity. Rule 5 accepts a conservative live degradation for async-fetch rather than inventing coverage trunk did not have.
+- **Trade-offs:** Rule 2's single edit class introduces a judgment point (what counts as a skill attribution); it is bounded to the one known instance and reviewers verify parity. Rule 5 accepts a conservative live degradation for async-fetch, and defers config-fetch's header-observability question to a conditional inside the mandated bullet, rather than inventing coverage trunk did not have or letting a trunk-asserted observation drop out at implementer discretion.
 - **Traces to:** R1 (rule 2), R3 (rules 3, 5), R4 (rule 4), R5 (rule 6), R10 (rule 1), AC1, AC2, AC4; rule 7 traces to the existing CI constraint.
 
 ### Decision 5: The conformance test becomes a template-contract test, never a coverage checker
@@ -249,7 +251,7 @@ No interface changes anywhere. The 11 brief bodies change (content flowing into 
     3. does NOT contain the rubric sentinel sentence (no inlining — AC3);
     4. does NOT pre-state the `{ "pass"` output shape (harness owns `# Output format`);
     5. does NOT reference the dead env vars `$SKILLSMITH_JUDGE_URL` / `$SKILLSMITH_POST_ID`;
-    6. contains a short stable fragment of the fixed decision-rule opener (e.g. `pass only if every check`, case-insensitive — fragment, not full sentence, per the file's own short-fragment style);
+    6. contains a short stable fragment of the fixed decision-rule opener (e.g. `pass only if every check`, case-insensitive — fragment, not full sentence, per the file's own short-fragment style; still a substring of the Decision 3 opener after its rubric-fold wording, and any fragment chosen in the code phase must remain consistent with that final wording);
     7. no `# Rubrics` heading (brief opaqueness holds).
   - **Dropped assertions:** the `## Scenario requirements` ban (rejected-contract relic), the `Environment` heading requirement, the `Live checks` heading requirement, the `$SKILLSMITH_PLUGIN_SLUG` requirement, and all `liveChecks` fragments. The T5 header comment is rewritten to describe the new contract (template shape + auto-supply division of labor).
   - **R5 is not mechanically asserted.** "No task restatement" is a semantic property; encoding it (e.g. banning "You are grading") would be brittle content policing. It is reviewer-verified, like coverage parity.
@@ -268,7 +270,7 @@ No interface changes anywhere. The 11 brief bodies change (content flowing into 
 
 - **No new dependencies, no core changes, no config changes.**
 - **No changeset for this revision:** the changeset gate fires only on `changedFilePatterns` = `["src/**","bin/**","package.json","examples/**","README.md","!src/__tests__/**"]`; the diff (testing-project briefs + `src/__tests__/**`) matches nothing — the test path is explicitly negated, and CONTRIBUTING exempts tests and the `testing-project/` fixture outright.
-- **External-tool dependencies of the checks themselves** (run-time, not build-time): Playwright MCP core tools — navigate/click/type/press_key/snapshot/wait_for, `browser_console_messages`, `browser_evaluate`, `browser_network_requests` (verified available without `--caps`; request mocking verified *unavailable*, which drives Decision 4 rule 5) — and the judge manual's WP-CLI bridge (`eval/utils/judge-wp.mjs`) for the `paginated-list` post-creation setup step.
+- **External-tool dependencies of the checks themselves** (run-time, not build-time): Playwright MCP core tools — navigate/click/type/press_key/snapshot/wait_for, `browser_console_messages`, `browser_evaluate`, `browser_network_requests` (verified available without `--caps`; request mocking verified *unavailable*, and whether it exposes request headers is *unverified* — together these drive Decision 4 rule 5's two conditionals) — and the judge manual's WP-CLI bridge (`eval/utils/judge-wp.mjs`) for the `paginated-list` post-creation setup step.
 - **Internal load-bearing (frozen) modules:** listed under Components → Untouched but load-bearing.
 - **Guardrail commands (AC8), all verified to exist:** `npm run typecheck` (`tsc --noEmit`), `npm run lint` (`biome lint .` — js/ts only, no markdown lint), `npm test` (`node --import tsx --test src/__tests__/*.test.ts`), `npm --prefix testing-project run check:config` (imports the frozen config; unaffected), changeset validation (satisfied vacuously, above).
 
@@ -285,9 +287,9 @@ No interface changes anywhere. The 11 brief bodies change (content flowing into 
 
 Handed to the plan/code/docs phases:
 
-- **Playwright MCP capability drift.** The capability check used the microsoft/playwright-mcp README @ main (npm latest 0.0.77), and the config runs `@playwright/mcp@latest` unpinned. Load-bearing conclusions: no request mocking without `--caps=network` (drives the async-fetch fallback); `browser_network_requests` / `browser_console_messages` / `browser_evaluate` / `browser_press_key` available in core. If mocking ever becomes available, the async-fetch fallback is merely conservative, not wrong.
+- **Playwright MCP capability drift.** The capability check used the microsoft/playwright-mcp README @ main (npm latest 0.0.77), and the config runs `@playwright/mcp@latest` unpinned. Load-bearing conclusions: no request mocking without `--caps=network` (drives the async-fetch fallback); `browser_network_requests` / `browser_console_messages` / `browser_evaluate` / `browser_press_key` available in core; whether `browser_network_requests` exposes request headers is unverified (drives the config-fetch conditional). If mocking ever becomes available, the async-fetch fallback is merely conservative, not wrong; likewise the config-fetch bullet is correct whether or not headers turn out to be observable — the conditional makes it deterministic without settling that question here.
 - **wp-env default content assumption (config-fetch).** "Fresh wp-env ships post ID 1 (Hello world!)" is model knowledge, unverified. The behavior check must not silently depend on it: the code phase verifies once against the real warm env, or words the check to tolerate confirming/creating the target post via the WP-CLI bridge.
-- **Exact wording of the async-fetch fallback conditional** (and whether config-fetch's live bullet mentions optional header inspection) is drafted in the code phase within Decision 4 rule 5; reviewers verify it preserves trunk's assertion intent without coverage drift.
+- **Exact wording of the two fallback conditionals** (async-fetch's rendered-outcome fallback; config-fetch's nonce-header fallback) is drafted in the code phase within Decision 4 rule 5. Both bullets themselves are mandatory — only their wording is code-phase work; reviewers verify the wording preserves trunk's assertion intent without coverage drift. If the code phase verifies that the judge's tooling does expose request headers, the config-fetch conditional simply never fires at run time; the brief text is the same either way.
 - **Decision-rule fragment for the conformance test** (Decision 5, assertion 6): the exact short fragment is chosen in the code phase together with the final opener wording; it must stay short and stable per the test file's style.
 - **The decision-rule opener is new relative to the current briefs.** It restores trunk's mechanical all-must-pass fold at the prompt level. This is verdict semantics, not judging coverage — recorded so reviewers don't misread it as coverage inflation.
 - **README example-brief divergence (docs phase).** README:149–160 models rubric naming by human title plus a "Decide whether the produced block satisfies the task…" opening, both superseded by Decision 3. Nothing breaks mechanically; the docs phase should update the example. README.md is in the changeset gate's patterns (a `none` changeset satisfies the gate for prose-only edits).
