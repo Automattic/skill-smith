@@ -1,17 +1,22 @@
-You are grading a WordPress interactive block that shows a counter and its doubled value computed via a derived getter. Decide whether it satisfies the task it was given, using both the produced source files and the live, running site.
+Judge the produced work against the checks below, using both the produced source files and the live, running site. Pass only if every check, including the rubric check, is satisfied.
 
-Also grade the produced code against the WordPress Interactivity API best-practices rubric.
+## Code checks
 
-## Environment
+Verify in the produced source files:
 
-A live WordPress site is running with the produced plugin built. Activate the `$SKILLSMITH_PLUGIN_SLUG` plugin, discover the block name(s) it produced, insert them on a published post, then open that post in the browser to run the live checks below.
-
-## What to check
-
-- The counter is the only mutable numeric field in state/context, and the client-side store exposes the doubled value as a derived getter (computed from the counter on read) — not as a separately stored mutable field. Seeding the doubled value alongside the counter in `wp_interactivity_state()` for server-side rendering is acceptable (the static-derived-state pattern); the test is that the client store has only one mutable field plus a `double` getter, and that no action ever writes to `double`.
-- There is a named increment action that mutates only the counter (e.g. `state.counter++` or the context equivalent); it never assigns to the doubled field.
+- The counter is the only mutable numeric field in state/context, and the client-side store exposes the doubled value as a derived getter (computed from the counter on read) — not as a separately stored mutable field. Seeding the doubled value alongside the counter in `wp_interactivity_state()` for server-side rendering is acceptable (this is the static-derived-state pattern); the test is that the client store has only one mutable field plus a `double` getter, and that no action ever writes to `double`.
+- Has a named increment action that mutates only the counter (e.g. `state.counter++` or the context equivalent); it never assigns to the doubled field.
+- Uses `data-wp-on--click` on the increment button wired to the increment action.
 - The doubled value in the directive expression references the derived getter directly (e.g. `state.double`), not an inline arithmetic expression like `state.counter * 2` or a duplicated stored field.
+- Server-rendered HTML includes the initial values (1 for the counter and 2 for the doubled value) so both read correctly before JavaScript hydrates.
 
-## Live checks
+As a further code check, verify the produced code against the `wp-interactivity-api-best-practices` rubric.
 
-Open the published post. Confirm the block initially shows 1 and 2. Click "Increment" once; the two numbers must become 2 and 4. Click it again; they must become 3 and 6. The doubled value must stay exactly twice the counter on every click.
+## Behavior checks
+
+Verify on the live, running site:
+
+- The block initially displays the counter value 1 and the doubled value 2.
+- Clicking the "Increment" button updates the displayed values to 2 and 4.
+- Clicking it a second time updates the displayed values to 3 and 6.
+- Clicking it twice more updates the displayed values to 5 and 10, with the displayed pair remaining the counter and its exact double after every click.
