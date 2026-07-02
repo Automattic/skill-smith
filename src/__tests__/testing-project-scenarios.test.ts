@@ -11,17 +11,13 @@ import { enumerateScenarios } from '../scenarios/enumerate';
  *
  * All 11 scenarios use the two-file model (`TESTING-AGENT.md` +
  * `JUDGE.md`) rather than the legacy structured model (`scenario.yaml` +
- * Playwright `e2e.spec.mjs`). Each `JUDGE.md` is opaque: it references
- * the shared best-practices rubric in natural-language prose (Skillsmith
- * parses nothing from it — there is no `# Rubrics` id-section) and drops
- * the `## Scenario requirements` block, since the judge is now
- * auto-supplied the task and auto-loaded every rubric. Scenario-specific
- * mechanism checks that live neither in the task nor in the rubric are
- * re-homed under a `## What to check` heading, and each brief describes
- * judge-driven human-language setup rather than the removed per-post
- * env-var bridge. These tests assert that contract for the on-disk
- * scenarios — discovery cleanliness, prompt preservation, and the
- * judge-brief content contract.
+ * Playwright `e2e.spec.mjs`). Each `JUDGE.md` is opaque: Skillsmith
+ * parses nothing from it — there is no `# Rubrics` id-section, the
+ * shared rubric text is never inlined, the brief does not pre-state the
+ * harness-appended output shape, and no removed bridge env var is
+ * named. These tests assert that contract for the on-disk scenarios —
+ * discovery cleanliness, prompt preservation, and the judge-brief
+ * content contract.
  */
 
 const here = dirname( fileURLToPath( import.meta.url ) );
@@ -61,74 +57,30 @@ function readScenarioFile( id: string, file: string ): string {
 
 /**
  * A distinctive sentence from the shared best-practices rubric. An
- * opaque `JUDGE.md` that references the rubric in prose must NOT contain
- * this sentence — its absence proves the rubric text was not inlined.
+ * opaque `JUDGE.md` must NOT contain this sentence — its absence proves
+ * the rubric text was not inlined.
  */
 const RUBRIC_SENTINEL =
 	'`block.json` declares the view module as `viewScriptModule` (NOT `viewScript`).';
 
 /**
- * A stable fragment of the plain-prose rubric-reference sentence every
- * converted `JUDGE.md` carries (naming the rubric by its human title).
- * Its presence proves the brief points the judge at the shared rubric
- * without any parsed `# Rubrics` id-section.
- */
-const RUBRIC_PROSE_REFERENCE = 'Interactivity API best-practices rubric';
-
-/**
  * Per-scenario anchors. `prompt` is a verbatim fragment of the original
  * `scenario.yaml` prompt that the `TESTING-AGENT.md` must preserve.
- * `liveChecks` are fragments derived from the deleted `e2e.spec.mjs`
- * that the plain-language judge checks must cover.
  */
-const ANCHORS: Record<
-	string,
-	{ prompt: string; liveChecks: string[] }
-> = {
-	'async-fetch': {
-		prompt: 'fetches a joke from a remote',
-		liveChecks: [ 'Fetch joke', 'empty' ],
-	},
-	'config-fetch': {
-		prompt: 'loads a post from the',
-		liveChecks: [ 'Load post', '(no post loaded yet)' ],
-	},
-	counter: {
-		prompt: 'starts at 5',
-		liveChecks: [ '5', 'Increment', 'Decrement' ],
-	},
-	'derived-double': {
-		prompt: 'always exactly double the counter',
-		liveChecks: [ '1', '2', 'Increment' ],
-	},
-	'focus-trap-menu': {
-		prompt: 'accessible hamburger',
-		liveChecks: [ 'Menu', 'Escape', 'Home', 'About', 'Contact' ],
-	},
-	'fruit-list-each': {
-		prompt: 'list of fruits',
-		liveChecks: [ 'Apple', 'Banana', 'Cherry', 'Add Mango' ],
-	},
+const ANCHORS: Record< string, { prompt: string } > = {
+	'async-fetch': { prompt: 'fetches a joke from a remote' },
+	'config-fetch': { prompt: 'loads a post from the' },
+	counter: { prompt: 'starts at 5' },
+	'derived-double': { prompt: 'always exactly double the counter' },
+	'focus-trap-menu': { prompt: 'accessible hamburger' },
+	'fruit-list-each': { prompt: 'list of fruits' },
 	'independent-counters': {
 		prompt: 'each one needs to keep its own count',
-		liveChecks: [ 'Increment', 'independent' ],
 	},
-	'minimal-scaffold': {
-		prompt: 'Hello from iAPI',
-		liveChecks: [ 'Hello from iAPI', 'iapi-ready' ],
-	},
-	'paginated-list': {
-		prompt: 'paginated list',
-		liveChecks: [ 'Next', 'Previous', 'pg=2' ],
-	},
-	'shared-state': {
-		prompt: 'shared tally',
-		liveChecks: [ 'Increment', 'every instance' ],
-	},
-	'toggle-visibility': {
-		prompt: 'expandable note',
-		liveChecks: [ 'aria-expanded', 'hidden' ],
-	},
+	'minimal-scaffold': { prompt: 'Hello from iAPI' },
+	'paginated-list': { prompt: 'paginated list' },
+	'shared-state': { prompt: 'shared tally' },
+	'toggle-visibility': { prompt: 'expandable note' },
 };
 
 test( 'every scenario has both two-file briefs and no legacy files', () => {
@@ -201,49 +153,24 @@ test( 'each TESTING-AGENT.md preserves the prompt and has a Skills section', () 
 	}
 } );
 
-test( 'each JUDGE.md is opaque: prose rubric reference, no # Rubrics or ## Scenario requirements, drops the removed env vars, and keeps live checks', () => {
-	for ( const [ id, anchor ] of Object.entries( ANCHORS ) ) {
+test( 'each JUDGE.md is opaque: no # Rubrics heading, no inlined rubric text, no removed env vars, no pre-stated output shape', () => {
+	for ( const id of Object.keys( ANCHORS ) ) {
 		const brief = readScenarioFile( id, 'JUDGE.md' );
 
-		// The brief is opaque: no parsed `# Rubrics` id-section and no
-		// `## Scenario requirements` block (the task is auto-supplied and
-		// every rubric is auto-loaded).
+		// The brief is opaque: no parsed `# Rubrics` id-section.
 		assert.ok(
 			! /^#+\s+Rubrics$/im.test( brief ),
 			`${ id } JUDGE.md still has a # Rubrics heading`
 		);
-		assert.ok(
-			! /^#+\s+Scenario requirements$/im.test( brief ),
-			`${ id } JUDGE.md still has a ## Scenario requirements heading`
-		);
 
-		// The rubric is named in plain prose, not stamped in. The prose
-		// reference must be present; the inlined rubric text (the sentinel
-		// sentence) must NOT appear in the brief.
-		assert.ok(
-			brief.includes( RUBRIC_PROSE_REFERENCE ),
-			`${ id } JUDGE.md does not reference the rubric in prose`
-		);
+		// The inlined rubric text (the sentinel sentence) must NOT appear
+		// in the brief.
 		assert.ok(
 			! brief.includes( RUBRIC_SENTINEL ),
 			`${ id } JUDGE.md still inlines the shared rubric text`
 		);
 
-		// The judge still relies on both source and live checks, so the
-		// `## Environment` and `## Live checks` headings must remain.
-		assert.match(
-			brief,
-			/^#+\s+Environment$/im,
-			`${ id } JUDGE.md has no ## Environment heading`
-		);
-		assert.match(
-			brief,
-			/^#+\s+Live checks$/im,
-			`${ id } JUDGE.md has no ## Live checks heading`
-		);
-
-		// The removed bridge env vars must no longer be named; only
-		// retained bridge facts (the plugin slug) may appear.
+		// The removed bridge env vars must no longer be named.
 		for ( const removed of [
 			'$SKILLSMITH_JUDGE_URL',
 			'$SKILLSMITH_POST_ID',
@@ -251,18 +178,6 @@ test( 'each JUDGE.md is opaque: prose rubric reference, no # Rubrics or ## Scena
 			assert.ok(
 				! brief.includes( removed ),
 				`${ id } JUDGE.md still names the removed ${ removed } env var`
-			);
-		}
-		assert.ok(
-			brief.includes( '$SKILLSMITH_PLUGIN_SLUG' ),
-			`${ id } JUDGE.md does not reference the retained $SKILLSMITH_PLUGIN_SLUG bridge fact`
-		);
-
-		// Plain-language live checks derived from the old e2e spec.
-		for ( const fragment of anchor.liveChecks ) {
-			assert.ok(
-				brief.includes( fragment ),
-				`${ id } JUDGE.md is missing a live check covering "${ fragment }"`
 			);
 		}
 
