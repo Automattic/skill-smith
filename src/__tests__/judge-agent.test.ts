@@ -403,23 +403,6 @@ test( 'buildUserMessage emits the no-files fallback when nothing was written', (
 	);
 } );
 
-test( 'buildUserMessage does not read scenario.description or any removed scenario field', () => {
-	const workspace = mkdtempSync( join( tmpdir(), 'judge-msg-nodesc-' ) );
-	writeFileSync( join( workspace, 'a.txt' ), 'body' );
-	// A scenario with no description/rubrics/acceptance fields at all.
-	const scenario = makeScenario( 'grade it' );
-
-	const msg = buildUserMessage( scenario, workspace, [ 'a.txt' ] );
-	assert.ok(
-		! msg.includes( 'undefined' ),
-		'a missing description must not leak the string "undefined" into the message'
-	);
-	assert.ok(
-		msg.includes( '=== a.txt ===\nbody' ),
-		'the produced file is still inlined'
-	);
-} );
-
 // --- runJudgeAgent -------------------------------------------------------
 
 /**

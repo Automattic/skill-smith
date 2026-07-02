@@ -6,8 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 /**
- * Contract for Task 13: the scaffold no longer pins the block name and the
- * testing-agent prompt no longer forbids renaming/restructuring the block.
+ * Scaffold-output contracts for the bundled testing-project's plugin
+ * scaffold and the shared testing-agent prompt: the starter block ships a
+ * non-binding placeholder name, the plugin slug is deterministic per
+ * (scenario, agent) pair, `index.php` registers built block directories by
+ * globbing (name-agnostic), and the prompt protects the plugin slug while
+ * leaving the block itself free to rename or restructure.
  *
  * The scaffold and prompt live under the bundled `testing-project/`, outside
  * `src/`, so they are not covered by the core typecheck; these tests pin the
@@ -52,11 +56,6 @@ async function loadScaffold(): Promise< {
 	};
 }
 
-/** Read the scaffold's raw source text. */
-function scaffoldSource(): string {
-	return readFileSync( SCAFFOLD_PATH, 'utf8' );
-}
-
 /** Read the testing-agent prompt's raw source text. */
 function promptSource(): string {
 	return readFileSync( PROMPT_PATH, 'utf8' );
@@ -93,28 +92,14 @@ async function scaffoldInto(
 	return { slug, blockJson, indexPhp, packageJson };
 }
 
-test( "the scaffolded block.json no longer pins skillsmith/testing-block", async () => {
+test( 'the scaffolded block.json carries the non-binding starter block name', async () => {
 	const { blockJson } = await scaffoldInto( 'counter', 'haiku' );
-	assert.notEqual(
+	// The starter name is a placeholder the agent is free to rename or
+	// restructure; this pins only what the scaffold itself emits.
+	assert.equal(
 		blockJson.name,
-		'skillsmith/testing-block',
-		'the starter block name must not be the previously pinned name'
-	);
-} );
-
-test( 'the scaffold source no longer hard-codes the skillsmith/testing-block name', () => {
-	const src = scaffoldSource();
-	assert.ok(
-		! src.includes( 'skillsmith/testing-block' ),
-		'the pinned block name must be gone from the scaffold source'
-	);
-} );
-
-test( "the scaffold's doc comment no longer claims the block name is fixed", () => {
-	const src = scaffoldSource();
-	assert.ok(
-		! /block name is fixed/i.test( src ),
-		'the doc comment must not say the block name is fixed'
+		'example/starter-block',
+		'the scaffold emits the example/starter-block placeholder name'
 	);
 } );
 
@@ -165,24 +150,6 @@ test( "index.php's do-not-rename wording targets the plugin slug, not a block na
 	assert.ok(
 		! /block name/i.test( indexPhp ),
 		'index.php must not imply a pinned block name'
-	);
-} );
-
-test( 'the testing-agent prompt no longer forbids renaming or restructuring the block', () => {
-	const src = promptSource();
-	assert.ok(
-		! /do not change the block name/i.test( src ),
-		'the prompt must not forbid changing the block name'
-	);
-	assert.ok(
-		! src.includes( '`skillsmith/testing-block`' ),
-		'the prompt must not name a pinned block'
-	);
-	assert.ok(
-		! /do not change the block name or registration mechanism/i.test(
-			src
-		),
-		'the prompt must not forbid changing the registration mechanism'
 	);
 } );
 

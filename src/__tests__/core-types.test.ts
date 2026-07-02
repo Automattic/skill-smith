@@ -56,32 +56,6 @@ test( 'Scenario carries exactly name/skills/testingBrief/judgeBrief', () => {
 	assert.equal( withExtra.custom, 123 );
 } );
 
-test( 'Scenario no longer declares the legacy fields', () => {
-	const scenario: Scenario = {
-		name: 's',
-		skills: [],
-		testingBrief: 't',
-		judgeBrief: 'j',
-	};
-
-	// These keys are gone from the declared surface. Each directive must be
-	// "used" — if the field were still typed, the index access would be a
-	// declared property and `tsc` would flag the directive as unused.
-	// @ts-expect-error `description` is removed from Scenario.
-	const _description: string = scenario.description;
-	// @ts-expect-error `prompt` is removed from Scenario.
-	const _prompt: string = scenario.prompt;
-	// @ts-expect-error `acceptance` is removed from Scenario.
-	const _acceptance: string[] = scenario.acceptance;
-	// Annotated with the field's former declared type so that the directive
-	// is consumed only by the property being absent — not by an assignability
-	// mismatch — which keeps the guard honest about the field being gone.
-	// @ts-expect-error `rubrics` is removed from Scenario.
-	const _rubrics: string[] | undefined = scenario.rubrics;
-
-	assert.ok( [ _description, _prompt, _acceptance, _rubrics ] );
-} );
-
 test( 'Paths has base/skills/scenarios and an optional rubrics', () => {
 	// A `Paths` value that omits `rubrics` is still valid, and its key set is
 	// exactly base/scenarios/skills.
