@@ -152,15 +152,20 @@ When the same grading criteria recur across scenarios — a house style guide, a
 
 Using rubrics is **optional**. With no [`paths.rubrics`](#configuration) directory (or an empty one) the judge simply runs with no rubric context and no error, grading on the `JUDGE.md` brief and the auto-supplied task alone. Set `paths.rubrics` only when you want shared grading content available to the judge.
 
-Author each rubric as a flat `<id>.md` file under the [`paths.rubrics`](#configuration) directory — the id is the filename without `.md`. A `JUDGE.md` selects a rubric by **naming it in plain-language prose**; there is no `# Rubrics` section, no id list, and no reserved grammar:
+Author each rubric as a flat `<id>.md` file under the [`paths.rubrics`](#configuration) directory — the id is the filename without `.md`. A `JUDGE.md` selects a rubric by **naming it in plain-language prose**; there is no `# Rubrics` section, no id list, and no reserved grammar. The clearest reference names the rubric's bare id, since that matches the `# Rubric: <id>` label the judge sees on each loaded rubric:
 
 ```md
-Decide whether the produced block satisfies the task it was given, using
-both the source and the live page.
+Judge the produced work against the checks below, using both the produced
+source files and the live, running site. Pass only if every check,
+including the rubric check, is satisfied.
 
-Also grade the produced code against the WordPress Interactivity API
-best-practices rubric.
+- ...the scenario's own code and behavior checks...
+
+As a further code check, verify the produced code against the
+`wp-interactivity-api-best-practices` rubric.
 ```
+
+Note the opening: it states the brief's verdict rule and never restates the task, because Skillsmith supplies the task to the judge automatically (see [The judge brief](#the-judge-brief)). The closing sentence is what opts the brief into the rubric.
 
 When `paths.rubrics` is set, Skillsmith loads **every** top-level `<id>.md` rubric under it at grading time (each with any Markdown-linked companion files that resolve inside the rubrics directory) and supplies them all to the judge automatically, under a `# Grading rubrics` heading in the judge's system prompt. Each loaded rubric is labeled with a self-identifying `# Rubric: <id>` header, and a short lead-in instructs the judge to apply **only** the rubric(s) the brief names and treat the rest as reference-only. The prose in `JUDGE.md` is what selects which apply — you do not paste rubric content into the brief and the judge does not have to go find it.
 
