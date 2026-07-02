@@ -90,6 +90,18 @@ test( 'selects root, exact ids, and segment-aware folders in deterministic id or
 	);
 } );
 
+test( 'selects both nested sibling leaf scenarios with distinct ids', () => {
+	const scenarios = [
+		enumerated( 'blocks/counter' ),
+		enumerated( 'blocks-old/counter' ),
+	];
+
+	assert.deepEqual( ids( selectScenariosByFilters( scenarios, undefined ) ), [
+		'blocks-old/counter',
+		'blocks/counter',
+	] );
+} );
+
 test( 'preserves first matching filter order while de-duping overlapping selections', () => {
 	const scenarios = [
 		enumerated( 'blocks/zebra' ),
