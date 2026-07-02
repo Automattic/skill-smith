@@ -1,11 +1,21 @@
-You are grading a WordPress interactive block whose button fetches a joke from a remote endpoint via a generator action. Decide whether it satisfies the task it was given, using both the produced source files and the live, running site.
+Judge the produced work against the checks below, using both the produced source files and the live, running site. Pass only if every check, including the rubric check, is satisfied.
 
-Also grade the produced code against the WordPress Interactivity API best-practices rubric.
+## Code checks
 
-## Environment
+Verify in the produced source files:
 
-A live WordPress site is running with the produced plugin built. Activate the `$SKILLSMITH_PLUGIN_SLUG` plugin, discover the block name(s) it produced, insert them on a published post, then open that post in the browser to run the live checks below.
+- Has a named store action wired to the "Fetch joke" button via `data-wp-on--click`.
+- The fetch action is a generator function (`function*` / `*name()`) that uses `yield` for both the `fetch(...)` call and the `.json()` parsing (no `async` / `await`).
+- The action requests the exact URL string `https://jsonplaceholder.example/joke` from source code.
+- The `joke` field from the parsed JSON is written into store state or local context after the `yield` resolves; the displayed paragraph is bound reactively (e.g. `data-wp-text`) to that state/context value rather than being mutated via direct DOM writes (`innerText`, `textContent`, `innerHTML`).
+- Server-rendered HTML for the paragraph reflects the initial empty value (the joke state/context is seeded empty on the server via `wp_interactivity_state()` or `wp_interactivity_data_wp_context()`).
 
-## Live checks
+As a further code check, verify the produced code against the `wp-interactivity-api-best-practices` rubric.
 
-Open the published post. Before clicking anything, confirm the paragraph beneath the button is empty (no joke text). Click the "Fetch joke" button. After the request resolves, the paragraph must show the fetched joke string. (In the live environment the endpoint may be mocked or unreachable; if the network call cannot complete, judge the wiring from the source — the action must target the stub URL, parse the JSON, and bind the result reactively.)
+## Behavior checks
+
+Verify on the live, running site:
+
+- Before any click, the paragraph beneath the "Fetch joke" button is empty — no joke text is shown.
+- Clicking the "Fetch joke" button triggers exactly one request, to exactly `https://jsonplaceholder.example/joke` (check the browser's network-request log).
+- The fetched joke itself cannot be observed rendering live — `jsonplaceholder.example` does not resolve and the response cannot be mocked in this environment — so for the joke-display outcome fall back to the code checks above covering the display wiring (the reactive binding of the `joke` value and the write into state/context after the fetch resolves), rather than failing the block for the missing live render.
