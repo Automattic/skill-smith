@@ -9,6 +9,7 @@ import {
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, test } from 'node:test';
+import { pluginSlug } from '../../testing-project/eval/utils/scaffold-plugin';
 
 /**
  * Contract for Task 9: the run-level warm-env lifecycle in the judge helper
@@ -31,13 +32,6 @@ const HELPER_PATH = join( TESTING_PROJECT, 'eval', 'utils', 'wp-env-judge.ts' );
 const WP_ENV_CONFIG_PATH = join( TESTING_PROJECT, '.wp-env.json' );
 /** The host side of the live `wp-content/plugins` bind mount. */
 const STAGING_DIR = join( TESTING_PROJECT, '.wp-env-plugins' );
-/** Absolute path to the sibling WP-CLI transport. */
-const WP_CLI_PATH = join( TESTING_PROJECT, 'eval', 'utils', 'wp-cli.mjs' );
-
-/** Read a project file's raw source text. */
-function sourceOf( path: string ): string {
-	return readFileSync( path, 'utf8' );
-}
 
 /** The shell-out seam the helper exposes; matches `JudgeEnvCommands`. */
 interface JudgeEnvCommands {
@@ -62,7 +56,6 @@ interface JudgeEnvModule {
 		ctx: { scenario: { name: string }; agent: { id: string } },
 		commands?: JudgeEnvCommands
 	): void;
-	judgePluginSlug( scenarioName: string, agentId: string ): string;
 }
 
 /** Re-import the helper fresh so the module-level `booted` flag resets. */
@@ -171,13 +164,12 @@ test( 'bootJudgeEnv is idempotent: a re-entry does not double-boot wp-env', asyn
 } );
 
 test( 'installPluginForPair copies the built plugin into the staging slug dir', async () => {
-	const { bootJudgeEnv, installPluginForPair, judgePluginSlug } =
-		await loadHelper();
+	const { bootJudgeEnv, installPluginForPair } = await loadHelper();
 	const { commands } = recordingCommands();
 	bootJudgeEnv( commands );
 
 	const judgeWorkspace = join( STAGING_DIR, '..', 'judge-copy-fixture' );
-	const slug = judgePluginSlug( 'counter', 'haiku' );
+	const slug = pluginSlug( 'counter', 'haiku' );
 	const pluginSrc = join( judgeWorkspace, slug );
 	try {
 		mkdirSync( pluginSrc, { recursive: true } );
@@ -203,13 +195,12 @@ test( 'installPluginForPair copies the built plugin into the staging slug dir', 
 } );
 
 test( 'installPluginForPair deactivates all then activates the pair slug', async () => {
-	const { bootJudgeEnv, installPluginForPair, judgePluginSlug } =
-		await loadHelper();
+	const { bootJudgeEnv, installPluginForPair } = await loadHelper();
 	const { commands, calls } = recordingCommands();
 	bootJudgeEnv( commands );
 
 	const judgeWorkspace = join( STAGING_DIR, '..', 'judge-copy-fixture' );
-	const slug = judgePluginSlug( 'counter', 'haiku' );
+	const slug = pluginSlug( 'counter', 'haiku' );
 	try {
 		mkdirSync( join( judgeWorkspace, slug ), { recursive: true } );
 
@@ -238,14 +229,13 @@ test( 'installPluginForPair deactivates all then activates the pair slug', async
 	}
 } );
 
-test( 'installPluginForPair exports the bridge env vars and not the old judge URL/post id', async () => {
-	const { bootJudgeEnv, installPluginForPair, judgePluginSlug } =
-		await loadHelper();
+test( 'installPluginForPair exports the bridge env vars for the judge child', async () => {
+	const { bootJudgeEnv, installPluginForPair } = await loadHelper();
 	const { commands } = recordingCommands();
 	bootJudgeEnv( commands );
 
 	const judgeWorkspace = join( STAGING_DIR, '..', 'judge-copy-fixture' );
-	const slug = judgePluginSlug( 'counter', 'haiku' );
+	const slug = pluginSlug( 'counter', 'haiku' );
 	try {
 		mkdirSync( join( judgeWorkspace, slug ), { recursive: true } );
 
@@ -273,29 +263,18 @@ test( 'installPluginForPair exports the bridge env vars and not the old judge UR
 			slug,
 			'SKILLSMITH_PLUGIN_SLUG carries the activated slug'
 		);
-		assert.equal(
-			process.env.SKILLSMITH_JUDGE_URL,
-			undefined,
-			'the retired SKILLSMITH_JUDGE_URL is not exported'
-		);
-		assert.equal(
-			process.env.SKILLSMITH_POST_ID,
-			undefined,
-			'the retired SKILLSMITH_POST_ID is not exported'
-		);
 	} finally {
 		rmSync( judgeWorkspace, { recursive: true, force: true } );
 	}
 } );
 
 test( 'installPluginForPair only builds when the plugin ships src/blocks', async () => {
-	const { bootJudgeEnv, installPluginForPair, judgePluginSlug } =
-		await loadHelper();
+	const { bootJudgeEnv, installPluginForPair } = await loadHelper();
 	const { commands, calls } = recordingCommands();
 	bootJudgeEnv( commands );
 
 	const judgeWorkspace = join( STAGING_DIR, '..', 'judge-copy-fixture' );
-	const slug = judgePluginSlug( 'counter', 'haiku' );
+	const slug = pluginSlug( 'counter', 'haiku' );
 	try {
 		mkdirSync( join( judgeWorkspace, slug, 'src', 'blocks' ), {
 			recursive: true,
@@ -321,11 +300,11 @@ test( 'installPluginForPair only builds when the plugin ships src/blocks', async
 } );
 
 test( 'cleanUpPair deactivates all, removes the pair staging dir, and does not stop wp-env', async () => {
-	const { bootJudgeEnv, cleanUpPair, judgePluginSlug } = await loadHelper();
+	const { bootJudgeEnv, cleanUpPair } = await loadHelper();
 	const { commands, calls } = recordingCommands();
 	bootJudgeEnv( commands );
 
-	const slug = judgePluginSlug( 'counter', 'haiku' );
+	const slug = pluginSlug( 'counter', 'haiku' );
 	mkdirSync( join( STAGING_DIR, slug ), { recursive: true } );
 	process.env.SKILLSMITH_PLUGIN_SLUG = slug;
 	process.env.SKILLSMITH_WP_PORT = '8987';
@@ -428,47 +407,5 @@ test( 'stopJudgeEnv resets the booted flag so a later boot starts wp-env again',
 		calls.filter( ( c ) => c.fn === 'startWpEnv' ).length,
 		2,
 		'boot after stop starts wp-env a second time'
-	);
-} );
-
-test( 'the helper sheds the retired per-pair symbols but keeps the slug re-export and fixed port', () => {
-	const src = sourceOf( HELPER_PATH );
-	for ( const shed of [
-		'wpEnvConfig',
-		'testPostContent',
-		'TESTING_BLOCK_NAME',
-		'judgeUrl',
-		'judgeEnvVars',
-		'SKILLSMITH_JUDGE_URL',
-		'SKILLSMITH_POST_ID',
-	] ) {
-		assert.ok(
-			! src.includes( shed ),
-			`the retired symbol ${ shed } is removed from the helper`
-		);
-	}
-	assert.ok(
-		/export const judgePluginSlug/.test( src ),
-		'the judgePluginSlug re-export is retained'
-	);
-	assert.ok(
-		/8987/.test( src ),
-		'the fixed wp-env port is retained'
-	);
-} );
-
-test( 'wp-cli pins wpCli/deactivateAllPlugins to the warm-env --config', () => {
-	const src = sourceOf( WP_CLI_PATH );
-	assert.ok(
-		/--config/.test( src ),
-		'wpCli passes --config so it is cwd-robust'
-	);
-	assert.ok(
-		/\.wp-env\.json/.test( src ),
-		'the --config points at the warm-env config path'
-	);
-	assert.ok(
-		/export function deactivateAllPlugins/.test( src ),
-		'deactivateAllPlugins stays available as the clean-slate primitive'
 	);
 } );

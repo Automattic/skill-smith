@@ -1,4 +1,4 @@
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +7,7 @@ import { pluginSlug } from './scaffold-plugin';
 
 // This file lives at `<projectRoot>/eval/utils/wp-env-judge.ts`, so the
 // project root — where `node_modules`, `.wp-env.json`, and the npm scripts
-// live — is two directories up (matching the sibling `wp-cli.mjs`).
+// live — is two directories up.
 const PROJECT_ROOT = resolve(
 	dirname( fileURLToPath( import.meta.url ) ),
 	'../..'
@@ -36,13 +36,6 @@ const ENV_VAR_NAMES = [
 	'SKILLSMITH_WP_PORT',
 	'SKILLSMITH_PLUGIN_SLUG',
 ] as const;
-
-/**
- * Derive the plugin slug for a (scenario, agent) pair. Re-exported from the
- * scaffold so the judge helper and the scaffold share one definition and the
- * judge copy always resolves the directory the scaffold wrote.
- */
-export const judgePluginSlug = pluginSlug;
 
 /**
  * Whether the run-level warm wp-env has been booted. Module-level so a re-entry
@@ -261,7 +254,7 @@ export function installPluginForPair(
 	ctx: AgentContext,
 	commands: JudgeEnvCommands = defaultCommands
 ): void {
-	const slug = judgePluginSlug( ctx.scenario.name, ctx.agent.id );
+	const slug = pluginSlug( ctx.scenario.name, ctx.agent.id );
 	const pluginPath = join( ctx.judgeWorkspace, slug );
 
 	// Build the produced block so `build/blocks/*` (with view.asset.php) is
@@ -301,7 +294,7 @@ export function cleanUpPair(
 	ctx: AgentContext,
 	commands: JudgeEnvCommands = defaultCommands
 ): void {
-	const slug = judgePluginSlug( ctx.scenario.name, ctx.agent.id );
+	const slug = pluginSlug( ctx.scenario.name, ctx.agent.id );
 
 	commands.wpCli( [ 'plugin', 'deactivate', '--all' ] );
 	rmSync( join( STAGING_DIR, slug ), { recursive: true, force: true } );
@@ -309,82 +302,4 @@ export function cleanUpPair(
 	for ( const name of ENV_VAR_NAMES ) {
 		delete process.env[ name ];
 	}
-}
-
-/**
- * Stand the WordPress environment up for one (scenario, agent) pair and export
- * the runtime facts the judge needs. Retained as the legacy per-pair
- * orchestrator until the config is rewired onto {@link bootJudgeEnv} /
- * {@link installPluginForPair}; not used by the new run-level lifecycle.
- *
- * @param ctx - The per-pair agent context; `judgeWorkspace`, `scenario.name`,
- *   and `agent.id` locate the plugin to build and activate.
- */
-export function setUpJudgeEnv( ctx: AgentContext ): void {
-	const slug = judgePluginSlug( ctx.scenario.name, ctx.agent.id );
-	const pluginPath = join( ctx.judgeWorkspace, slug );
-
-	if ( existsSync( join( pluginPath, 'src', 'blocks' ) ) ) {
-		const wpScriptsBin = join(
-			PROJECT_ROOT,
-			'node_modules',
-			'.bin',
-			'wp-scripts'
-		);
-		execFileSync( wpScriptsBin, [ 'build' ], {
-			stdio: 'inherit',
-			cwd: pluginPath,
-			env: { ...process.env, WP_EXPERIMENTAL_MODULES: '1' },
-		} );
-	}
-
-	writeFileSync(
-		WP_ENV_CONFIG_PATH,
-		`${ JSON.stringify(
-			{ plugins: [ pluginPath ], port: WP_ENV_PORT },
-			null,
-			2
-		) }\n`
-	);
-
-	const wpEnv = {
-		...process.env,
-		WP_ENV_PORT: String( WP_ENV_PORT ),
-		WP_BASE_URL: `http://localhost:${ WP_ENV_PORT }`,
-	};
-	execSync( 'npm run env:start', {
-		stdio: 'inherit',
-		cwd: PROJECT_ROOT,
-		env: wpEnv,
-	} );
-
-	runWpCli( [ 'plugin', 'activate', slug ] );
-
-	process.env.SKILLSMITH_PLUGIN_SLUG = slug;
-}
-
-/**
- * Tear the per-pair WordPress environment down. Retained as the legacy
- * counterpart to {@link setUpJudgeEnv} until the config is rewired onto
- * {@link stopJudgeEnv} / {@link cleanUpPair}; not used by the new run-level
- * lifecycle. `env:stop` failures are logged, not thrown.
- *
- * @param _ctx - The per-pair agent context (unused; present so the hook reads
- *   symmetrically with {@link setUpJudgeEnv}).
- */
-export function tearDownJudgeEnv( _ctx: AgentContext ): void {
-	try {
-		execSync( 'npm run env:stop', {
-			stdio: 'inherit',
-			cwd: PROJECT_ROOT,
-			env: {
-				...process.env,
-				WP_ENV_PORT: String( WP_ENV_PORT ),
-			},
-		} );
-	} catch ( err ) {
-		console.error( 'wp-env stop failed:', err );
-	}
-	rmSync( WP_ENV_CONFIG_PATH, { force: true } );
-	delete process.env.SKILLSMITH_PLUGIN_SLUG;
 }

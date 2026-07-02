@@ -5,16 +5,18 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 /**
- * Contract for Task 18: the rewritten `testing-project/skillsmith.config.ts`
- * and its new per-pair WP-env judge helper (`eval/utils/wp-env-judge.ts`).
+ * Contract for `testing-project/skillsmith.config.ts` and its judge-env
+ * helper (`eval/utils/wp-env-judge.ts`) under the run-level warm-env model:
+ * `beforeAllScenarios` boots one warm wp-env for the whole run,
+ * `beforeJudgeAgent`/`afterJudgeAgent` install and clean up each
+ * (scenario, agent) pair's plugin on it, and `afterAllScenarios` stops it.
  *
  * The config and helper live outside `src/`, so they are not covered by the
- * core typecheck; these tests pin the behaviour the `check:config` guardrail
+ * core typecheck; these tests pin the wiring the `check:config` guardrail
  * only asserts is importable. The config is verified by inspecting its
- * resolved object and source text; the helper's pure builders are imported
- * and exercised directly. The side-effecting boot/teardown orchestrators are
- * not invoked here — they shell out to `wp-env` and are exercised manually
- * per the project's testing posture.
+ * resolved object and source text; the helper's lifecycle behaviour is
+ * exercised through its injectable command seam in
+ * `wp-env-judge-lifecycle.test.ts`, so the real wp-env is never booted here.
  */
 
 const here = dirname( fileURLToPath( import.meta.url ) );
@@ -138,16 +140,6 @@ test( 'the config wires run-level boot/stop and per-pair install/clean-up env ho
 		'function',
 		'beforeTestAgent still scaffolds the plugin'
 	);
-
-	const src = configSource();
-	assert.ok(
-		! /runE2eVerification/.test( src ),
-		'the runE2eVerification import is removed'
-	);
-	assert.ok(
-		! /verify-e2e/.test( src ),
-		'no reference to the verify-e2e module remains'
-	);
 } );
 
 test( 'afterAllScenarios returns nothing so the harness treats the run as a pass', async () => {
@@ -188,15 +180,6 @@ test( 'the config wires the per-pair install/clean-up helpers by name', () => {
 		),
 		'afterJudgeAgent cleans the pair up'
 	);
-	// The legacy per-pair orchestrators are no longer wired into the hooks.
-	assert.ok(
-		! /beforeJudgeAgent:[^\n]*setUpJudgeEnv/.test( src ),
-		'beforeJudgeAgent no longer calls the legacy setUpJudgeEnv'
-	);
-	assert.ok(
-		! /afterJudgeAgent:[^\n]*tearDownJudgeEnv/.test( src ),
-		'afterJudgeAgent no longer calls the legacy tearDownJudgeEnv'
-	);
 } );
 
 test( 'the config declares paths.rubrics pointing at the reusable rubric directory', async () => {
@@ -221,35 +204,6 @@ test( 'the config keeps the shared testing-agent prompt on roles.test', async ()
 		testRole.prompt,
 		expected,
 		'roles.test.prompt carries the shared workspace instructions'
-	);
-} );
-
-test( 'judgePluginSlug matches the scaffold slug so the judge copy resolves the right plugin', async () => {
-	const { judgePluginSlug } = await loadHelper();
-	const { pluginSlug } = ( await import(
-		join( TESTING_PROJECT, 'eval', 'utils', 'scaffold-plugin.ts' )
-	) ) as { pluginSlug: ( s: string, a: string ) => string };
-	assert.equal(
-		( judgePluginSlug as ( s: string, a: string ) => string )(
-			'counter',
-			'haiku'
-		),
-		pluginSlug( 'counter', 'haiku' ),
-		'the helper derives the same slug the scaffold wrote'
-	);
-} );
-
-test( 'setUpJudgeEnv and tearDownJudgeEnv remain exported (legacy orchestrators)', async () => {
-	const helper = await loadHelper();
-	assert.equal(
-		typeof helper.setUpJudgeEnv,
-		'function',
-		'setUpJudgeEnv brings the env up for a pair'
-	);
-	assert.equal(
-		typeof helper.tearDownJudgeEnv,
-		'function',
-		'tearDownJudgeEnv tears the env down for a pair'
 	);
 } );
 

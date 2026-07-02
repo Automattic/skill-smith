@@ -4,8 +4,6 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"env:start": "wp-env start",
-		"env:stop": "wp-env stop",
 		"skillsmith": "skillsmith",
 		"check:config": "node --import tsx -e \"await import('./skillsmith.config.ts')\""
 	},

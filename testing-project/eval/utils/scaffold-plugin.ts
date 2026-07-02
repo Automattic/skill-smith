@@ -91,10 +91,10 @@ function blockJson(): string {
 /**
  * Scaffold the WordPress plugin a testing agent implements against,
  * under `<agentWorkspace>/<slug>/`. The plugin slug stays unique per
- * (scenario, agent) so the e2e run can activate each independently. The
- * starter block ships a non-binding placeholder name the agent may rename,
- * restructure, or replace; the judge discovers block names from the built
- * `block.json`, so nothing pins the starter name.
+ * (scenario, agent) so `installPluginForPair` can activate each pair's
+ * plugin independently. The starter block ships a non-binding placeholder
+ * name the agent may rename, restructure, or replace; the judge discovers
+ * block names from the built `block.json`, so nothing pins the starter name.
  */
 export function scaffoldPlugin(
 	agentWorkspace: string,
