@@ -188,14 +188,16 @@ export default defineConfig( {
 		// (`<id>.md` each) to share grading criteria across scenarios
 		// instead of re-pasting them into every `JUDGE.md`. A scenario
 		// opts in by naming the rubric in plain-language prose in its
-		// `JUDGE.md` (e.g. "grade the code against the WordPress
-		// Interactivity API best-practices rubric"); Skillsmith loads the
-		// rubric content and supplies it to the judge automatically — there
-		// is no `# Rubrics` id list and no reserved grammar. Omit this key
-		// entirely if no scenario uses rubrics: it has no default and no
-		// existence gate, so leaving it unset (or pointing it at an empty
-		// directory) simply runs the judge with no rubric context and no
-		// error.
+		// `JUDGE.md` — clearest by its bare id, which matches the
+		// `# Rubric: <id>` label the judge sees on each loaded rubric
+		// (e.g. "verify the produced code against the
+		// `wp-interactivity-api-best-practices` rubric"); Skillsmith loads
+		// the rubric content and supplies it to the judge automatically —
+		// there is no `# Rubrics` id list and no reserved grammar. Omit
+		// this key entirely if no scenario uses rubrics: it has no default
+		// and no existence gate, so leaving it unset (or pointing it at an
+		// empty directory) simply runs the judge with no rubric context and
+		// no error.
 		rubrics: './eval/rubrics',
 	},
 
