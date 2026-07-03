@@ -16,8 +16,9 @@ is copied to a `judge-library/` folder inside the judge's working directory. The
 copy's contents — as a manifest of `judge-library/<rel>` paths when it can read files, or with every
 file body inlined under `=== judge-library/<rel> ===` labels when it cannot — and instructed to
 apply only the items the scenario's brief names, treating the rest as reference-only material.
-`roles.judge.library` stays optional — there is no default and no existence gate; the library is
-prepared only when a project sets it. On every run the judge is auto-supplied the testing agent's task (the
+`roles.judge.library` stays optional — there is no default, and the library is prepared only when a
+project sets it; once set, the directory must exist (a missing or non-directory `roles.judge.library`
+fails the run at the start-up path-existence check). On every run the judge is auto-supplied the testing agent's task (the
 `TESTING-AGENT.md` brief with its `# Skills` section removed), keeping the judge skill-agnostic. The
 judge no longer returns a numeric/rubric score: its verdict is now `{ pass, notes }`, and reporting
 and self-improvement are unchanged. Before grading, the harness copies each agent's `workspace/` to a
