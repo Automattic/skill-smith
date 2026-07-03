@@ -90,7 +90,7 @@ Project-specific behaviour is exposed through **hooks**. Each fork implements on
 flowchart TD
     A["Testing agent<br/>gets the verbatim <code>testingBrief</code><br/>+ skills from <code># Skills</code>"]
     A --> B["Produces its artifact<br/>in <code>workspace/</code>"]
-    B --> C["Harness copies<br/><code>workspace/</code> → <code>judge-workspace/</code>"]
+    B --> C["Harness copies <code>workspace/</code> → <code>judge-workspace/</code><br/>+ stages <code>judge-library/</code> (when configured)"]
     C --> D["<code>beforeJudgeAgent</code><br/>project brings up its live env<br/>from <code>judge-workspace/</code>"]
     D --> E["Judge verifies live<br/>(<code>JUDGE.md</code> brief, project-configured<br/>capabilities, against the copy)"]
     E --> F["Verdict <code>{ pass, notes }</code><br/>+ diff-guard on the canonical workspace"]
@@ -102,7 +102,7 @@ flowchart TD
 ### Lifecycle
 
 1. **Init run.** Generate `runId`, load scenarios from `config.paths.scenarios` (each scenario discovered from its `TESTING-AGENT.md` + `JUDGE.md` pair), and apply any positional scenario-or-folder filters before hooks or agent work start. A scenario's `name` equals its source ID, so names are unique by construction — there is no duplicate-name check.
-2. **`beforeAll({ config, runId, scenarios })`**. `scenarios` is the filtered list of selected scenario records. Each record exposes the normalized source ID relative to `config.paths.scenarios` as `id`, the directory-name alias `dirName` (equal to `id`), and the parsed scenario body as `scenario` (`{ name, skills, testingBrief, judgeBrief }`).
+2. **`beforeAll({ config, runId, scenarios })`**. `scenarios` is the filtered list of selected scenario records. Each record exposes the normalized source ID relative to `config.paths.scenarios` as `id` and the parsed scenario body as `scenario` (`{ name, skills, testingBrief, judgeBrief }`) — those two fields are the whole record.
 3. **Iteration directory.** Create `${runDirectory}/iteration-N/`. Test-only mode runs exactly one iteration; self-improvement mode (see below) may run more, each with its own subdirectory.
 4. **Scenario loop — parallel.** For each scenario:
    1. **Init scenario.** Create the scenario directory inside the current iteration using `scenario.name`, load testing agents from `config.roles.test.agents` and the judge from `config.roles.judge` (both resolved against the top-level `config.agents` registry).
@@ -112,10 +112,10 @@ flowchart TD
       2. **`beforeTestAgent({ ..., scenario, agent, agentWorkspace, judgeWorkspace })`**.
       3. **Testing agent.** Receives the verbatim `testingBrief` as its prompt, plus the skills named in `# Skills` and `agentWorkspace`; writes its artifact into the workspace.
       4. **`afterTestAgent({ ..., agentWorkspace, judgeWorkspace })`**.
-      5. **Copy workspace.** The harness copies `agentWorkspace` (`workspace/`) to a sibling `judgeWorkspace` (`judge-workspace/`). The judge runs against the copy, so it structurally cannot modify the artifact the testing agent produced.
-      6. **`beforeJudgeAgent({ ..., agentWorkspace, judgeWorkspace })`**. Where the project stands up the live environment the judge needs — built from `judgeWorkspace`, the copy the judge sees (see [Environment ownership](#environment-ownership-and-judge-concurrency)).
-      7. **Judge agent.** Receives the verbatim `judgeBrief` as its system prompt and runs with `cwd` set to `judgeWorkspace`, using the project-configured judge capabilities, verifying behavior against the live environment; produces a `{ pass, notes }` verdict.
-      8. **Agent report.** The harness writes `report.json` to the agent directory: a `testing` block with the testing agent's wall-clock `duration` (ms) and, when the provider reports it, `tokenUsage` (`inputTokens` — gross prompt size including the cache-read portion; `cachedInputTokens` — the subset that was served from the prompt cache; `outputTokens`; `totalTokens` = `inputTokens + outputTokens`); plus the judge's verdict stored verbatim under `review` (the `{ pass, notes }` shape — see [Per-iteration reports](#per-iteration-reports)).
+      5. **Copy workspace, stage the library.** The harness copies `agentWorkspace` (`workspace/`) to a sibling `judgeWorkspace` (`judge-workspace/`). The judge runs against the copy, so it structurally cannot modify the artifact the testing agent produced. Then, only when [`roles.judge.library`](#the-judge-library) is configured, the harness copies the whole library into `judge-library/` inside `judgeWorkspace` — so the copy is already on disk beside the artifact before the next hook fires (see [The judge library](#the-judge-library)).
+      6. **`beforeJudgeAgent({ ..., agentWorkspace, judgeWorkspace })`**. Where the project stands up the live environment the judge needs — built from `judgeWorkspace`, the copy the judge sees, with `judge-library/` already staged inside it (see [Environment ownership](#environment-ownership-and-judge-concurrency)).
+      7. **Judge agent.** Receives the assembled judge system prompt — the verbatim `judgeBrief`, the auto-supplied testing task, the `{ pass, notes }` output instruction with the harness-owned decision rule, and (when a library is configured) the `# Judge library` section (see [Configuration](#configuration)) — and runs with `cwd` set to `judgeWorkspace`, using the project-configured judge capabilities, verifying behavior against the live environment; produces a `{ pass, notes }` verdict.
+      8. **Agent report.** The harness writes `report.json` to the agent directory: a `testing` block with the testing agent's wall-clock `duration` (ms) and, when the provider reports it, `tokenUsage` (`inputTokens` — gross prompt size including the cache-read portion; `cachedInputTokens` — the subset that was served from the prompt cache; `outputTokens`; `totalTokens` = `inputTokens + outputTokens`); a `judging` block with the judge bracket's own `duration` and `tokenUsage` — present only when the judge phase ran (see [Per-iteration reports](#per-iteration-reports)); and the judge's verdict stored verbatim under `review` (the `{ pass, notes }` shape).
       9. **`afterJudgeAgent({ ..., agentWorkspace, judgeWorkspace })`**. Where the project tears the environment back down.
    4. **Scenario report.** The harness aggregates every agent's `report.json` into the scenario's `report.json`.
    5. **`afterScenario({ config, runId, scenario })`**.
@@ -269,12 +269,26 @@ Reports are deliberately compact. Scenario objects in iteration and merged repor
       "totalTokens": 1152
     }
   },
+  "judging": {
+    "duration": 6789,
+    "tokenUsage": {
+      "inputTokens": 2048,
+      "cachedInputTokens": 1024,
+      "outputTokens": 96,
+      "totalTokens": 2144
+    }
+  },
   "review": {
     "pass": false,
     "notes": "The button uses a manual addEventListener in view.js instead of a data-wp-on--click directive, and on the live page aria-expanded does not flip when the button is clicked."
   }
 }
 ```
+
+The `testing` block is always present; `judging` mirrors its shape for the judge phase (`duration` is the wall-clock milliseconds of the `beforeJudgeAgent` → judge → `afterJudgeAgent` bracket, `tokenUsage` uses the same four fields). Each block's presence is exact:
+
+- **`judging`** appears **only when the judge phase actually ran.** It is written even when the judge threw or returned an unparseable verdict — the bracket still ran, so its `duration` is real. It is omitted when the judge never started: the testing agent errored (an empty workspace has nothing to grade), or preparing the judge library failed before grading began. When it is omitted, `report.json` is just `{ testing, review }`.
+- **`tokenUsage`** (in either block) appears **only when the provider reported usage** for that invocation. A judge that dispatched but threw before any usage report yields a `judging` block with `duration` and no `tokenUsage`. No field is ever zero-filled — a missing figure is an absent key, never a `0`.
 
 On a pass, `review` is `{ "pass": true, "notes": "..." }` with the same shape. The console summary and progress tracker show the `notes` on a failure; on a pass the notes are stored but not surfaced on the dashboard. The improver reads the verbatim `notes` of every failing pair as its failure signal.
 
