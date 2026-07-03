@@ -133,12 +133,41 @@ export default defineConfig( {
 		// brief, verifying behavior on the live environment the project
 		// stood up. The object form lets you point it at a judge library
 		// and set `concurrency`:
-		//   - `library` — a judge-scoped directory of grading material.
-		//     Its `README.md` is inlined into every judge prompt as the
-		//     reusable "environment manual"; the whole directory is copied
-		//     per pair to `judge-library/` in the judge's working directory,
-		//     and briefs name the items to apply by relative path (e.g.
-		//     `judge-library/rubrics/<id>.md`).
+		//   - `library` — a judge-scoped directory of grading material that
+		//     Skillsmith supplies to every judge (and never to the testing
+		//     agent, so it can hold criteria the agent under test must not
+		//     see). Fill it with whatever the judge should have on hand:
+		//       - an entry `README.md` — the reusable "environment manual"
+		//         (how to reach the live environment, which tools exist, how
+		//         to load a rendered result); this is where the standing
+		//         instructions the old judge-role `prompt` used to carry now
+		//         live.
+		//       - rubrics — reusable best-practices files a brief opts into.
+		//       - any other reference docs or helper scripts the judge needs.
+		//     What Skillsmith does with it on every run:
+		//       - the entry `README.md` body is inlined verbatim into the
+		//         judge's system prompt as the environment manual (omitted if
+		//         there is no `README.md`).
+		//       - the whole directory (the `README.md` included) is copied
+		//         per pair to `judge-library/` inside the judge's working
+		//         directory, and a manifest — the sorted list of copied files
+		//         as `judge-library/<path>` — is added to the prompt so the
+		//         judge knows what it can read.
+		//       - a judge with no file-reading tool (a `tools` list carrying
+		//         neither `Read` nor `Bash`) instead gets every library file
+		//         body inlined into the prompt; the per-pair copy still lands
+		//         on disk, so the material reaches the judge either way.
+		//     A brief opts into a specific item by naming its
+		//     `judge-library/<path>` in plain prose — no reserved section, no
+		//     id grammar; Skillsmith parses nothing out of the brief. The
+		//     judge applies only the items a brief names and treats the rest
+		//     as reference-only. The bundled scenarios reference their rubric
+		//     as the closing line of the brief's code checks, e.g.:
+		//       "As a further code check, verify the produced code against
+		//        `judge-library/rubrics/wp-interactivity-api-best-practices.md`."
+		//     `library` is optional; leave it unset for no library context.
+		//     Once set, the directory must exist — a missing or non-directory
+		//     `roles.judge.library` fails the run at start-up.
 		//   - `concurrency`:
 		//     - "parallel" (default) — every (scenario, agent) pair may grade
 		//       at once.
