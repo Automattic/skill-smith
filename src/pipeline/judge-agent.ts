@@ -1,7 +1,7 @@
 import { relative } from 'node:path';
 import type { AgentDefinition, Scenario } from '../config/types';
 import { getProvider } from '../providers/registry';
-import type { JudgeCapabilities } from '../providers/types';
+import type { JudgeCapabilities, TokenUsage } from '../providers/types';
 import { stripSkillsSection } from '../scenarios/enumerate';
 import type { RunLog } from '../util/run-log';
 import type { TestingAgentResult } from './agent-loop';
@@ -32,6 +32,25 @@ export interface RunJudgeAgentParams {
 }
 
 /**
+ * The outcome of one judge invocation.
+ *
+ * @property review - The judge's verdict payload the caller embeds under
+ *   the per-agent report's `review` key: the parsed `{ pass, notes }`
+ *   object on success, or an error-shaped payload on the
+ *   dispatch-failed (`{ error, raw }`) and unparseable
+ *   (`{ error: 'unparseable', raw }`) paths.
+ * @property usage - The provider's normalized token accounting for this
+ *   invocation, present iff the provider's `InvokeResult` carried
+ *   `usage` — including on the unparseable path (usage is reported
+ *   before the verdict is parsed). Absent when dispatch failed before a
+ *   usage report.
+ */
+export interface RunJudgeAgentResult {
+	review: unknown;
+	usage?: TokenUsage;
+}
+
+/**
  * Run the judge sub-agent for one (scenario, agent) pair. The judge's
  * system prompt is the scenario's verbatim `judgeBrief`, followed by the
  * auto-supplied testing task (the scenario's `testingBrief` with its
@@ -44,14 +63,17 @@ export interface RunJudgeAgentParams {
  * running against an isolated copy of the workspace so it cannot mutate
  * the artifact of record.
  *
- * Returns the verdict object — `{ pass, notes }` on success, or an
- * error-shaped payload on the failure paths. The judge emits a single
- * JSON object. The caller (`agent-loop.ts`) is the single writer of the
- * per-agent `report.json`, embedding this under the `review` key.
+ * Returns a {@link RunJudgeAgentResult}: `review` is the verdict object
+ * — `{ pass, notes }` on success, or an error-shaped payload on the
+ * failure paths — and `usage` is the provider's token accounting when it
+ * reported any. The judge emits a single JSON object. The caller
+ * (`agent-loop.ts`) is the single writer of the per-agent `report.json`,
+ * embedding `review` under the `review` key and `usage` under
+ * `judging.tokenUsage`.
  */
 export async function runJudgeAgent(
 	params: RunJudgeAgentParams
-): Promise< unknown > {
+): Promise< RunJudgeAgentResult > {
 	const {
 		scenario,
 		judge,
@@ -92,24 +114,34 @@ export async function runJudgeAgent(
 	} );
 
 	if ( result.error !== undefined ) {
+		// Dispatch failed before any usage report, so no usage is carried:
+		// `judging.tokenUsage` stays absent on this path.
 		log.info( `${ scope }: dispatch failed — ${ result.error }` );
 		return {
-			error: `judge dispatch failed: ${ result.error }`,
-			raw: result.finalText,
+			review: {
+				error: `judge dispatch failed: ${ result.error }`,
+				raw: result.finalText,
+			},
 		};
 	}
 
 	const parsed = parseJudgeJson( result.finalText );
 	if ( parsed === undefined ) {
+		// The provider reported usage before the verdict was parsed, so
+		// `usage` flows through even though the verdict itself is an error
+		// payload.
 		log.info( `${ scope }: judge JSON unparseable, raw stored` );
 		return {
-			error: 'unparseable',
-			raw: result.finalText,
+			review: {
+				error: 'unparseable',
+				raw: result.finalText,
+			},
+			usage: result.usage,
 		};
 	}
 
 	log.info( `${ scope }: judge verdict written` );
-	return parsed;
+	return { review: parsed, usage: result.usage };
 }
 
 /**

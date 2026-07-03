@@ -93,16 +93,19 @@ function invokeTesting( params: InvokeParams ): InvokeResult {
 }
 
 function invokeJudge( params: InvokeParams ): InvokeResult {
+	// Report usage on every judge verdict so the `judging.tokenUsage`
+	// block is exercised end-to-end (the agent loop persists it iff the
+	// provider reports usage).
 	// Gated judge: the testing agent's workspace files are inlined into
 	// the user prompt. Fail until the skill edit propagates a pass.
 	if ( params.prompt.includes( 'GATE_FAIL' ) ) {
-		return { finalText: FAIL_JSON, toolUseCount: 0 };
+		return { finalText: FAIL_JSON, toolUseCount: 0, usage: MOCK_USAGE };
 	}
 	if ( params.prompt.includes( 'GATE_PASS' ) ) {
-		return { finalText: PASS_JSON, toolUseCount: 0 };
+		return { finalText: PASS_JSON, toolUseCount: 0, usage: MOCK_USAGE };
 	}
 
-	return { finalText: PASS_JSON, toolUseCount: 0 };
+	return { finalText: PASS_JSON, toolUseCount: 0, usage: MOCK_USAGE };
 }
 
 // Append the success marker to every immediate <dir>/SKILL.md under

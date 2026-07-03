@@ -74,6 +74,18 @@ interface TestingBlock {
 }
 
 /**
+ * The `judging` block persisted into the per-agent `report.json`. It is
+ * written only when the judge phase ran (see the presence rule at the
+ * write sites); `duration` is wall-clock milliseconds for the judge
+ * bracket, and `tokenUsage` is omitted unless the provider reported
+ * usage on the judge invocation. No field is ever zero-filled.
+ */
+interface JudgingBlock {
+	duration: number;
+	tokenUsage?: TokenUsage;
+}
+
+/**
  * Per-scenario agent loop. Mkdirs each `agentWorkspace`, fires the
  * four agent-scoped hooks, and dispatches testing + judge agents in
  * parallel across testing entries.
@@ -239,6 +251,8 @@ async function runAgentPair( params: RunAgentPairParams ): Promise< void > {
 			status: 'skipped',
 			detail: 'testing failed',
 		} );
+		// The judge never ran, so no `judging` block is written (the 4th
+		// argument is omitted): there is no judge bracket duration to report.
 		writeAgentReport( agentDirectory, testing, {
 			skipped: `testing failed: ${ testingResult.error }`,
 		} );
@@ -286,6 +300,10 @@ async function runAgentPair( params: RunAgentPairParams ): Promise< void > {
 						status: 'failed',
 						detail: msg,
 					} );
+					// Library preparation happens before the judge phase
+					// starts (before `judgeStart`), so this failure report
+					// carries no `judging` block — there is no judge bracket
+					// duration to record.
 					writeAgentReport( agentDirectory, testing, {
 						pass: false,
 						error: msg,
@@ -308,8 +326,9 @@ async function runAgentPair( params: RunAgentPairParams ): Promise< void > {
 			const judgeStart = Date.now();
 			let judgeError: string | undefined;
 			let rawReview: unknown;
+			let judgeUsage: TokenUsage | undefined;
 			try {
-				rawReview = await runJudgeAgent( {
+				const judgeResult = await runJudgeAgent( {
 					scenario,
 					judge: config.roles.judge.agent,
 					agentDirectory,
@@ -319,6 +338,8 @@ async function runAgentPair( params: RunAgentPairParams ): Promise< void > {
 					testingResult,
 					librarySection,
 				} );
+				rawReview = judgeResult.review;
+				judgeUsage = judgeResult.usage;
 			} catch ( err ) {
 				const msg = err instanceof Error ? err.message : String( err );
 				log.info( `judge-agent failed (${ scope }): ${ msg }` );
@@ -349,11 +370,23 @@ async function runAgentPair( params: RunAgentPairParams ): Promise< void > {
 				rawReview
 			);
 			const verdictResult = cellToPhaseResult( cell );
+			// The judge phase ran, so persist a `judging` block carrying the
+			// bracket duration (the same figure the tracker records) and the
+			// provider's token usage when it reported any. This holds on the
+			// dispatch-threw and unparseable paths too — the phase still ran,
+			// so `duration` is present even though `review` carries an error
+			// marker; `tokenUsage` is present only when usage was reported.
+			const judgeDuration = Date.now() - judgeStart;
 			tracker.phaseFinished( scenario.name, agent.id, 'judge', {
 				status: verdictResult.status,
-				durationMs: Date.now() - judgeStart,
+				durationMs: judgeDuration,
 				detail: verdictResult.detail,
 			} );
+
+			const judging: JudgingBlock = { duration: judgeDuration };
+			if ( judgeUsage !== undefined ) {
+				judging.tokenUsage = judgeUsage;
+			}
 
 			// Persist the judge's complete review (every rubric / acceptance
 			// item with its pass flag and notes) so a human or the improver
@@ -366,7 +399,8 @@ async function runAgentPair( params: RunAgentPairParams ): Promise< void > {
 				testing,
 				guardFailure !== undefined
 					? { pass: false, error: guardFailure }
-					: rawReview
+					: rawReview,
+				judging
 			);
 
 			await tryHook(
@@ -421,20 +455,38 @@ function cellToPhaseResult( cell: Cell ): {
 }
 
 /**
- * Single writer of the per-agent `report.json`. Pairs the `testing`
- * block (always present) with the judge's `review` verbatim — the
- * complete set of rubrics and acceptance items with their pass flags
- * and notes — so reports stay fully informative. Testing/dispatch
- * failures persist a `{ skipped }` marker in place of the review.
+ * Single writer of the per-agent `report.json`, writing the keys in the
+ * order `{ testing, judging, review }`. Pairs the `testing` block
+ * (always present) with the judge's `review` verbatim — the complete set
+ * of rubrics and acceptance items with their pass flags and notes — so
+ * reports stay fully informative. Testing/dispatch failures persist a
+ * `{ skipped }` marker in place of the review.
+ *
+ * The `judging` block is written only when the judge phase ran: it is
+ * omitted when `judging` is `undefined`, which is the case both when
+ * testing failed (the judge never starts) and when library preparation
+ * failed before the judge phase started.
+ *
+ * @param agentDirectory - The per-agent directory the report is written into.
+ * @param testing        - The testing block, always present.
+ * @param review         - The judge's review payload (or a `{ skipped }` /
+ *   error marker on the failure paths).
+ * @param judging        - The judging block, or `undefined` to omit it
+ *   because the judge phase did not run.
  */
 function writeAgentReport(
 	agentDirectory: string,
 	testing: TestingBlock,
-	review: unknown
+	review: unknown,
+	judging?: JudgingBlock
 ): void {
 	mkdirSync( agentDirectory, { recursive: true } );
+	const body =
+		judging === undefined
+			? { testing, review }
+			: { testing, judging, review };
 	writeFileSync(
 		join( agentDirectory, 'report.json' ),
-		`${ JSON.stringify( { testing, review }, null, 2 ) }\n`
+		`${ JSON.stringify( body, null, 2 ) }\n`
 	);
 }

@@ -506,14 +506,14 @@ test( 'runJudgeAgent omits unset capability keys, leaving the provider default i
 	);
 } );
 
-test( 'runJudgeAgent returns the parsed { pass, notes } verdict on success', async () => {
+test( 'runJudgeAgent returns the parsed { pass, notes } verdict under review on success', async () => {
 	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
 	const original = PROVIDERS.mock.invoke;
 	PROVIDERS.mock.invoke = async (): Promise< InvokeResult > => ( {
 		finalText: JSON.stringify( { pass: false, notes: 'missing marker' } ),
 		toolUseCount: 0,
 	} );
-	let result: unknown;
+	let result: { review: unknown; usage?: unknown };
 	try {
 		result = await runJudgeAgent( {
 			scenario: makeScenario( 'grade it' ),
@@ -531,17 +531,57 @@ test( 'runJudgeAgent returns the parsed { pass, notes } verdict on success', asy
 	} finally {
 		PROVIDERS.mock.invoke = original;
 	}
-	assert.deepEqual( result, { pass: false, notes: 'missing marker' } );
+	assert.deepEqual( result.review, { pass: false, notes: 'missing marker' } );
 } );
 
-test( 'runJudgeAgent degrades to an error payload when the verdict is unparseable', async () => {
+test( 'runJudgeAgent sets usage when the provider reported it on the success path', async () => {
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const original = PROVIDERS.mock.invoke;
+	const usage = {
+		inputTokens: 40,
+		cachedInputTokens: 0,
+		outputTokens: 10,
+		totalTokens: 50,
+	};
+	PROVIDERS.mock.invoke = async (): Promise< InvokeResult > => ( {
+		finalText: JSON.stringify( { pass: true, notes: 'ok' } ),
+		toolUseCount: 0,
+		usage,
+	} );
+	let result: { review: unknown; usage?: unknown };
+	try {
+		result = await runJudgeAgent( {
+			scenario: makeScenario( 'grade it' ),
+			judge,
+			agentDirectory: judgeWorkspace,
+			judgeWorkspace,
+			projectRoot: judgeWorkspace,
+			log: new RunLog(),
+			testingResult: {
+				finalText: '',
+				toolUseCount: 0,
+				filesWritten: [ 'result.txt' ],
+			},
+		} );
+	} finally {
+		PROVIDERS.mock.invoke = original;
+	}
+	assert.deepEqual( result.review, { pass: true, notes: 'ok' } );
+	assert.deepEqual(
+		result.usage,
+		usage,
+		'usage mirrors the InvokeResult usage on the success path'
+	);
+} );
+
+test( 'runJudgeAgent omits usage when the provider reported none on the success path', async () => {
 	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
 	const original = PROVIDERS.mock.invoke;
 	PROVIDERS.mock.invoke = async (): Promise< InvokeResult > => ( {
-		finalText: 'totally not json',
+		finalText: JSON.stringify( { pass: true, notes: 'ok' } ),
 		toolUseCount: 0,
 	} );
-	let result: unknown;
+	let result: { review: unknown; usage?: unknown };
 	try {
 		result = await runJudgeAgent( {
 			scenario: makeScenario( 'grade it' ),
@@ -559,10 +599,91 @@ test( 'runJudgeAgent degrades to an error payload when the verdict is unparseabl
 	} finally {
 		PROVIDERS.mock.invoke = original;
 	}
-	assert.deepEqual( result, {
+	assert.equal(
+		result.usage,
+		undefined,
+		'usage is unset when the provider reported none'
+	);
+} );
+
+test( 'runJudgeAgent degrades review to an error payload but keeps usage when the verdict is unparseable', async () => {
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const original = PROVIDERS.mock.invoke;
+	const usage = {
+		inputTokens: 40,
+		cachedInputTokens: 0,
+		outputTokens: 10,
+		totalTokens: 50,
+	};
+	PROVIDERS.mock.invoke = async (): Promise< InvokeResult > => ( {
+		finalText: 'totally not json',
+		toolUseCount: 0,
+		usage,
+	} );
+	let result: { review: unknown; usage?: unknown };
+	try {
+		result = await runJudgeAgent( {
+			scenario: makeScenario( 'grade it' ),
+			judge,
+			agentDirectory: judgeWorkspace,
+			judgeWorkspace,
+			projectRoot: judgeWorkspace,
+			log: new RunLog(),
+			testingResult: {
+				finalText: '',
+				toolUseCount: 0,
+				filesWritten: [ 'result.txt' ],
+			},
+		} );
+	} finally {
+		PROVIDERS.mock.invoke = original;
+	}
+	assert.deepEqual( result.review, {
 		error: 'unparseable',
 		raw: 'totally not json',
 	} );
+	assert.deepEqual(
+		result.usage,
+		usage,
+		'usage is retained on the unparseable path'
+	);
+} );
+
+test( 'runJudgeAgent omits usage on the dispatch-failed path', async () => {
+	const { judgeWorkspace } = makeWorkspaces( 'GATE_PASS' );
+	const original = PROVIDERS.mock.invoke;
+	PROVIDERS.mock.invoke = async (): Promise< InvokeResult > => ( {
+		finalText: '',
+		toolUseCount: 0,
+		error: 'transport exploded',
+	} );
+	let result: { review: unknown; usage?: unknown };
+	try {
+		result = await runJudgeAgent( {
+			scenario: makeScenario( 'grade it' ),
+			judge,
+			agentDirectory: judgeWorkspace,
+			judgeWorkspace,
+			projectRoot: judgeWorkspace,
+			log: new RunLog(),
+			testingResult: {
+				finalText: '',
+				toolUseCount: 0,
+				filesWritten: [ 'result.txt' ],
+			},
+		} );
+	} finally {
+		PROVIDERS.mock.invoke = original;
+	}
+	assert.deepEqual( result.review, {
+		error: 'judge dispatch failed: transport exploded',
+		raw: '',
+	} );
+	assert.equal(
+		result.usage,
+		undefined,
+		'usage is unset when dispatch failed before a usage report'
+	);
 } );
 
 test( 'runJudgeAgent embeds a passed librarySection into the judge system prompt', async () => {
@@ -708,7 +829,7 @@ test( 'runJudgeAgent parses a prose-wrapped verdict via the lenient fallback', a
 		finalText: 'My verdict is: {"pass":true,"notes":"looks good"}',
 		toolUseCount: 0,
 	} );
-	let result: unknown;
+	let result: { review: unknown; usage?: unknown };
 	try {
 		result = await runJudgeAgent( {
 			scenario: makeScenario( 'grade it' ),
@@ -726,5 +847,5 @@ test( 'runJudgeAgent parses a prose-wrapped verdict via the lenient fallback', a
 	} finally {
 		PROVIDERS.mock.invoke = original;
 	}
-	assert.deepEqual( result, { pass: true, notes: 'looks good' } );
+	assert.deepEqual( result.review, { pass: true, notes: 'looks good' } );
 } );

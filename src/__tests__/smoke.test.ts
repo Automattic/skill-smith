@@ -89,6 +89,20 @@ test( 'smoke run with mock provider produces full reports for every (scenario, a
 			150,
 			`agent report for ${ id } has testing.tokenUsage.totalTokens`
 		);
+		// The judge phase ran, so `judging` is present with a numeric
+		// duration and (the mock reports usage) a populated tokenUsage.
+		const judging = agentReport.judging as
+			| { duration?: unknown; tokenUsage?: Record< string, unknown > }
+			| undefined;
+		assert.ok(
+			judging !== undefined && typeof judging.duration === 'number',
+			`agent report for ${ id } has judging.duration: ${ JSON.stringify( agentReport ) }`
+		);
+		assert.equal(
+			judging?.tokenUsage?.totalTokens,
+			150,
+			`agent report for ${ id } has judging.tokenUsage.totalTokens`
+		);
 		const ws = join( iterationDir, 'hello', id, 'workspace' );
 		assert.ok( existsSync( ws ), `workspace mkdir'd for ${ id }` );
 	}
