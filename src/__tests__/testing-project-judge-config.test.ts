@@ -182,13 +182,14 @@ test( 'the config wires the per-pair install/clean-up helpers by name', () => {
 	);
 } );
 
-test( 'the config declares paths.rubrics pointing at the reusable rubric directory', async () => {
+test( 'roles.judge.library points the harness at the judge library directory', async () => {
 	const config = await loadConfig();
-	const paths = config.paths as { rubrics?: string } | undefined;
+	const roles = config.roles as Record< string, unknown >;
+	const judgeRole = roles.judge as { library?: string };
 	assert.equal(
-		paths?.rubrics,
-		'./eval/rubrics',
-		'paths.rubrics points the harness at the reusable rubric directory'
+		judgeRole.library,
+		'./eval/judge',
+		'roles.judge.library points the harness at the judge library directory holding the manual and the rubrics'
 	);
 } );
 
@@ -245,11 +246,14 @@ test( 'the new run-level + per-pair lifecycle helpers are exported and imported 
 	}
 } );
 
-test( "roles.judge.prompt is the environment manual describing the judge's runtime mechanics", async () => {
-	const config = await loadConfig();
-	const roles = config.roles as Record< string, unknown >;
-	const judgeRole = roles.judge as { prompt?: string };
-	const prompt = judgeRole.prompt ?? '';
+test( "the judge library README is the environment manual describing the judge's runtime mechanics", () => {
+	// The manual now lives in the library the judge role points at, inlined
+	// per pair by the harness rather than read into the config; assert its
+	// runtime mechanics against the README on disk.
+	const prompt = readFileSync(
+		join( TESTING_PROJECT, 'eval', 'judge', 'README.md' ),
+		'utf8'
+	);
 
 	// The judge-wp.mjs command form, anchored at the project-root env var.
 	assert.ok(
@@ -281,17 +285,34 @@ test( "roles.judge.prompt is the environment manual describing the judge's runti
 	);
 } );
 
-test( 'roles.judge.prompt is read from the eval/prompts/judge.md manual file', async () => {
+test( 'the configured judge library holds the README manual and the rubric', async () => {
 	const config = await loadConfig();
 	const roles = config.roles as Record< string, unknown >;
-	const judgeRole = roles.judge as { prompt?: string };
-	const expected = readFileSync(
-		join( TESTING_PROJECT, 'eval', 'prompts', 'judge.md' ),
+	const judgeRole = roles.judge as { library?: string };
+	assert.ok(
+		judgeRole.library,
+		'the judge role configures a library directory'
+	);
+	// The library path is project-relative; resolve it against the
+	// testing-project root and assert the manual and the rubric live inside
+	// it in the library layout (README.md at the root, rubrics/<id>.md
+	// underneath).
+	const libraryDir = join( TESTING_PROJECT, judgeRole.library as string );
+	const readme = readFileSync( join( libraryDir, 'README.md' ), 'utf8' );
+	assert.ok(
+		readme.length > 0,
+		'the library README.md manual exists and is non-empty'
+	);
+	const rubric = readFileSync(
+		join(
+			libraryDir,
+			'rubrics',
+			'wp-interactivity-api-best-practices.md'
+		),
 		'utf8'
 	);
-	assert.equal(
-		judgeRole.prompt,
-		expected,
-		'roles.judge.prompt carries the judge.md environment manual verbatim'
+	assert.ok(
+		rubric.length > 0,
+		'the library rubrics/<id>.md rubric exists and is non-empty'
 	);
 } );

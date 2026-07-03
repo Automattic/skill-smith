@@ -15,10 +15,6 @@ const testingAgentPrompt = readFileSync(
 	resolve( here, 'eval/prompts/testing-agent.md' ),
 	'utf8'
 );
-const judgePrompt = readFileSync(
-	resolve( here, 'eval/prompts/judge.md' ),
-	'utf8'
-);
 const improverPrompt = readFileSync(
 	resolve( here, 'eval/prompts/improver.md' ),
 	'utf8'
@@ -59,23 +55,18 @@ export default defineConfig( {
 		// Serialize the whole beforeJudgeAgent -> judge -> afterJudgeAgent
 		// bracket: every pair stages its plugin onto a single shared wp-env on a
 		// fixed port, and vanilla wp-env cannot run two instances at once. The
-		// judge prompt is the reusable "environment manual" carrying the runtime
-		// mechanics (the WP-CLI bridge, the post-create template, the post URL
-		// shape, and block discovery) that the per-scenario JUDGE.md briefs build
-		// on.
-		judge: { agent: 'opus', prompt: judgePrompt, concurrency: 'serial' },
+		// judge library carries the grading material Skillsmith supplies to the
+		// judge per pair: its README.md is the reusable "environment manual"
+		// holding the runtime mechanics (the WP-CLI bridge, the post-create
+		// template, the post URL shape, and block discovery) that the
+		// per-scenario JUDGE.md briefs build on, and its rubrics/ directory
+		// holds the reusable rubric definitions a brief opts into by naming.
+		judge: { agent: 'opus', library: './eval/judge', concurrency: 'serial' },
 		improver: { agent: 'opus', prompt: improverPrompt },
 	},
 	selfImprovement: {
 		maxIterations: 3,
 		scope: 'failed-scenarios',
-	},
-
-	// Reusable rubric definitions. A scenario opts in by naming the rubric in
-	// plain-language prose in its JUDGE.md; Skillsmith supplies the rubric
-	// content to the judge automatically from this directory.
-	paths: {
-		rubrics: './eval/rubrics',
 	},
 
 	hooks: {
