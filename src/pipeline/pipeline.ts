@@ -40,9 +40,9 @@ import {
 import {
 	normalizeScenarioFilters,
 	selectScenariosByNormalizedFilters,
-	validateConfiguredScenarioNamesAreUnique,
 } from '../scenarios/selection';
 import { tryHook } from '../util/hooks';
+import { SerialMutex } from '../util/mutex';
 import { RunLog } from '../util/run-log';
 import { runAgents } from './agent-loop';
 import { selectScenarios } from './select-scenarios';
@@ -57,7 +57,6 @@ export interface PipelineParams {
 
 export interface ScenarioRunRecord {
 	scenarioName: string;
-	dirName: string;
 	scenarioDirectory: string;
 	error?: string;
 }
@@ -90,7 +89,6 @@ export async function runPipeline( params: PipelineParams ): Promise< number > {
 	const normalizedScenarioFilters = normalizeScenarioFilters(
 		params.scenarios ?? []
 	);
-	validateConfiguredScenarioNamesAreUnique( enumeratedScenarios );
 	const allScenarios = selectScenariosByNormalizedFilters(
 		enumeratedScenarios,
 		normalizedScenarioFilters
@@ -101,9 +99,8 @@ export async function runPipeline( params: PipelineParams ): Promise< number > {
 
 	const iterations: IterationInfo[] = [];
 	const runScenarios: RunScenario[] = allScenarios.map(
-		( { id, dirName, scenario } ) => ( {
+		( { id, scenario } ) => ( {
 			id,
-			dirName,
 			scenario,
 		} )
 	);
@@ -379,6 +376,12 @@ async function runOneIteration(
 		);
 	}
 
+	// One judge mutex per iteration, constructed above both fan-outs (the
+	// scenario `Promise.all` below and the agent loop inside each scenario)
+	// so a single instance serializes the judge bracket across every pair
+	// in the iteration when `roles.judge.concurrency === 'serial'`.
+	const judgeMutex = new SerialMutex();
+
 	let scenarioRecords: ScenarioRunRecord[];
 	try {
 		scenarioRecords = await Promise.all(
@@ -394,6 +397,7 @@ async function runOneIteration(
 					log,
 					tracker: args.tracker,
 					scenarios: args.runCtx.scenarios,
+					judgeMutex,
 				} )
 			)
 		);
@@ -475,6 +479,12 @@ interface ScenarioRunArgs {
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
+	/**
+	 * The iteration's shared judge mutex, constructed once above the
+	 * scenario fan-out and forwarded unchanged into every scenario's agent
+	 * loop so one instance serializes the judge bracket run-wide.
+	 */
+	judgeMutex: SerialMutex;
 }
 
 async function runScenario(
@@ -519,6 +529,7 @@ async function runScenario(
 				log: args.log,
 				tracker: args.tracker,
 				scenarios: args.scenarios,
+				judgeMutex: args.judgeMutex,
 				agentIdFilter: args.agentFilter,
 			} );
 		}
@@ -540,15 +551,32 @@ async function runScenario(
 
 	return {
 		scenarioName: scenario.name,
-		dirName: enumerated.dirName,
 		scenarioDirectory,
 		error,
 	};
 }
 
-function checkPaths( config: SkillsmithConfig, projectRoot: string ): void {
+/**
+ * Validate that the required project directories exist before a run starts.
+ *
+ * Each entry in `config.paths` for `skills` and `scenarios` must resolve to an
+ * existing directory under `projectRoot`, and `paths.base` must be non-empty.
+ * The judge library is opt-in, but once `roles.judge.library` is set it must
+ * also resolve to an existing directory. Any missing or non-directory path,
+ * or an empty `base`, is collected and reported together.
+ *
+ * @param config      - Resolved harness config whose `paths` and
+ *   `roles.judge.library` are checked.
+ * @param projectRoot - Absolute root the relative paths are resolved against.
+ * @throws {PreconditionError} When any required path is missing or not a
+ *   directory, or when `paths.base` is empty.
+ */
+export function checkPaths(
+	config: SkillsmithConfig,
+	projectRoot: string
+): void {
 	const missing: string[] = [];
-	for ( const key of [ 'skills', 'scenarios', 'rubrics' ] as const ) {
+	for ( const key of [ 'skills', 'scenarios' ] as const ) {
 		const dir = resolve( projectRoot, config.paths[ key ] );
 		if ( ! existsSync( dir ) ) {
 			missing.push( `paths.${ key } → ${ dir } (does not exist)` );
@@ -556,6 +584,15 @@ function checkPaths( config: SkillsmithConfig, projectRoot: string ): void {
 		}
 		if ( ! statSync( dir ).isDirectory() ) {
 			missing.push( `paths.${ key } → ${ dir } (not a directory)` );
+		}
+	}
+	const library = config.roles.judge.library;
+	if ( library !== undefined ) {
+		const dir = resolve( projectRoot, library );
+		if ( ! existsSync( dir ) ) {
+			missing.push( `roles.judge.library → ${ dir } (does not exist)` );
+		} else if ( ! statSync( dir ).isDirectory() ) {
+			missing.push( `roles.judge.library → ${ dir } (not a directory)` );
 		}
 	}
 	if ( config.paths.base === undefined || config.paths.base === '' ) {

@@ -203,7 +203,7 @@ test( 'afterAllScenarios hook fails a judge-passing iteration and the loop recov
 		readFileSync( join( runDir, 'iteration-1', 'report.json' ), 'utf8' )
 	) as { scenarios: Record< string, { error?: string } > };
 	assert.match(
-		iter1Report.scenarios[ 'verify-scenario' ]?.error ?? '',
+		iter1Report.scenarios.verify?.error ?? '',
 		/e2e suite failed/
 	);
 

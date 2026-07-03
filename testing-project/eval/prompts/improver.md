@@ -1,7 +1,7 @@
-Apart from the Skillsmith harness, take a look at the e2e results for the next iteration if the Skillsmith checks passed for that scenario.
+For each scenario, the judge's verdict and its notes are the signal: read the notes to understand what behavior the judge observed live and why a scenario failed, and improve the skill so the next iteration passes.
 
 For building the Interactivity API skill, use the docs to understand how it should work: https://developer.wordpress.org/block-editor/reference-guides/interactivity-api/
 
 Keep it focused on the Interactivity API, and not whole WordPress.
 
-Keep in mind the skill is completely agnostic to the Skillsmith tool. The scenarios and rubrics are just for testing.
+Keep in mind the skill is completely agnostic to the Skillsmith tool. The scenarios — each a testing-agent brief and a judge brief — are just for testing.

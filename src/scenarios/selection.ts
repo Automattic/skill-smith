@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { EnumeratedScenario } from './enumerate';
+import { compareScenarioIds, type EnumeratedScenario } from './enumerate';
 import { UserFacingError } from '../util/errors';
 
 /**
@@ -152,54 +152,10 @@ export function selectScenariosByFilters(
 	);
 }
 
-/**
- * Validate that configured scenario names are unique across all discovered
- * scenarios.
- *
- * Only names with configured provenance are checked. Synthetic placeholder
- * names created for malformed YAML or shape-invalid scenarios are ignored so
- * invalid stubs do not hide the original enumeration error behind a duplicate
- * name failure.
- *
- * @param scenarios - Enumerated scenarios to validate before filtering or running.
- * @throws UserFacingError when two or more configured scenarios share a name.
- */
-export function validateConfiguredScenarioNamesAreUnique(
-	scenarios: EnumeratedScenario[]
-): void {
-	const idsByName = new Map< string, string[] >();
-	for ( const scenario of scenarios ) {
-		if ( scenario.nameSource !== 'configured' ) continue;
-		const ids = idsByName.get( scenario.scenario.name ) ?? [];
-		ids.push( scenario.id );
-		idsByName.set( scenario.scenario.name, ids );
-	}
-
-	for ( const [ name, ids ] of [ ...idsByName.entries() ].sort(
-		( [ a ], [ b ] ) => a.localeCompare( b )
-	) ) {
-		if ( ids.length < 2 ) continue;
-		const conflicts = ids
-			.sort()
-			.map( ( id ) => `- ${ id }` )
-			.join( '\n' );
-		throw new UserFacingError(
-			`Duplicate scenario.name "${ name }" configured by:\n${ conflicts }`
-		);
-	}
-}
-
 function isUnsafeScenarioFilter( trimmed: string ): boolean {
 	if ( trimmed.startsWith( '/' ) || trimmed.startsWith( '//' ) ) return true;
 	if ( path.win32.isAbsolute( trimmed ) ) return true;
 	return trimmed.replace( /\\/g, '/' ).split( '/' ).includes( '..' );
-}
-
-function compareScenarioIds(
-	a: EnumeratedScenario,
-	b: EnumeratedScenario
-): number {
-	return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 function formatUnknownFiltersMessage(

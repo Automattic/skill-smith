@@ -2,6 +2,8 @@ import { isProviderId, PROVIDER_IDS } from '../providers/registry';
 import type {
 	AgentDefinitionInput,
 	EvaluationScope,
+	JudgeConcurrency,
+	JudgeRoleInput,
 	RunMode,
 	SingleRoleInput,
 	SkillsmithConfigInput,
@@ -13,6 +15,7 @@ const VALID_SCOPES: EvaluationScope[] = [
 	'failed-scenarios',
 	'all',
 ];
+const VALID_JUDGE_CONCURRENCY: JudgeConcurrency[] = [ 'serial', 'parallel' ];
 
 export function collectConfigErrors( config: SkillsmithConfigInput ): string[] {
 	const errors: string[] = [];
@@ -34,9 +37,34 @@ export function collectConfigErrors( config: SkillsmithConfigInput ): string[] {
 
 	const agentIds = validateAgents( config, errors );
 	validateRoles( config, agentIds, errors );
+	validatePaths( config, errors );
 	validateSelfImprovement( config, errors );
 
 	return errors;
+}
+
+/**
+ * Guard `paths` against the removed `rubrics` key. `paths` is otherwise
+ * deliberately unvalidated — unknown keys flow through untouched — but a
+ * config still setting `paths.rubrics` would silently lose its grading
+ * material, so that one removed key is rejected with the migration target.
+ *
+ * @param config - The raw user config.
+ * @param errors - The accumulator to push a message onto on rejection.
+ */
+function validatePaths(
+	config: SkillsmithConfigInput,
+	errors: string[]
+): void {
+	const paths = config.paths;
+	if ( paths === undefined || paths === null || typeof paths !== 'object' ) {
+		return;
+	}
+	if ( ( paths as { rubrics?: unknown } ).rubrics !== undefined ) {
+		errors.push(
+			'paths.rubrics was removed — move the rubric files into the judge library directory and set roles.judge.library'
+		);
+	}
 }
 
 function validateAgents(
@@ -102,8 +130,99 @@ function validateRoles(
 	}
 
 	validateTestRole( roles.test, agentIds, errors );
-	validateSingleRole( roles.judge, 'roles.judge', agentIds, errors );
+	validateJudgeRole( roles.judge, agentIds, errors );
 	validateSingleRole( roles.improver, 'roles.improver', agentIds, errors );
+}
+
+/**
+ * Validate the judge role. Beyond the shared agent-id checks it enforces
+ * the judge-specific surface:
+ *   - `library`, when set, must be a non-empty string (the project-relative
+ *     judge library directory).
+ *   - the removed `prompt` key is rejected with a migration message naming
+ *     `roles.judge.library` — the input type no longer carries it, so the
+ *     key is read through a cast; the rejection is a runtime contract for
+ *     JS or stale-TS configs.
+ *   - `concurrency` is checked via {@link validateJudgeConcurrency}.
+ *
+ * @param role     - The judge role as authored (string or object).
+ * @param agentIds - The set of declared agent ids to resolve against.
+ * @param errors   - The accumulator to push messages onto on rejection.
+ */
+function validateJudgeRole(
+	role: JudgeRoleInput | undefined,
+	agentIds: Set< string >,
+	errors: string[]
+): void {
+	if (
+		role === undefined ||
+		role === null ||
+		( typeof role !== 'string' && typeof role !== 'object' )
+	) {
+		errors.push(
+			'roles.judge must be a string agent id or an object { agent, library?, concurrency? }'
+		);
+		return;
+	}
+	if ( typeof role === 'string' ) {
+		if ( role.length === 0 ) {
+			errors.push( 'roles.judge must be a non-empty string' );
+			return;
+		}
+		if ( ! agentIds.has( role ) ) {
+			errors.push( `roles.judge references unknown agent "${ role }"` );
+		}
+		return;
+	}
+	if ( typeof role.agent !== 'string' || role.agent.length === 0 ) {
+		errors.push( 'roles.judge.agent must be a non-empty string' );
+	} else if ( ! agentIds.has( role.agent ) ) {
+		errors.push(
+			`roles.judge references unknown agent "${ role.agent }"`
+		);
+	}
+	if ( ( role as { prompt?: unknown } ).prompt !== undefined ) {
+		errors.push(
+			"roles.judge.prompt was removed — move the judge manual into the library's README.md and set roles.judge.library"
+		);
+	}
+	if (
+		role.library !== undefined &&
+		( typeof role.library !== 'string' || role.library.length === 0 )
+	) {
+		errors.push( 'roles.judge.library must be a non-empty string' );
+	}
+	validateJudgeConcurrency( role, errors );
+}
+
+/**
+ * Permissively validate the judge role's optional `concurrency` knob: an
+ * absent value is accepted (it defaults to `'parallel'` at normalization),
+ * and only an explicit value outside {@link VALID_JUDGE_CONCURRENCY} is
+ * rejected. The string-shorthand judge role carries no concurrency, so it
+ * is always accepted.
+ *
+ * @param role   - The judge role as authored (string or object).
+ * @param errors - The accumulator to push a message onto on rejection.
+ */
+function validateJudgeConcurrency(
+	role: JudgeRoleInput | undefined,
+	errors: string[]
+): void {
+	if ( role === undefined || role === null || typeof role !== 'object' ) {
+		return;
+	}
+	const { concurrency } = role;
+	if (
+		concurrency !== undefined &&
+		! VALID_JUDGE_CONCURRENCY.includes( concurrency )
+	) {
+		errors.push(
+			`roles.judge.concurrency must be one of ${ VALID_JUDGE_CONCURRENCY.map(
+				( c ) => `"${ c }"`
+			).join( ', ' ) }`
+		);
+	}
 }
 
 function validateTestRole(

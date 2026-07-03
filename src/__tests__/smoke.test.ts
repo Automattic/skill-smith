@@ -55,16 +55,11 @@ test( 'smoke run with mock provider produces full reports for every (scenario, a
 		'run log exists'
 	);
 	assert.ok(
-		existsSync( join( iterationDir, 'hello-scenario', 'report.json' ) ),
+		existsSync( join( iterationDir, 'hello', 'report.json' ) ),
 		'scenario report exists'
 	);
 	for ( const id of [ 'haiku', 'sonnet' ] ) {
-		const reportPath = join(
-			iterationDir,
-			'hello-scenario',
-			id,
-			'report.json'
-		);
+		const reportPath = join( iterationDir, 'hello', id, 'report.json' );
 		assert.ok( existsSync( reportPath ), `report.json exists for ${ id }` );
 		const agentReport = JSON.parse(
 			readFileSync( reportPath, 'utf8' )
@@ -77,9 +72,10 @@ test( 'smoke run with mock provider produces full reports for every (scenario, a
 			'PASS',
 			`agent report for ${ id } should classify as a pass: ${ JSON.stringify( agentReport ) }`
 		);
-		assert.ok(
-			review !== undefined && 'rubrics' in review,
-			`agent report for ${ id } keeps the judge's complete review (rubrics): ${ JSON.stringify( agentReport ) }`
+		assert.deepEqual(
+			review,
+			{ pass: true, notes: 'mock' },
+			`agent report for ${ id } persists the judge's { pass, notes } review verbatim: ${ JSON.stringify( agentReport ) }`
 		);
 		const testing = agentReport.testing as
 			| { duration?: unknown; tokenUsage?: Record< string, unknown > }
@@ -93,16 +89,27 @@ test( 'smoke run with mock provider produces full reports for every (scenario, a
 			150,
 			`agent report for ${ id } has testing.tokenUsage.totalTokens`
 		);
-		const ws = join( iterationDir, 'hello-scenario', id, 'workspace' );
+		// The judge phase ran, so `judging` is present with a numeric
+		// duration and (the mock reports usage) a populated tokenUsage.
+		const judging = agentReport.judging as
+			| { duration?: unknown; tokenUsage?: Record< string, unknown > }
+			| undefined;
+		assert.ok(
+			judging !== undefined && typeof judging.duration === 'number',
+			`agent report for ${ id } has judging.duration: ${ JSON.stringify( agentReport ) }`
+		);
+		assert.equal(
+			judging?.tokenUsage?.totalTokens,
+			150,
+			`agent report for ${ id } has judging.tokenUsage.totalTokens`
+		);
+		const ws = join( iterationDir, 'hello', id, 'workspace' );
 		assert.ok( existsSync( ws ), `workspace mkdir'd for ${ id }` );
 	}
 
 	// Metrics propagate up through the scenario and iteration reports.
 	const scenarioReport = JSON.parse(
-		readFileSync(
-			join( iterationDir, 'hello-scenario', 'report.json' ),
-			'utf8'
-		)
+		readFileSync( join( iterationDir, 'hello', 'report.json' ), 'utf8' )
 	) as { agents?: Record< string, { testing?: { duration?: unknown } } > };
 	assert.equal(
 		typeof scenarioReport.agents?.haiku?.testing?.duration,
@@ -124,8 +131,8 @@ test( 'smoke run with mock provider produces full reports for every (scenario, a
 		'iteration report carries number'
 	);
 	assert.equal(
-		typeof iterationReport.scenarios?.[ 'hello-scenario' ]?.agents?.haiku
-			?.testing?.duration,
+		typeof iterationReport.scenarios?.hello?.agents?.haiku?.testing
+			?.duration,
 		'number',
 		'iteration report embeds the agent testing block'
 	);
@@ -163,7 +170,7 @@ test( 'smoke run with mock provider produces full reports for every (scenario, a
 
 	const out = captured.join( '\n' );
 	assert.match( out, /scenario\s+agent\s+result\s+duration\s+tokens/ );
-	assert.match( out, /hello-scenario\s+haiku\s+PASS\s+0\.0s\s+150/ );
+	assert.match( out, /hello\s+haiku\s+PASS\s+0\.0s\s+150/ );
 	assert.match( out, /\bsonnet\s+PASS\s+0\.0s\s+150/ );
 	assert.match( out, /RUN RESULT: PASS/ );
 

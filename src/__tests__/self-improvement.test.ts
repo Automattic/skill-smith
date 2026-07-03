@@ -8,7 +8,6 @@ const PATHS = {
 	base: './.skillsmith',
 	skills: './skills',
 	scenarios: './eval/scenarios',
-	rubrics: './eval/rubrics',
 };
 
 function baseInput(
@@ -48,7 +47,10 @@ function baseConfig(
 		},
 		roles: {
 			test: { agents: [ { id: 't', provider: 'mock', model: 'm' } ] },
-			judge: { agent: { id: 'j', provider: 'mock', model: 'm' } },
+			judge: {
+				agent: { id: 'j', provider: 'mock', model: 'm' },
+				concurrency: 'parallel',
+			},
 			improver: { agent: { id: 'i', provider: 'mock', model: 'm' } },
 		},
 		paths: PATHS,

@@ -19,20 +19,11 @@ import type { InvokeParams, InvokeResult, Provider } from './types';
 const GATE = 'MOCK_GATE';
 const MARKER = 'SKILLSMITH_LOOP_OK';
 
-const PASS_JSON = JSON.stringify( {
-	rubrics: { r1: { pass: true, notes: 'mock' } },
-	acceptance: [ { item: 'mock acceptance', pass: true, notes: 'mock' } ],
-} );
+const PASS_JSON = JSON.stringify( { pass: true, notes: 'mock' } );
 
 const FAIL_JSON = JSON.stringify( {
-	rubrics: { r1: { pass: false, notes: 'skill is missing the marker' } },
-	acceptance: [
-		{
-			item: 'skill carries the marker',
-			pass: false,
-			notes: 'marker absent',
-		},
-	],
+	pass: false,
+	notes: 'skill is missing the marker',
 } );
 
 const MOCK_USAGE = {
@@ -102,16 +93,19 @@ function invokeTesting( params: InvokeParams ): InvokeResult {
 }
 
 function invokeJudge( params: InvokeParams ): InvokeResult {
+	// Report usage on every judge verdict so the `judging.tokenUsage`
+	// block is exercised end-to-end (the agent loop persists it iff the
+	// provider reports usage).
 	// Gated judge: the testing agent's workspace files are inlined into
 	// the user prompt. Fail until the skill edit propagates a pass.
 	if ( params.prompt.includes( 'GATE_FAIL' ) ) {
-		return { finalText: FAIL_JSON, toolUseCount: 0 };
+		return { finalText: FAIL_JSON, toolUseCount: 0, usage: MOCK_USAGE };
 	}
 	if ( params.prompt.includes( 'GATE_PASS' ) ) {
-		return { finalText: PASS_JSON, toolUseCount: 0 };
+		return { finalText: PASS_JSON, toolUseCount: 0, usage: MOCK_USAGE };
 	}
 
-	return { finalText: PASS_JSON, toolUseCount: 0 };
+	return { finalText: PASS_JSON, toolUseCount: 0, usage: MOCK_USAGE };
 }
 
 // Append the success marker to every immediate <dir>/SKILL.md under

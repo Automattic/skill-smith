@@ -129,18 +129,19 @@ RUN RESULT: PASS</pre>
 					<h2>Skills are code paths. They deserve tests.</h2>
 					<p>
 						A skill can look clear in prose and still fail when a model actually tries to use it.
-						Skillsmith makes correctness observable by running realistic scenarios and checking outputs
-						against acceptance criteria and executable validation.
+						Skillsmith makes correctness observable by running realistic scenarios and having a judge
+						verify the result live, against a real environment.
 					</p>
 				</div>
 
 				<div class="card-grid">
 					<article class="card">
 						<div class="icon">▣</div>
-						<h3>Prompt-based scenarios</h3>
+						<h3>Prose-defined scenarios</h3>
 						<p>
-							Each scenario is a realistic request an agent might receive, paired with the skill
-							it should use and the acceptance criteria it must satisfy.
+							Each scenario is two prose files in a folder: a testing brief — the request an
+							agent receives, naming the skill it should use — and a judge brief that says how
+							to verify the result.
 						</p>
 					</article>
 
@@ -155,10 +156,10 @@ RUN RESULT: PASS</pre>
 
 					<article class="card">
 						<div class="icon">✓</div>
-						<h3>Runtime validation</h3>
+						<h3>Live judge verification</h3>
 						<p>
-							Go beyond “the answer sounds right.” Validate the generated artifact in the environment
-							where it is supposed to work.
+							Go beyond “the answer sounds right.” A judge follows your brief to exercise the
+							artifact in a live environment your project owns, and reports what it actually saw.
 						</p>
 					</article>
 				</div>
@@ -175,7 +176,7 @@ RUN RESULT: PASS</pre>
 				<div class="flow">
 					<article class="card">
 						<h3>Define scenarios</h3>
-						<p>Write user-like prompts, attach skills, and specify rubrics and acceptance criteria.</p>
+						<p>Write a testing brief — the user-like prompt and the skills it uses — and a judge brief saying how to verify the result.</p>
 					</article>
 
 					<article class="card">
@@ -184,8 +185,8 @@ RUN RESULT: PASS</pre>
 					</article>
 
 					<article class="card">
-						<h3>Judge and execute</h3>
-						<p>Outputs are reviewed against rubrics and validated with project-specific runtime hooks.</p>
+						<h3>Judge live</h3>
+						<p>A judge follows the judge brief to verify behavior live, using the capabilities your project configures.</p>
 					</article>
 
 					<article class="card">
@@ -216,7 +217,7 @@ RUN RESULT: PASS</pre>
 
 					<article class="card">
 						<h3>Edit the skill</h3>
-						<p>It edits the skill files in place, jailed to the skills directory. The scenarios, rubrics, and harness are never touched.</p>
+						<p>It edits the skill files in place, jailed to the skills directory. The scenarios and harness are never touched.</p>
 					</article>
 
 					<article class="card">
@@ -231,14 +232,15 @@ RUN RESULT: PASS</pre>
 				</div>
 
 				<div class="note-card card">
-					<h3>Validate against the real runtime, not just the rubric</h3>
+					<h3>The judge checks behavior, not just prose</h3>
 					<p>
-						A verification hook lets a project reject any artifact that reads well but breaks for
-						real — a green judge with a broken result still fails the iteration, and the reason is
+						The judge verifies the result live against an environment your project owns, so an
+						artifact that reads well but breaks for real still fails — and the judge's reason is
 						preserved with the evidence and fed back to the repair loop when it runs. The bundled
-						WordPress example uses that hook to build each plugin, boot <code>wp-env</code>, and run
-						Playwright in a real browser. That runtime belongs to the example, not to Skillsmith —
-						your project plugs in whatever “does it actually work?” means for you.
+						WordPress example stands up <code>wp-env</code> and drives a real browser as the judge's
+						environment. That runtime belongs to the example, not to Skillsmith — your project
+						configures the judge's capabilities and plugs in whatever “does it actually work?”
+						means for you.
 					</p>
 				</div>
 			</div>

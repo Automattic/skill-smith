@@ -16,9 +16,16 @@ import {
 	summarizeFailures,
 } from '../reports/verdict';
 import { tryHook } from '../util/hooks';
+import type { SerialMutex } from '../util/mutex';
 import type { RunLog } from '../util/run-log';
-import { runJudgeAgent } from './judge-agent';
+import { judgeCapabilities, runJudgeAgent } from './judge-agent';
+import { prepareJudgeLibrary } from './judge-library';
 import { runTestingAgent } from './testing-agent';
+import {
+	copyWorkspaceForJudge,
+	diffSnapshots,
+	snapshotWorkspace,
+} from './workspace-snapshot';
 
 export interface RunAgentsParams {
 	scenario: Scenario;
@@ -31,6 +38,14 @@ export interface RunAgentsParams {
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
+	/**
+	 * The single run-wide mutex that serializes the judge bracket when
+	 * `config.roles.judge.concurrency === 'serial'`. The pipeline
+	 * constructs exactly one instance per iteration and threads the same
+	 * instance through every scenario's agent loop so the lock spans both
+	 * the scenario and agent fan-outs.
+	 */
+	judgeMutex: SerialMutex;
 	/**
 	 * When present, only testing agents whose ids appear in this list
 	 * run for this scenario. Used by `failed-pairs` mode to re-run only
@@ -59,6 +74,18 @@ interface TestingBlock {
 }
 
 /**
+ * The `judging` block persisted into the per-agent `report.json`. It is
+ * written only when the judge phase ran (see the presence rule at the
+ * write sites); `duration` is wall-clock milliseconds for the judge
+ * bracket, and `tokenUsage` is omitted unless the provider reported
+ * usage on the judge invocation. No field is ever zero-filled.
+ */
+interface JudgingBlock {
+	duration: number;
+	tokenUsage?: TokenUsage;
+}
+
+/**
  * Per-scenario agent loop. Mkdirs each `agentWorkspace`, fires the
  * four agent-scoped hooks, and dispatches testing + judge agents in
  * parallel across testing entries.
@@ -75,6 +102,7 @@ export async function runAgents( params: RunAgentsParams ): Promise< void > {
 		log,
 		tracker,
 		scenarios,
+		judgeMutex,
 		agentIdFilter,
 	} = params;
 
@@ -105,6 +133,7 @@ export async function runAgents( params: RunAgentsParams ): Promise< void > {
 				log,
 				tracker,
 				scenarios,
+				judgeMutex,
 			} )
 		)
 	);
@@ -122,6 +151,8 @@ interface RunAgentPairParams {
 	log: RunLog;
 	tracker: ProgressTracker;
 	scenarios: RunScenario[];
+	/** The shared run-wide judge mutex (see {@link RunAgentsParams.judgeMutex}). */
+	judgeMutex: SerialMutex;
 }
 
 async function runAgentPair( params: RunAgentPairParams ): Promise< void > {
@@ -137,9 +168,11 @@ async function runAgentPair( params: RunAgentPairParams ): Promise< void > {
 		log,
 		tracker,
 		scenarios,
+		judgeMutex,
 	} = params;
 	const agentDirectory = join( scenarioDirectory, agent.id );
 	const agentWorkspace = join( agentDirectory, 'workspace' );
+	const judgeWorkspace = join( agentDirectory, 'judge-workspace' );
 
 	mkdirSync( agentWorkspace, { recursive: true } );
 
@@ -152,6 +185,7 @@ async function runAgentPair( params: RunAgentPairParams ): Promise< void > {
 		scenario,
 		agent,
 		agentWorkspace,
+		judgeWorkspace,
 	};
 
 	const scope = `scenario:${ scenario.name }/agent:${ agent.id }`;
@@ -217,64 +251,196 @@ async function runAgentPair( params: RunAgentPairParams ): Promise< void > {
 			status: 'skipped',
 			detail: 'testing failed',
 		} );
+		// The judge never ran, so no `judging` block is written (the 4th
+		// argument is omitted): there is no judge bracket duration to report.
 		writeAgentReport( agentDirectory, testing, {
 			skipped: `testing failed: ${ testingResult.error }`,
 		} );
 	} else {
-		await tryHook(
-			'beforeJudgeAgent',
-			scope,
-			config.hooks?.beforeJudgeAgent,
-			agentCtx,
-			log
-		);
-
-		tracker.phaseStarted( scenario.name, agent.id, 'judge' );
-		const judgeStart = Date.now();
-		let judgeError: string | undefined;
-		let rawReview: unknown;
+		// Serialize the whole beforeJudgeAgent → judge → afterJudgeAgent
+		// bracket under the run-wide mutex when configured, so no two pairs
+		// grade at once (e.g. a shared, non-reentrant `wp-env start`). In
+		// parallel mode no lock is taken — `release` is a no-op. The lock is
+		// released in `finally` even when the judge or a hook throws.
+		const serial = config.roles.judge.concurrency === 'serial';
+		const release = serial ? await judgeMutex.acquire() : noop;
 		try {
-			rawReview = await runJudgeAgent( {
-				scenario,
-				judge: config.roles.judge.agent,
-				agentDirectory,
-				agentWorkspace,
-				projectRoot,
-				config,
-				log,
-				testingResult,
+			// Run the judge against an isolated copy so it can never mutate
+			// the canonical artifact, and snapshot the canonical workspace
+			// around the phase to detect any mutation that slips through a
+			// hook.
+			copyWorkspaceForJudge( agentWorkspace, judgeWorkspace );
+
+			// Prepare the judge library before `beforeJudgeAgent` fires, so
+			// hooks see the `judge-library/` copy on disk beside the judged
+			// artifact. Preparation happens before the judge phase starts; a
+			// throw here — the collision guard or a copy I/O failure — fails
+			// this pair loudly (recorded as its review), not the run: the
+			// judge invocation is skipped and the mutex is released by the
+			// enclosing `finally`.
+			let librarySection: string | undefined;
+			const libraryPath = config.roles.judge.library;
+			if ( libraryPath !== undefined ) {
+				try {
+					librarySection = prepareJudgeLibrary( {
+						projectRoot,
+						libraryPath,
+						judgeWorkspace,
+						capabilities: judgeCapabilities(
+							config.roles.judge.agent
+						),
+					} )?.text;
+				} catch ( err ) {
+					const msg =
+						err instanceof Error ? err.message : String( err );
+					log.info(
+						`judge library preparation failed (${ scope }): ${ msg } — marking pair FAIL`
+					);
+					tracker.phaseFinished( scenario.name, agent.id, 'judge', {
+						status: 'failed',
+						detail: msg,
+					} );
+					// Library preparation happens before the judge phase
+					// starts (before `judgeStart`), so this failure report
+					// carries no `judging` block — there is no judge bracket
+					// duration to record.
+					writeAgentReport( agentDirectory, testing, {
+						pass: false,
+						error: msg,
+					} );
+					return;
+				}
+			}
+
+			const beforeJudge = snapshotWorkspace( agentWorkspace );
+
+			await tryHook(
+				'beforeJudgeAgent',
+				scope,
+				config.hooks?.beforeJudgeAgent,
+				agentCtx,
+				log
+			);
+
+			tracker.phaseStarted( scenario.name, agent.id, 'judge' );
+			const judgeStart = Date.now();
+			let judgeError: string | undefined;
+			let rawReview: unknown;
+			let judgeUsage: TokenUsage | undefined;
+			try {
+				const judgeResult = await runJudgeAgent( {
+					scenario,
+					judge: config.roles.judge.agent,
+					agentDirectory,
+					judgeWorkspace,
+					projectRoot,
+					log,
+					testingResult,
+					librarySection,
+				} );
+				rawReview = judgeResult.review;
+				judgeUsage = judgeResult.usage;
+			} catch ( err ) {
+				const msg = err instanceof Error ? err.message : String( err );
+				log.info( `judge-agent failed (${ scope }): ${ msg }` );
+				rawReview = { skipped: `judge dispatch failed: ${ msg }` };
+				judgeError = msg;
+			}
+
+			// Diff-guard: a non-empty diff means the judge (or a hook)
+			// mutated the canonical artifact — a guarantee violation. Log it
+			// loudly and force the pair to FAIL rather than silently pass.
+			const afterJudge = snapshotWorkspace( agentWorkspace );
+			const touched = diffSnapshots( beforeJudge, afterJudge );
+			const guardFailure =
+				touched.length > 0
+					? `judge phase mutated the canonical workspace: ${ touched.join(
+							', '
+						) }`
+					: undefined;
+			if ( guardFailure !== undefined ) {
+				log.info(
+					`WARNING: ${ guardFailure } (${ scope }) — marking pair FAIL`
+				);
+			}
+
+			const cell = classifyPairVerdict(
+				judgeError,
+				guardFailure,
+				rawReview
+			);
+			const verdictResult = cellToPhaseResult( cell );
+			// The judge phase ran, so persist a `judging` block carrying the
+			// bracket duration (the same figure the tracker records) and the
+			// provider's token usage when it reported any. This holds on the
+			// dispatch-threw and unparseable paths too — the phase still ran,
+			// so `duration` is present even though `review` carries an error
+			// marker; `tokenUsage` is present only when usage was reported.
+			const judgeDuration = Date.now() - judgeStart;
+			tracker.phaseFinished( scenario.name, agent.id, 'judge', {
+				status: verdictResult.status,
+				durationMs: judgeDuration,
+				detail: verdictResult.detail,
 			} );
-		} catch ( err ) {
-			const msg = err instanceof Error ? err.message : String( err );
-			log.info( `judge-agent failed (${ scope }): ${ msg }` );
-			rawReview = { skipped: `judge dispatch failed: ${ msg }` };
-			judgeError = msg;
+
+			const judging: JudgingBlock = { duration: judgeDuration };
+			if ( judgeUsage !== undefined ) {
+				judging.tokenUsage = judgeUsage;
+			}
+
+			// Persist the judge's complete review (every rubric / acceptance
+			// item with its pass flag and notes) so a human or the improver
+			// can read the full picture. The collapsed `verdict` above is
+			// only used to drive the live dashboard. When the diff-guard
+			// tripped, the review is overwritten with the violation so the
+			// stored verdict and the live verdict agree.
+			writeAgentReport(
+				agentDirectory,
+				testing,
+				guardFailure !== undefined
+					? { pass: false, error: guardFailure }
+					: rawReview,
+				judging
+			);
+
+			await tryHook(
+				'afterJudgeAgent',
+				scope,
+				config.hooks?.afterJudgeAgent,
+				agentCtx,
+				log
+			);
+		} finally {
+			release();
 		}
-		const cell: Cell =
-			judgeError !== undefined
-				? { kind: 'FAIL', failures: [ judgeError ] }
-				: classifyVerdict( rawReview );
-		const verdictResult = cellToPhaseResult( cell );
-		tracker.phaseFinished( scenario.name, agent.id, 'judge', {
-			status: verdictResult.status,
-			durationMs: Date.now() - judgeStart,
-			detail: verdictResult.detail,
-		} );
-
-		// Persist the judge's complete review (every rubric / acceptance
-		// item with its pass flag and notes) so a human or the improver
-		// can read the full picture. The collapsed `verdict` above is only
-		// used to drive the live dashboard.
-		writeAgentReport( agentDirectory, testing, rawReview );
-
-		await tryHook(
-			'afterJudgeAgent',
-			scope,
-			config.hooks?.afterJudgeAgent,
-			agentCtx,
-			log
-		);
 	}
+}
+
+/** No-op release used when the judge bracket runs without a lock. */
+function noop(): void {}
+
+/**
+ * Collapse the judge phase into a single {@link Cell}. A dispatch error or
+ * a diff-guard violation forces a FAIL (the guard failure is reported in
+ * addition to any judge error); otherwise the judge's parsed verdict is
+ * classified as-is.
+ *
+ * @param judgeError   - The judge dispatch error, if the judge threw.
+ * @param guardFailure - The diff-guard message, if the canonical
+ *   workspace was mutated during the judge phase.
+ * @param rawReview    - The judge's parsed review payload.
+ * @returns The collapsed pass/fail/skipped cell for the pair.
+ */
+function classifyPairVerdict(
+	judgeError: string | undefined,
+	guardFailure: string | undefined,
+	rawReview: unknown
+): Cell {
+	const failures: string[] = [];
+	if ( judgeError !== undefined ) failures.push( judgeError );
+	if ( guardFailure !== undefined ) failures.push( guardFailure );
+	if ( failures.length > 0 ) return { kind: 'FAIL', failures };
+	return classifyVerdict( rawReview );
 }
 
 function cellToPhaseResult( cell: Cell ): {
@@ -289,20 +455,38 @@ function cellToPhaseResult( cell: Cell ): {
 }
 
 /**
- * Single writer of the per-agent `report.json`. Pairs the `testing`
- * block (always present) with the judge's `review` verbatim — the
- * complete set of rubrics and acceptance items with their pass flags
- * and notes — so reports stay fully informative. Testing/dispatch
- * failures persist a `{ skipped }` marker in place of the review.
+ * Single writer of the per-agent `report.json`, writing the keys in the
+ * order `{ testing, judging, review }`. Pairs the `testing` block
+ * (always present) with the judge's `review` verbatim — the complete set
+ * of rubrics and acceptance items with their pass flags and notes — so
+ * reports stay fully informative. Testing/dispatch failures persist a
+ * `{ skipped }` marker in place of the review.
+ *
+ * The `judging` block is written only when the judge phase ran: it is
+ * omitted when `judging` is `undefined`, which is the case both when
+ * testing failed (the judge never starts) and when library preparation
+ * failed before the judge phase started.
+ *
+ * @param agentDirectory - The per-agent directory the report is written into.
+ * @param testing        - The testing block, always present.
+ * @param review         - The judge's review payload (or a `{ skipped }` /
+ *   error marker on the failure paths).
+ * @param judging        - The judging block, or `undefined` to omit it
+ *   because the judge phase did not run.
  */
 function writeAgentReport(
 	agentDirectory: string,
 	testing: TestingBlock,
-	review: unknown
+	review: unknown,
+	judging?: JudgingBlock
 ): void {
 	mkdirSync( agentDirectory, { recursive: true } );
+	const body =
+		judging === undefined
+			? { testing, review }
+			: { testing, judging, review };
 	writeFileSync(
 		join( agentDirectory, 'report.json' ),
-		`${ JSON.stringify( { testing, review }, null, 2 ) }\n`
+		`${ JSON.stringify( body, null, 2 ) }\n`
 	);
 }

@@ -4,5 +4,4 @@ export const DEFAULT_PATHS: Paths = {
 	base: './.skillsmith',
 	skills: './skills',
 	scenarios: './eval/scenarios',
-	rubrics: './eval/rubrics',
 };

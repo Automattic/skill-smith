@@ -1,9 +1,0 @@
-name: bad-scenario
-description: A bad scenario.
-skills:
-  - missing-skill
-prompt: |
-  do the thing
-acceptance: []
-rubrics:
-  - missing-rubric

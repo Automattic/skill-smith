@@ -1,0 +1,29 @@
+# Code Plan Review
+
+## Verdict: rejected
+
+## Summary
+
+The plan is strong and largely accurate: every spec requirement (1–14) and acceptance criterion (1–9) maps to at least one task; all six branch-verified guard-test flips are present (core-types → Task 2, check-paths → Task 9, e2e-removal → Task 11, smoke-fixture `afterAllScenarios` → Task 8, judge-agent `!/rubric/i` → Task 7, testing-project-scenarios + `_candidates.yaml` → Task 15); Track A mirrors the skills path faithfully; Track B's env-once + judge-driven setup is decomposed correctly; and I spot-verified the referenced files, symbols, and line ranges against `src/` and `testing-project/` — they exist and behave as the tasks assume. The fixed gate runners all resolve and terminate (`typecheck`, `validate-changesets`, `npm test` 313 pass / 0 fail), and the `Guardrail scopes` `None | None` row is the correct rendering since no scoped gate was passed. Two substantive problems block approval: a broken-ordering defect where the `npm test` gate goes red across Tasks 4–7 (the plan's own overview says the fix must land in the same task that triggers it, but the task list splits them), and a changeset that, as amended by Task 18, would internally contradict itself.
+
+## Issues
+
+### Issue 1: The `npm test` gate is red from Task 4 through Task 7 — the smoke-fixture flip (Task 8) lands too late
+
+**What's wrong:** Task 4 makes `scenarioFromBriefs`/`stubScenario` populate `Scenario.rubrics`. The smoke fixture at `src/__tests__/fixtures/smoke-project/skillsmith.config.ts` has an `afterAllScenarios` hook that iterates `['description','prompt','acceptance','rubrics']` and throws `Scenario must not carry the removed field "rubrics"` if any appears in `scenario.scenario`. That fixture is driven by a **real `run()`** in `smoke.test.ts` (verified: `smoke.test.ts:23` calls `run({ cwd: projectRoot })` and asserts `exitCode === 0`). So the moment Task 4 commits, every enumerated scenario carries `rubrics`, the hook throws, the run exits non-zero, `smoke.test.ts` fails, and the fixed `npm test` gate is **red**. Task 8 (which drops `'rubrics'` from that removed-field list) is the fix, and it correctly declares `Depends on: Task 4` — but it sits four tasks later in the sequence. Tasks 4, 5, 6, and 7 are all ordered before Task 8, so a code-writer running the fixed gates after each of those four tasks (each is `tdd`, so it runs the full suite) cannot get `npm test` green. The plan's own Overview states the constraint explicitly — "one of them throws inside the real `npm test` smoke run, so it must be updated **in the same task** that populates `Scenario.rubrics`" — but the task breakdown then splits the population (Task 4) from the fixture flip (Task 8), directly contradicting that sentence. Neither Task 4's nor Tasks 5–7's acceptance criteria mention the smoke run, so the red gate is invisible to their per-task acceptance.
+
+**Where in plan:** Task 4 (`Files to change: src/scenarios/enumerate.ts`), Task 8 (`Files to change: …/smoke-project/skillsmith.config.ts`), and the Overview paragraph; the ordering Tasks 4 → 5 → 6 → 7 → 8.
+
+**Suggestion:** Either (a) fold the smoke-fixture flip (Task 8's change) into Task 4 so the field is populated and the fixture stops throwing in one commit, as the Overview already prescribes — adding the fixture file to Task 4's `Files to change` and a "the `smoke.test.ts` run stays green under `npm test`" line to Task 4's acceptance; or (b) reorder so the smoke-fixture flip immediately follows Task 4 and is the very next commit, and add an explicit acceptance criterion to whichever task first populates `rubrics` that `npm test` (including `smoke.test.ts`) passes at that commit. Option (a) matches the plan's own stated intent.
+
+**Why it matters:** The plan lists `npm test` as a fixed gate every task must satisfy on the shared branch. An ordering that leaves the gate red across four committed tasks means those tasks cannot be individually verified or safely committed, defeating the per-task green-gate contract and the plan's own ordering rationale.
+
+### Issue 2: Task 18's changeset amendment leaves a self-contradiction ("Scenario … drops … rubrics") standing
+
+**What's wrong:** The existing `.changeset/flexible-scenarios-judge-verification.md` body states: *"The `Scenario` type drops `description`, `prompt`, `acceptance`, and `rubrics`, and the `Paths` type drops `paths.rubrics`."* Task 18 amends only the **`Paths`** clause (to "drops then restores `paths.rubrics` as optional") and adds a rubrics-by-id note. It does not touch the **`Scenario`** clause, which still asserts that `Scenario` drops `rubrics`. After Task 1 restores `Scenario.rubrics?: string[]`, that clause is false, and it directly contradicts the new rubrics-by-id note Task 18 adds in the same file. Spec Requirement 13 and the design's "Extend the existing changeset" decision both require the changeset to extend/update the base entry "rather than contradicting it" — an internal contradiction in the same file violates that.
+
+**Where in plan:** Task 18 → Changes (only the `Paths`-drops sentence is amended) and Acceptance (only requires the `paths.rubrics` restore wording + rubrics-by-id note).
+
+**Suggestion:** Extend Task 18 to also correct the `Scenario`-drops clause so it no longer claims `rubrics` is dropped (e.g. "drops `description`, `prompt`, `acceptance`; `Scenario` regains an optional `rubrics` id list"), and add an acceptance line asserting the changeset does not still state that `Scenario` drops `rubrics`.
+
+**Why it matters:** The changeset is the release-facing record of this breaking change; leaving a clause that says the field is removed while the same file documents reusable rubrics-by-id is exactly the "contradicting" outcome Requirement 13 forbids, and a reader/automation can't reconcile the two statements.

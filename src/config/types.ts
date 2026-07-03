@@ -8,6 +8,20 @@ import type { ProviderId } from '../providers/types';
 export type RunMode = 'test-only' | 'self-improvement';
 
 /**
+ * How the judge phase of the agent loop is scheduled across the
+ * pipeline's scenario and agent fan-outs:
+ *   - `parallel` — every pair's judge bracket may run concurrently
+ *     (the default; today's behavior).
+ *   - `serial` — a single run-wide lock serializes the
+ *     `beforeJudgeAgent` → judge → `afterJudgeAgent` bracket so no two
+ *     pairs grade at once (e.g. when each grade boots a shared,
+ *     non-reentrant environment such as `wp-env start`).
+ *
+ * Set on the judge role via `roles.judge.concurrency`.
+ */
+export type JudgeConcurrency = 'serial' | 'parallel';
+
+/**
  * How a subsequent iteration narrows what to re-evaluate based on the
  * previous iteration's report:
  *   - `failed-pairs` — only the exact (scenario, agent) pairs that failed.
@@ -17,14 +31,42 @@ export type RunMode = 'test-only' | 'self-improvement';
 export type EvaluationScope = 'failed-pairs' | 'failed-scenarios' | 'all';
 
 /**
+ * Configuration for one stdio MCP server, mirroring the minimal stdio shape
+ * the Claude Agent SDK accepts. Referenced by both {@link AgentDefinitionInput}
+ * and {@link JudgeCapabilities} so projects can declare MCP servers for an
+ * agent or for the judge.
+ *
+ * @example
+ * { command: 'node', args: [ 'mcp-server.js' ], env: { TOKEN: 'abc' } }
+ */
+export interface McpServerConfig {
+	/** Executable to launch for the server's stdio transport. */
+	command: string;
+	/** Arguments passed to {@link McpServerConfig.command}. */
+	args?: string[];
+	/** Environment variables set on the spawned server process. */
+	env?: Record< string, string >;
+}
+
+/**
  * One agent as the user writes it in `agents`. The id comes from the map
- * key, so there is no `id` field here. Extra keys (e.g. `effort`,
- * `temperature`) flow through to whichever provider the harness dispatches
- * to.
+ * key, so there is no `id` field here. The typed optional fields
+ * (`tools`, `mcpServers`, `allowWrite`, `network`) give projects editor
+ * completion for the common knobs, while the open index signature still
+ * lets extra keys (e.g. `effort`, `temperature`) flow through to whichever
+ * provider the harness dispatches to.
  */
 export interface AgentDefinitionInput {
 	provider: ProviderId;
 	model: string;
+	/** Tool names the agent is allowed to use. */
+	tools?: string[];
+	/** MCP servers made available to the agent, keyed by server name. */
+	mcpServers?: Record< string, McpServerConfig >;
+	/** Whether the agent may write to its workspace. */
+	allowWrite?: boolean;
+	/** Whether the agent may access the network. */
+	network?: boolean;
 	[ key: string ]: unknown;
 }
 
@@ -49,7 +91,7 @@ export interface AgentDefinition {
  */
 export interface RolesInput {
 	test: TestRoleInput;
-	judge: SingleRoleInput;
+	judge: JudgeRoleInput;
 	improver: SingleRoleInput;
 }
 
@@ -58,7 +100,28 @@ export interface TestRoleInput {
 	prompt?: string;
 }
 
+/**
+ * A single-agent role as the user writes it: either a bare agent-id
+ * string or an object naming the agent and an optional `prompt`. Used by
+ * the improver role; the judge role has its own input shape (see
+ * {@link JudgeRoleInput}).
+ */
 export type SingleRoleInput = string | { agent: string; prompt?: string };
+
+/**
+ * The judge role as the user writes it: either a bare agent-id string or
+ * an object naming the agent plus the judge-specific knobs:
+ *   - `library` — a project-relative directory of grading material
+ *     supplied to every judge. Its `README.md` is inlined into the judge
+ *     system prompt as the reusable environment manual, and the whole
+ *     directory is copied per (scenario, agent) pair to `judge-library/`
+ *     inside the judge's working directory; briefs name items by relative
+ *     path (e.g. `judge-library/rubrics/<id>.md`).
+ *   - `concurrency` — see {@link JudgeConcurrency}.
+ */
+export type JudgeRoleInput =
+	| string
+	| { agent: string; library?: string; concurrency?: JudgeConcurrency };
 
 /**
  * The normalized form the harness uses internally. String shorthands are
@@ -68,7 +131,22 @@ export type SingleRoleInput = string | { agent: string; prompt?: string };
  */
 export interface NormalizedRoles {
 	test: { agents: AgentDefinition[]; prompt?: string };
-	judge: { agent: AgentDefinition; prompt?: string };
+	/**
+	 * The judge role. `concurrency` is always present after normalization,
+	 * defaulting to `'parallel'` when the user omits it; the agent loop
+	 * reads it to decide whether to serialize the judge bracket.
+	 */
+	judge: {
+		agent: AgentDefinition;
+		/**
+		 * Project-relative path of the judge library directory, carried
+		 * through from `roles.judge.library`. Present only when the project
+		 * configured one; when set, the agent loop prepares the library per
+		 * pair (disk copy plus prompt section) before the judge runs.
+		 */
+		library?: string;
+		concurrency: JudgeConcurrency;
+	};
 	improver: { agent: AgentDefinition; prompt?: string };
 }
 
@@ -88,7 +166,6 @@ export interface Paths {
 	base: string;
 	skills: string;
 	scenarios: string;
-	rubrics: string;
 }
 
 /**
@@ -120,13 +197,21 @@ export interface SkillsmithConfig {
 	selfImprovement?: SelfImprovementConfig;
 }
 
+/**
+ * One scenario as authored on disk under `config.paths.scenarios`. A scenario
+ * is described by two files: a testing brief (the task handed to the test
+ * agents) and a judge brief (the criteria handed to the judge). The harness
+ * loads both into this record.
+ */
 export interface Scenario {
+	/** Display and reporting name for the scenario. */
 	name: string;
-	description: string;
+	/** Skill ids the scenario exercises. */
 	skills: string[];
-	prompt: string;
-	acceptance: string[];
-	rubrics: string[];
+	/** Brief handed to the test agents describing the task to perform. */
+	testingBrief: string;
+	/** Brief handed to the judge describing how to grade the artifact. */
+	judgeBrief: string;
 	[ key: string ]: unknown;
 }
 
@@ -166,14 +251,9 @@ export interface RunScenario {
 	 */
 	id: string;
 	/**
-	 * Compatibility alias for `id`. This value must always equal `id`, including
-	 * when the source directory is nested.
-	 *
-	 * @example "counter"
-	 * @example "blocks/counter"
+	 * Parsed scenario definition, loaded from the scenario's two-file
+	 * representation on disk: a testing brief and a judge brief.
 	 */
-	dirName: string;
-	/** Parsed scenario definition loaded from `scenario.yaml`. */
 	scenario: Scenario;
 }
 
@@ -183,7 +263,20 @@ export interface ScenarioContext extends RunContext {
 
 export interface AgentContext extends ScenarioContext {
 	agent: AgentDefinition;
+	/**
+	 * The canonical workspace the testing agent wrote into, at
+	 * `<agent-dir>/workspace`. This is the artifact of record; the
+	 * diff-guard fails the pair if anything mutates it during the judge
+	 * phase.
+	 */
 	agentWorkspace: string;
+	/**
+	 * The isolated copy the judge runs against, at
+	 * `<agent-dir>/judge-workspace`. Exposed so the `beforeJudgeAgent` /
+	 * `afterJudgeAgent` hooks can build and tear down the judge's
+	 * environment from the copy rather than the canonical workspace.
+	 */
+	judgeWorkspace: string;
 }
 
 /**

@@ -7,15 +7,11 @@ import type { EnumeratedScenario } from '../scenarios/enumerate';
 function scenario( name: string ): EnumeratedScenario {
 	return {
 		id: name,
-		dirName: name,
-		nameSource: 'configured',
 		scenario: {
 			name,
-			description: '',
 			skills: [],
-			prompt: '',
-			acceptance: [],
-			rubrics: [],
+			testingBrief: '',
+			judgeBrief: '',
 		},
 	};
 }
@@ -124,7 +120,7 @@ test( 'failed-pairs narrows to the exact failing agents per scenario', () => {
 test( 'scenarios with enumeration errors are always re-included', () => {
 	const broken: EnumeratedScenario = {
 		...scenario( 'broken' ),
-		error: 'scenario.yaml malformed',
+		error: 'missing required file: JUDGE.md',
 	};
 	const reports: Record< string, ScenarioReport | { error: string } > = {
 		counter: {
@@ -132,7 +128,7 @@ test( 'scenarios with enumeration errors are always re-included', () => {
 			pass: true,
 			agents: pass( [ 'haiku' ] ),
 		},
-		broken: { error: 'scenario.yaml malformed' },
+		broken: { error: 'missing required file: JUDGE.md' },
 	};
 	const sel = selectScenarios(
 		2,

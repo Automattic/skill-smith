@@ -1,10 +1,28 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const BLOCK_NAME = 'skillsmith/testing-block';
+// Non-binding placeholder name for the starter block. The agent is free to
+// rename or restructure the block(s); the judge discovers block names from the
+// built `block.json`, so nothing pins this value. The plugin *slug* (below)
+// stays deterministic and must not be renamed.
+const STARTER_BLOCK_NAME = 'example/starter-block';
 const SLUG_PATTERN = /^[a-z0-9-]+$/;
 
-function pluginSlug( scenarioName: string, agentId: string ): string {
+/**
+ * Derive the unique plugin slug for one (scenario, agent) pair:
+ * `plugin-<scenarioName>-<agentId>`. The slug is the directory name the
+ * scaffold writes under the agent workspace and is reused by the judge-env
+ * helper to locate that plugin inside the judge copy, so both sides agree
+ * on the path without hard-coding it.
+ *
+ * @param scenarioName - Slug-safe scenario name (`[a-z0-9-]+`).
+ * @param agentId - Slug-safe agent id (`[a-z0-9-]+`).
+ * @returns The plugin directory slug.
+ * @throws If either argument is not slug-safe.
+ * @example
+ * pluginSlug( 'counter', 'haiku' ); // 'plugin-counter-haiku'
+ */
+export function pluginSlug( scenarioName: string, agentId: string ): string {
 	if ( ! SLUG_PATTERN.test( scenarioName ) ) {
 		throw new Error(
 			`scenario name must match ${ SLUG_PATTERN }, got: ${ JSON.stringify( scenarioName ) }`
@@ -22,7 +40,7 @@ function pluginIndexPhp( pluginSlug: string ): string {
 	return `<?php
 /**
  * Plugin Name: ${ pluginSlug }
- * Description: Auto-scaffolded by skillsmith. Plugin slug is preserved across the run — do not rename.
+ * Description: Auto-scaffolded by skillsmith. The plugin slug is preserved across the run — do not rename the slug. Blocks may be freely named, restructured, or added; this file registers any built block directory by globbing.
  * Version:     0.1.0
  * License:     GPL-3.0
  */
@@ -59,8 +77,8 @@ function blockJson(): string {
 		{
 			$schema: 'https://schemas.wp.org/trunk/block.json',
 			apiVersion: 3,
-			name: BLOCK_NAME,
-			title: 'Testing Block',
+			name: STARTER_BLOCK_NAME,
+			title: 'Starter Block',
 			category: 'widgets',
 			// Add this manually until we improve WordPress skills.
 			render: 'file:./render.php',
@@ -73,8 +91,10 @@ function blockJson(): string {
 /**
  * Scaffold the WordPress plugin a testing agent implements against,
  * under `<agentWorkspace>/<slug>/`. The plugin slug stays unique per
- * (scenario, agent) so the e2e run can activate each independently; the
- * block name is fixed because the e2e specs reference it directly.
+ * (scenario, agent) so `installPluginForPair` can activate each pair's
+ * plugin independently. The starter block ships a non-binding placeholder
+ * name the agent may rename, restructure, or replace; the judge discovers
+ * block names from the built `block.json`, so nothing pins the starter name.
  */
 export function scaffoldPlugin(
 	agentWorkspace: string,

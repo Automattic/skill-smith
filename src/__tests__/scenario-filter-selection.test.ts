@@ -5,24 +5,17 @@ import type { EnumeratedScenario } from '../scenarios/enumerate';
 import {
 	normalizeScenarioFilters,
 	selectScenariosByFilters,
-	validateConfiguredScenarioNamesAreUnique,
 } from '../scenarios/selection';
 import { UserFacingError } from '../util/errors';
 
-function enumerated(
-	id: string,
-	name = id,
-	nameSource: EnumeratedScenario[ 'nameSource' ] = 'configured'
-): EnumeratedScenario {
+function enumerated( id: string ): EnumeratedScenario {
 	const scenario: Scenario = {
-		name,
-		description: '',
+		name: id,
 		skills: [],
-		prompt: '',
-		acceptance: [],
-		rubrics: [],
+		testingBrief: '',
+		judgeBrief: '',
 	};
-	return { id, dirName: id, scenario, nameSource };
+	return { id, scenario };
 }
 
 function ids( scenarios: EnumeratedScenario[] ): string[] {
@@ -97,6 +90,18 @@ test( 'selects root, exact ids, and segment-aware folders in deterministic id or
 	);
 } );
 
+test( 'selects both nested sibling leaf scenarios with distinct ids', () => {
+	const scenarios = [
+		enumerated( 'blocks/counter' ),
+		enumerated( 'blocks-old/counter' ),
+	];
+
+	assert.deepEqual( ids( selectScenariosByFilters( scenarios, undefined ) ), [
+		'blocks-old/counter',
+		'blocks/counter',
+	] );
+} );
+
 test( 'preserves first matching filter order while de-duping overlapping selections', () => {
 	const scenarios = [
 		enumerated( 'blocks/zebra' ),
@@ -117,9 +122,9 @@ test( 'preserves first matching filter order while de-duping overlapping selecti
 	);
 } );
 
-test( 'unknown filters list available ids and do not match scenario names', () => {
+test( 'unknown filters list available ids', () => {
 	const scenarios = [
-		enumerated( 'counter', 'Counter' ),
+		enumerated( 'counter' ),
 		enumerated( 'blocks/button' ),
 	];
 
@@ -136,28 +141,5 @@ test( 'unknown filters list available ids and do not match scenario names', () =
 		( error: unknown ) =>
 			error instanceof UserFacingError &&
 			error.message.startsWith( 'Unknown scenarios: missing, absent' )
-	);
-} );
-
-test( 'duplicate configured scenario names fail with conflicting ids', () => {
-	const scenarios = [
-		enumerated( 'valid/counter', 'Counter', 'configured' ),
-		enumerated( 'broken/reference', 'Counter', 'configured' ),
-		enumerated( 'malformed/stub', 'Counter', 'synthetic' ),
-	];
-
-	assert.throws(
-		() => validateConfiguredScenarioNamesAreUnique( scenarios ),
-		( error: unknown ) =>
-			error instanceof UserFacingError &&
-			error.message ===
-				'Duplicate scenario.name "Counter" configured by:\n- broken/reference\n- valid/counter'
-	);
-
-	assert.doesNotThrow( () =>
-		validateConfiguredScenarioNamesAreUnique( [
-			enumerated( 'valid/counter', 'Counter', 'configured' ),
-			enumerated( 'malformed/stub', 'Counter', 'synthetic' ),
-		] )
 	);
 } );

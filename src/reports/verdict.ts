@@ -44,6 +44,9 @@ export function classifyVerdict( raw: unknown ): Cell {
 				);
 			}
 		}
+		if ( typeof v.notes === 'string' && v.notes.length > 0 ) {
+			failures.push( v.notes );
+		}
 		if ( failures.length === 0 )
 			failures.push( 'verdict failed without detail' );
 		return { kind: 'FAIL', failures };

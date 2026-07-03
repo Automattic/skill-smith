@@ -1,0 +1,1 @@
+Pass deterministic mock outputs.

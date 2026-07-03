@@ -40,7 +40,7 @@ export default defineConfig( {
 		},
 		afterAll( { scenarios } ) {
 			record(
-				`afterAllScenarios:${ scenarios.map( ( { dirName } ) => dirName ).join( ',' ) }`
+				`afterAllScenarios:${ scenarios.map( ( { id } ) => id ).join( ',' ) }`
 			);
 			record(
 				`afterAllScenarioIds:${ scenarios.map( ( { id } ) => id ).join( ',' ) }`
