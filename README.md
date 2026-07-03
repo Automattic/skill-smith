@@ -197,6 +197,8 @@ Note there is no verdict-rule line at the top of the brief and no restatement of
 
 The reference WordPress project splits the work along that boundary. It boots a single `wp-env` **once per run** in `beforeAllScenarios`, keeps it warm across every pair, and stops it in `afterAllScenarios` — not a boot-and-teardown per pair. Per pair, `beforeJudgeAgent` builds the produced plugin from `judgeWorkspace`, installs it into that one running environment, and guarantees a clean slate (only this pair's plugin active) before the judge runs; `afterJudgeAgent` removes the pair's plugin and leaves the environment up for the next pair. The harness keeps only the deterministic infrastructure — boot, build, install, the clean-slate guarantee, and a reliable bridge for the judge to reach the environment. The behavioral setup itself — discovering and inserting the produced block(s), opening the page, and checking — is the judge's, driven live from the plain-language `JUDGE.md` brief, so the harness does not pre-create a post or hand the judge a fixed URL.
 
+If a run dies before `afterAllScenarios` runs, that warm `wp-env` stays up. Stop it manually with `npx wp-env stop` from the reference project's root (`testing-project/`).
+
 Each provider translates the judge agent's capabilities to its native tool surface; an api/text provider degrades to read-only local-fs, so live judging is intended for the `claude-code` and `codex` providers. With Bash or a write-capable sandbox the judge could in principle write files — the no-modify guarantee rests on the copied workspace (above), not on the tool surface.
 
 **`roles.judge.concurrency`** controls how the judge phase is scheduled across the scenario and agent fan-outs:
