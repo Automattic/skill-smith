@@ -24,18 +24,13 @@ export default defineConfig( {
 			if ( scenario.id !== 'hello' ) {
 				throw new Error( `expected scenario.id, got ${ scenario.id }` );
 			}
-			if ( scenario.dirName !== scenario.id ) {
-				throw new Error(
-					'expected scenario.dirName to match scenario.id'
-				);
-			}
-			// The public RunScenario hook surface is exactly { id, dirName,
-			// scenario }. It must not leak the enumeration-only `nameSource`
-			// flag.
+			// The public RunScenario hook surface is exactly { id, scenario }.
+			// It must not leak the enumeration-only `nameSource` flag or any
+			// removed directory-name alias.
 			const keys = Object.keys( scenario ).sort();
-			if ( keys.join( ',' ) !== 'dirName,id,scenario' ) {
+			if ( keys.join( ',' ) !== 'id,scenario' ) {
 				throw new Error(
-					`RunScenario must expose only id, dirName, scenario; got ${ keys.join(
+					`RunScenario must expose only id, scenario; got ${ keys.join(
 						', '
 					) }`
 				);

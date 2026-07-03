@@ -15,7 +15,7 @@ function enumerated( id: string ): EnumeratedScenario {
 		testingBrief: '',
 		judgeBrief: '',
 	};
-	return { id, dirName: id, scenario };
+	return { id, scenario };
 }
 
 function ids( scenarios: EnumeratedScenario[] ): string[] {

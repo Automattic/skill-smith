@@ -251,14 +251,6 @@ export interface RunScenario {
 	 */
 	id: string;
 	/**
-	 * Compatibility alias for `id`. This value must always equal `id`, including
-	 * when the source directory is nested.
-	 *
-	 * @example "counter"
-	 * @example "blocks/counter"
-	 */
-	dirName: string;
-	/**
 	 * Parsed scenario definition, loaded from the scenario's two-file
 	 * representation on disk: a testing brief and a judge brief.
 	 */

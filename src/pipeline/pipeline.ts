@@ -57,7 +57,6 @@ export interface PipelineParams {
 
 export interface ScenarioRunRecord {
 	scenarioName: string;
-	dirName: string;
 	scenarioDirectory: string;
 	error?: string;
 }
@@ -100,9 +99,8 @@ export async function runPipeline( params: PipelineParams ): Promise< number > {
 
 	const iterations: IterationInfo[] = [];
 	const runScenarios: RunScenario[] = allScenarios.map(
-		( { id, dirName, scenario } ) => ( {
+		( { id, scenario } ) => ( {
 			id,
-			dirName,
 			scenario,
 		} )
 	);
@@ -553,7 +551,6 @@ async function runScenario(
 
 	return {
 		scenarioName: scenario.name,
-		dirName: enumerated.dirName,
 		scenarioDirectory,
 		error,
 	};

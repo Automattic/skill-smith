@@ -7,7 +7,6 @@ import type { EnumeratedScenario } from '../scenarios/enumerate';
 function scenario( name: string ): EnumeratedScenario {
 	return {
 		id: name,
-		dirName: name,
 		scenario: {
 			name,
 			skills: [],

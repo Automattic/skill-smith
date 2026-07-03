@@ -34,15 +34,15 @@ test( 'scenarios with unresolved refs are flagged but others continue', () => {
 
 	const good = byId.get( 'good' );
 	assert.ok( good, 'good scenario present' );
+	assert.equal( good?.id, 'good' );
 	assert.equal( good?.scenario.name, 'good' );
-	assert.equal( good?.dirName, 'good' );
 	assert.deepEqual( good?.scenario.skills, [ 'foo' ] );
 	assert.equal( good?.error, undefined, 'good scenario has no error' );
 
 	const bad = byId.get( 'bad' );
 	assert.ok( bad, 'bad scenario present' );
+	assert.equal( bad?.id, 'bad' );
 	assert.equal( bad?.scenario.name, 'bad' );
-	assert.equal( bad?.dirName, 'bad' );
 	assert.match( bad?.error ?? '', /unresolved reference/ );
 	assert.match( bad?.error ?? '', /missing-skill/ );
 } );
@@ -235,10 +235,6 @@ test( 'scenario enumeration discovers nested scenarios in deterministic ID order
 			found.map( ( scenario ) => scenario.id ),
 			[ 'blocks', 'blocks/counter', 'counter', 'groups/deeper' ]
 		);
-		assert.deepEqual(
-			found.map( ( scenario ) => scenario.dirName ),
-			found.map( ( scenario ) => scenario.id )
-		);
 		assert.equal(
 			found.find( ( scenario ) => scenario.id === 'groups' ),
 			undefined,
@@ -309,7 +305,6 @@ test( 'compareScenarioIds orders enumerated scenarios lexicographically by id', 
 	const make = ( id: string ): EnumeratedScenario => ( {
 		scenario: { name: id, skills: [], testingBrief: '', judgeBrief: '' },
 		id,
-		dirName: id,
 	} );
 
 	assert.ok(

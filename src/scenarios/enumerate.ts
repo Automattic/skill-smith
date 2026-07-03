@@ -184,8 +184,6 @@ export interface EnumeratedScenario {
 	 * @example "blocks/counter"
 	 */
 	id: string;
-	/** Compatibility alias for `id`. This value must always equal `id`. */
-	dirName: string;
 	/** Enumeration-time validation error, if the scenario cannot run as-is. */
 	error?: string;
 }
@@ -276,7 +274,6 @@ export function enumerateScenarios(
 				out.push( {
 					scenario: stubScenario( id, testingBrief, judgeBrief ),
 					id,
-					dirName: id,
 					error: `missing required file: ${ missingFile }`,
 				} );
 			}
@@ -345,9 +342,9 @@ function scenarioFromBriefs(
 	};
 
 	if ( problems.length === 0 ) {
-		return { scenario, id, dirName: id };
+		return { scenario, id };
 	}
-	return { scenario, id, dirName: id, error: problems.join( '; ' ) };
+	return { scenario, id, error: problems.join( '; ' ) };
 }
 
 /**

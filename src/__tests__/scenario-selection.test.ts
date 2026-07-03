@@ -291,7 +291,7 @@ test( 'API run with a nested folder filter exposes normalized IDs to hooks', asy
 			hookEvents().includes( 'afterAllScenarioIds:z-group/nested' )
 		);
 		assert.ok(
-			hookEvents().includes( 'afterAllScenarioKeys:dirName+id+scenario' )
+			hookEvents().includes( 'afterAllScenarioKeys:id+scenario' )
 		);
 	} finally {
 		removeScenario( 'z-group/nested' );
