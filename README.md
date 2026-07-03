@@ -305,11 +305,14 @@ export default defineConfig({
   roles: {
     // Reference agents by id. Single-agent roles accept a string shorthand.
     test: { agents: ["haiku"], prompt: "be terse and avoid emojis" },
-    // The object form lets you set `concurrency`: "parallel" (default) lets
-    // every pair grade at once; "serial" serializes the whole
-    // beforeJudgeAgent → judge → afterJudgeAgent bracket under a run-wide
-    // lock (use it when each grade boots a shared, non-reentrant env).
-    judge: { agent: "judge", concurrency: "serial" },
+    // The object form lets you set `library` and `concurrency`:
+    //   `library` points at a judge-scoped directory of grading material
+    //   (see The judge library above). `concurrency` is "parallel"
+    //   (default) — every pair grades at once — or "serial", which
+    //   serializes the whole beforeJudgeAgent → judge → afterJudgeAgent
+    //   bracket under a run-wide lock (use it when each grade boots a
+    //   shared, non-reentrant env).
+    judge: { agent: "judge", library: "./eval/judge", concurrency: "serial" },
     // Replace the built-in improver instructions with a project-specific strategy.
     improver: { agent: "opus", prompt: "..." },
   },
@@ -331,9 +334,16 @@ export default defineConfig({
 });
 ```
 
-`paths` defaults to `{ base: "./.skillsmith", skills: "./skills", scenarios: "./eval/scenarios" }`; set any subset to relocate them. `paths.rubrics` is an additional **optional** entry with no default and no existence gate — set it to the directory holding your [reusable rubric](#the-judge-library) files (e.g. `rubrics: "./eval/rubrics"`) and Skillsmith supplies those rubrics to the judge. Leave it unset (or point it at an empty directory) and the judge simply runs with no rubric context and no error; projects that never use rubrics can ignore it entirely.
+`paths` defaults to `{ base: "./.skillsmith", skills: "./skills", scenarios: "./eval/scenarios" }`; set any subset to relocate them. `paths.skills` and `paths.scenarios` must resolve to existing directories or the run fails its start-up check; `paths.base` is created if needed but must be non-empty. Grading material no longer lives under `paths` — it moved to the judge's own [`roles.judge.library`](#the-judge-library) directory (see below).
 
-`roles.test.prompt` and `roles.judge.prompt` are appended to the respective system prompts as a `# Role instructions` section, augmenting the harness-owned structural blocks. The judge's system prompt is the verbatim `JUDGE.md` brief; then the auto-supplied testing task under a `# Testing task` heading (the `TESTING-AGENT.md` content with its `# Skills` section stripped, so the judge stays skill-agnostic); then a minimal `{ pass, notes }` output instruction; then — when `paths.rubrics` is set and holds rubric files — all [loaded rubrics](#the-judge-library) under a `# Grading rubrics` heading; and finally `roles.judge.prompt` appended when set. `roles.improver.prompt` replaces the built-in improver instructions entirely. When `roles.improver.prompt` is not set, the harness uses a minimal built-in instruction ("edit the failing skills in place, minimally, no git").
+`roles.test.prompt` is appended to the testing agent's system prompt as a `# Role instructions` section, augmenting the harness-owned structural blocks. `roles.improver.prompt` replaces the built-in improver instructions entirely; when it is unset, the harness uses a minimal built-in instruction ("edit the failing skills in place, minimally, no git"). The judge role takes no `prompt` — its standing instructions live in the [judge library](#the-judge-library)'s entry `README.md` instead (see the migration note below). The judge's system prompt is assembled in this order, joined by blank lines:
+
+1. the verbatim `JUDGE.md` brief;
+2. the auto-supplied testing task under a `# Testing task` heading (the `TESTING-AGENT.md` content with its `# Skills` section stripped, so the judge stays skill-agnostic);
+3. the output instruction — the strict-JSON `{ pass, notes }` shape, then the harness-owned **decision rule** (a brief that states its own decision rule wins; otherwise pass only if every check the brief asks for, including any rubric check, is satisfied) and the **missing-material failure duty** (if the brief references grading material that was not supplied or cannot be read, return `pass: false` and name the item in `notes`), then the `# Recursion guard`;
+4. the `# Judge library` section, appended last and only when `roles.judge.library` is configured and holds files: the library's entry `README.md` inlined as the environment manual, then the manifest of `judge-library/<path>` items (or every file body inlined, for a judge without file-reading tools), then the instruction to apply only the items the brief names.
+
+The two removed keys are rejected at load time rather than silently ignored: a config that still sets `paths.rubrics` or `roles.judge.prompt` fails validation with a message naming `roles.judge.library` as the replacement (see [Migrating from the old model](#migrating-from-the-old-model)).
 
 See [`examples/skillsmith.config.ts`](./examples/skillsmith.config.ts) for a reference config showing every provider (`claude-code`, `anthropic-api`, `openai-api`, `codex`, `gemini-api`), provider-specific options like `effort`, and the full set of hooks and `selfImprovement` knobs.
 
