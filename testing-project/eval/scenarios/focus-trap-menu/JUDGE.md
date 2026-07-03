@@ -1,5 +1,3 @@
-Judge the produced work against the checks below, using both the produced source files and the live, running site. Pass only if every check, including the rubric check, is satisfied.
-
 ## Code checks
 
 Verify in the produced source files:
@@ -14,7 +12,7 @@ Verify in the produced source files:
 - Focus is returned to the "Menu" button when the drawer closes, and the action's logic for locating that button is scoped to the block instance (e.g. via `getElement().ref` or a reference captured when the drawer opened) rather than relying on a global / document-wide `document.querySelector` lookup that could match unrelated buttons on the page
 - The three drawer links are real anchors (`<a href="#home">`, `<a href="#about">`, `<a href="#contact">`) rendered server-side, not built or injected by `view.js`
 
-As a further code check, verify the produced code against the `wp-interactivity-api-best-practices` rubric.
+As a further code check, verify the produced code against `judge-library/rubrics/wp-interactivity-api-best-practices.md`.
 
 ## Behavior checks
 

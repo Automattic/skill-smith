@@ -1,5 +1,3 @@
-Judge the produced work against the checks below, using both the produced source files and the live, running site. Pass only if every check, including the rubric check, is satisfied.
-
 ## Code checks
 
 Verify in the produced source files:
@@ -10,7 +8,7 @@ Verify in the produced source files:
 - The doubled value in the directive expression references the derived getter directly (e.g. `state.double`), not an inline arithmetic expression like `state.counter * 2` or a duplicated stored field.
 - Server-rendered HTML includes the initial values (1 for the counter and 2 for the doubled value) so both read correctly before JavaScript hydrates.
 
-As a further code check, verify the produced code against the `wp-interactivity-api-best-practices` rubric.
+As a further code check, verify the produced code against `judge-library/rubrics/wp-interactivity-api-best-practices.md`.
 
 ## Behavior checks
 

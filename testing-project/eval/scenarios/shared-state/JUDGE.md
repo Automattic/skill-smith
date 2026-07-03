@@ -1,5 +1,3 @@
-Judge the produced work against the checks below, using both the produced source files and the live, running site. Pass only if every check, including the rubric check, is satisfied.
-
 ## Code checks
 
 Verify in the produced source files:
@@ -11,7 +9,7 @@ Verify in the produced source files:
 - Has a named increment action wired via `data-wp-on--click` on the Increment button
 - The increment action mutates the shared `state.*` counter property (not a `context.*` property)
 
-As a further code check, verify the produced code against the `wp-interactivity-api-best-practices` rubric.
+As a further code check, verify the produced code against `judge-library/rubrics/wp-interactivity-api-best-practices.md`.
 
 ## Behavior checks
 

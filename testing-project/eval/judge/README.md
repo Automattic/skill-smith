@@ -1,6 +1,6 @@
 # Judge environment manual
 
-A live WordPress site is already running with the produced plugin built and activated. Use it to verify the block's real behavior in addition to reading the produced source files.
+A live WordPress site is already running with the produced plugin built and activated. Judge the produced work against both the produced source files and this live, running site: read the source files, and use the site to verify the block's real behavior.
 
 These environment variables are set for you:
 

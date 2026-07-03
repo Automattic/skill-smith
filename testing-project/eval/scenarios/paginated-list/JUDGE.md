@@ -1,5 +1,3 @@
-Judge the produced work against the checks below, using both the produced source files and the live, running site. Pass only if every check, including the rubric check, is satisfied.
-
 ## Code checks
 
 Verify in the produced source files:
@@ -12,7 +10,7 @@ Verify in the produced source files:
 - `render.php` reads `$_GET['pg']` (defaulting to 1 when absent / invalid) and uses it to compute which 3-post slice of the latest-posts query to render, so the correct posts are present in the initial server-rendered HTML
 - `block.json`'s `supports.interactivity` registers the block's view module for router-driven loading — either the boolean `true` shorthand or the explicit object form `{ "interactive": true, "clientNavigation": true }` (the bare `{ "clientNavigation": true }` without `interactive: true` does NOT enable client-side navigation for a block that drives the router)
 
-As a further code check, verify the produced code against the `wp-interactivity-api-best-practices` rubric.
+As a further code check, verify the produced code against `judge-library/rubrics/wp-interactivity-api-best-practices.md`.
 
 ## Behavior checks
 

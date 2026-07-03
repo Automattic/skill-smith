@@ -1,5 +1,3 @@
-Judge the produced work against the checks below, using both the produced source files and the live, running site. Pass only if every check, including the rubric check, is satisfied.
-
 ## Code checks
 
 Verify in the produced source files:
@@ -13,7 +11,7 @@ Verify in the produced source files:
 - The paragraph's text is bound reactively with `data-wp-text` (or equivalent directive) to a single store/context property that holds the title — not assigned via direct DOM writes from `view.js`
 - The server-rendered HTML for the paragraph contains the initial placeholder text "(no post loaded yet)" so the block reads correctly before JS runs
 
-As a further code check, verify the produced code against the `wp-interactivity-api-best-practices` rubric.
+As a further code check, verify the produced code against `judge-library/rubrics/wp-interactivity-api-best-practices.md`.
 
 ## Behavior checks
 

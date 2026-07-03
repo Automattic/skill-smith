@@ -1,5 +1,3 @@
-Judge the produced work against the checks below, using both the produced source files and the live, running site. Pass only if every check, including the rubric check, is satisfied.
-
 ## Code checks
 
 Verify in the produced source files:
@@ -10,7 +8,7 @@ Verify in the produced source files:
 - The `joke` field from the parsed JSON is written into store state or local context after the `yield` resolves; the displayed paragraph is bound reactively (e.g. `data-wp-text`) to that state/context value rather than being mutated via direct DOM writes (`innerText`, `textContent`, `innerHTML`).
 - Server-rendered HTML for the paragraph reflects the initial empty value (the joke state/context is seeded empty on the server via `wp_interactivity_state()` or `wp_interactivity_data_wp_context()`).
 
-As a further code check, verify the produced code against the `wp-interactivity-api-best-practices` rubric.
+As a further code check, verify the produced code against `judge-library/rubrics/wp-interactivity-api-best-practices.md`.
 
 ## Behavior checks
 
